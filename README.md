@@ -1,4 +1,4 @@
-#Classroom Compositor 
+# Classroom Compositor 
 
 A lightweight, browser-based tool for teachers who use multiple screens or smartboards in class.  
 It lets you **layer your camera, screen capture,** and **simple overlays** (text, shapes, images) in real time - similar to OBS, but streamlined for classroom use.
