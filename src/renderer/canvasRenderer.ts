@@ -2,7 +2,7 @@
  * Canvas renderer for drawing scenes and layers.
  */
 
-import type { Scene, Layer } from '../types/scene';
+import type { Scene } from '../types/scene';
 import {
   drawScreenLayer,
   drawCameraLayer,
@@ -31,22 +31,21 @@ export function drawScene(scene: Scene | null, ctx: CanvasRenderingContext2D): v
     return;
   }
 
-  // Fill canvas with dark background (scene background color)
+  // Fill canvas with a visible background (lighter than page background)
   // This ensures we can see the canvas even when there are no layers
-  ctx.fillStyle = '#1a1a1a';
+  ctx.fillStyle = '#2a2a2a';
   ctx.fillRect(0, 0, scene.width, scene.height);
   
-  // Draw a subtle border to show canvas bounds when empty
+  // Draw a visible border to show canvas bounds
+  ctx.strokeStyle = '#4a4a4a';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(2, 2, scene.width - 4, scene.height - 4);
+  
+  // Draw corner markers to show it's working (when empty)
   if (scene.layers.length === 0) {
-    ctx.strokeStyle = '#333333';
+    ctx.strokeStyle = '#666666';
     ctx.lineWidth = 2;
-    ctx.strokeRect(1, 1, scene.width - 2, scene.height - 2);
-    
-    // Draw a subtle grid or corner markers to show it's working
-    ctx.strokeStyle = '#2a2a2a';
-    ctx.lineWidth = 1;
-    // Draw corner markers
-    const markerSize = 20;
+    const markerSize = 30;
     ctx.beginPath();
     // Top-left
     ctx.moveTo(0, markerSize);
@@ -64,6 +63,19 @@ export function drawScene(scene: Scene | null, ctx: CanvasRenderingContext2D): v
     ctx.moveTo(markerSize, scene.height);
     ctx.lineTo(0, scene.height);
     ctx.lineTo(0, scene.height - markerSize);
+    ctx.stroke();
+    
+    // Add center indicator
+    ctx.strokeStyle = '#555555';
+    ctx.lineWidth = 1;
+    const centerX = scene.width / 2;
+    const centerY = scene.height / 2;
+    const crossSize = 20;
+    ctx.beginPath();
+    ctx.moveTo(centerX - crossSize, centerY);
+    ctx.lineTo(centerX + crossSize, centerY);
+    ctx.moveTo(centerX, centerY - crossSize);
+    ctx.lineTo(centerX, centerY + crossSize);
     ctx.stroke();
   }
 

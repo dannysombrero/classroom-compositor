@@ -11,6 +11,7 @@ import {
   captureCanvasStream,
   sendStreamToViewer,
   notifyStreamEnded,
+  setCurrentStream,
   DEFAULT_STREAM_FPS,
   type ViewerMessage,
 } from '../utils/viewerStream';
@@ -51,23 +52,32 @@ export function PresenterPage() {
     // Capture new stream
     const stream = captureCanvasStream(canvas, { fps: DEFAULT_STREAM_FPS });
     if (!stream) {
-      console.error('Failed to capture canvas stream');
+      console.error('Presenter: Failed to capture canvas stream');
       return;
     }
 
+    console.log('Presenter: Captured stream with', stream.getVideoTracks().length, 'video tracks');
     streamRef.current = stream;
+
+    // Store stream globally for viewer to access
+    setCurrentStream(stream);
 
     // Send to viewer window if open
     if (viewerWindowRef.current && !viewerWindowRef.current.closed) {
+      console.log('Presenter: Sending stream to viewer window');
       sendStreamToViewer(viewerWindowRef.current, stream);
+    } else {
+      console.warn('Presenter: No viewer window available to send stream');
     }
 
     // Handle stream ended
     stream.getVideoTracks()[0]?.addEventListener('ended', () => {
+      console.log('Presenter: Stream ended');
       if (viewerWindowRef.current && !viewerWindowRef.current.closed) {
         notifyStreamEnded(viewerWindowRef.current);
       }
       streamRef.current = null;
+      setCurrentStream(null);
     });
   }, []);
 
@@ -120,22 +130,39 @@ export function PresenterPage() {
 
   // Listen for viewer-ready messages (when viewer window loads/reconnects)
   useEffect(() => {
-    const handleMessage = (event: MessageEvent<ViewerMessage>) => {
+    const handleMessage = (event: MessageEvent<ViewerMessage | { type: 'request-stream' }>) => {
       // Only accept messages from same origin
       if (event.origin !== window.location.origin) {
         return;
       }
 
-      if (event.data?.type === 'viewer-ready') {
-        // Viewer is ready, send stream if we have canvas and stream
-        if (canvasRef.current && streamRef.current) {
-          // Stream already exists, resend it
-          if (viewerWindowRef.current && !viewerWindowRef.current.closed) {
-            sendStreamToViewer(viewerWindowRef.current, streamRef.current);
-          }
+      if (event.data?.type === 'request-stream') {
+        console.log('Presenter: Viewer requested stream');
+        // Viewer is requesting the stream, notify that it's available
+        // (we can't send MediaStream via postMessage, so viewer will get it from opener)
+        if (streamRef.current) {
+          console.log('Presenter: Notifying viewer that stream is available');
+          // Just notify - viewer will get stream from opener.currentStream
+          sendStreamToViewer(viewerWindowRef.current!, streamRef.current);
+        } else if (canvasRef.current) {
+          console.log('Presenter: Starting new stream for viewer');
+          startStreaming(canvasRef.current);
+        } else {
+          console.warn('Presenter: No canvas available to create stream');
+        }
+      } else if (event.data?.type === 'viewer-ready') {
+        console.log('Presenter: Received viewer-ready message');
+        // Viewer is ready, start streaming if we don't have a stream yet
+        // If stream exists, viewer will get it from opener.currentStream automatically
+        if (streamRef.current) {
+          console.log('Presenter: Stream already available, viewer will get it from opener');
+          // Don't send notification - viewer already has access via opener.currentStream
         } else if (canvasRef.current) {
           // Start streaming to newly ready viewer
+          console.log('Presenter: Starting new stream for viewer');
           startStreaming(canvasRef.current);
+        } else {
+          console.warn('Presenter: No canvas available to stream');
         }
       }
     };
