@@ -12,6 +12,17 @@ import { requestCurrentStreamFrame, DEFAULT_STREAM_FPS } from '../utils/viewerSt
 interface PresenterCanvasProps {
   /** Whether to fit canvas to container */
   fitToContainer?: boolean;
+  /** Notify layout changes for interaction overlays */
+  onLayoutChange?: (layout: CanvasLayout) => void;
+}
+
+export interface CanvasLayout {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  scaleX: number;
+  scaleY: number;
 }
 
 /**
@@ -21,7 +32,7 @@ interface PresenterCanvasProps {
  * @returns Canvas element with resize logic and render loop
  */
 export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProps>(
-  ({ fitToContainer = true }, ref) => {
+  ({ fitToContainer = true, onLayoutChange }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | null>(null);
@@ -31,6 +42,23 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
     const currentScene = state.getCurrentScene();
     return currentScene;
   });
+
+  const emitLayoutChange = (scaleX: number, scaleY: number) => {
+    if (!onLayoutChange) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    requestAnimationFrame(() => {
+      const rect = canvas.getBoundingClientRect();
+      onLayoutChange({
+        x: rect.left,
+        y: rect.top,
+        width: rect.width,
+        height: rect.height,
+        scaleX,
+        scaleY,
+      });
+    });
+  };
 
   // Update canvas size based on scene dimensions or default
   useEffect(() => {
@@ -64,6 +92,7 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
             const scaleX = defaultWidth / logicalWidth;
             const scaleY = defaultHeight / logicalHeight;
             ctx.setTransform(dpr * scaleX, 0, 0, dpr * scaleY, 0, 0);
+            emitLayoutChange(scaleX, scaleY);
           }
           
           // Retry when container is ready
@@ -101,6 +130,8 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
         if (ctx) {
           ctx.setTransform(dpr * scaleX, 0, 0, dpr * scaleY, 0, 0);
         }
+
+        emitLayoutChange(scaleX, scaleY);
       } else {
         // Use fixed dimensions
         const dpr = window.devicePixelRatio || 1;
@@ -113,6 +144,8 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
         if (ctx) {
           ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         }
+
+        emitLayoutChange(1, 1);
       }
 
       dirtyRef.current = true;
@@ -126,7 +159,7 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
       window.addEventListener('resize', updateCanvasSize);
       return () => window.removeEventListener('resize', updateCanvasSize);
     }
-  }, [scene, fitToContainer]);
+  }, [scene, fitToContainer, onLayoutChange]);
 
   // Render loop with requestAnimationFrame
   useEffect(() => {

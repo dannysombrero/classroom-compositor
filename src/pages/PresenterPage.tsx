@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { PresenterCanvas } from '../components/PresenterCanvas';
+import { PresenterCanvas, type CanvasLayout } from '../components/PresenterCanvas';
 import {
   captureCanvasStream,
   sendStreamToViewer,
@@ -27,8 +27,8 @@ import {
 } from '../media/sourceManager';
 import { FloatingPanel } from '../components/FloatingPanel';
 import { LayersPanel } from '../components/LayersPanel';
-import { shallow } from 'zustand/shallow';
-import type { Layer } from '../types/scene';
+import type { Layer, CameraLayer } from '../types/scene';
+import { CameraOverlayControls } from '../components/CameraOverlayControls';
 
 const EMPTY_LAYERS: Layer[] = [];
 
@@ -47,14 +47,23 @@ export function PresenterPage() {
   const layerIdsRef = useRef<string[]>([]);
   const [panelPosition, setPanelPosition] = useState({ x: 24, y: 24 });
   const [panelSize, setPanelSize] = useState({ width: 280, height: 360 });
-  const sceneLayers = useAppStore(
-    (state) => {
-      if (!state.currentSceneId) return EMPTY_LAYERS;
-      const scene = state.scenes[state.currentSceneId];
-      return scene ? scene.layers : EMPTY_LAYERS;
-    },
-    shallow
-  );
+  const [canvasLayout, setCanvasLayout] = useState<CanvasLayout | null>(null);
+  const sceneLayers = useAppStore((state) => {
+    if (!state.currentSceneId) return EMPTY_LAYERS;
+    const scene = state.scenes[state.currentSceneId];
+    return scene ? scene.layers : EMPTY_LAYERS;
+  });
+  const currentScene = useAppStore((state) => {
+    if (!state.currentSceneId) return null;
+    return state.scenes[state.currentSceneId] ?? null;
+  });
+  const selectedLayer = useAppStore((state) => {
+    if (!state.currentSceneId || state.selection.length === 0) return null;
+    const scene = state.scenes[state.currentSceneId];
+    if (!scene) return null;
+    const id = state.selection[0];
+    return scene.layers.find((layer) => layer.id === id) ?? null;
+  });
   const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLayer } = useAppStore();
 
   // Set up canvas ref callback
@@ -68,6 +77,10 @@ export function PresenterPage() {
       }
     }
   };
+
+  const handleCanvasLayoutChange = useCallback((layout: CanvasLayout) => {
+    setCanvasLayout(layout);
+  }, []);
 
   const addScreenCaptureLayer = useCallback(async () => {
     if (isAddingScreen) return;
@@ -381,7 +394,11 @@ export function PresenterPage() {
           position: 'relative',
         }}
       >
-        <PresenterCanvas ref={handleCanvasRef} fitToContainer />
+        <PresenterCanvas
+          ref={handleCanvasRef}
+          fitToContainer
+          onLayoutChange={handleCanvasLayoutChange}
+        />
         
         {/* Open Viewer button */}
         <button
@@ -416,6 +433,14 @@ export function PresenterPage() {
           onAddCamera={addCameraLayer}
         />
       </FloatingPanel>
+      {canvasLayout && currentScene && selectedLayer?.type === 'camera' && (
+        <CameraOverlayControls
+          layout={canvasLayout}
+          layer={selectedLayer as CameraLayer}
+          sceneWidth={currentScene.width}
+          sceneHeight={currentScene.height}
+        />
+      )}
     </div>
   );
 }

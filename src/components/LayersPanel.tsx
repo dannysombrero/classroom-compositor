@@ -1,7 +1,6 @@
 import { useMemo, useState, type CSSProperties, type DragEvent } from 'react';
 import type { Layer } from '../types/scene';
 import { useAppStore } from '../app/store';
-import { shallow } from 'zustand/shallow';
 import { stopSource } from '../media/sourceManager';
 
 interface LayersPanelProps {
@@ -19,7 +18,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera }: LayersPanelPro
   const removeLayer = useAppStore((state) => state.removeLayer);
   const reorderLayers = useAppStore((state) => state.reorderLayers);
   const setSelection = useAppStore((state) => state.setSelection);
-  const selection = useAppStore((state) => state.selection, shallow);
+  const selection = useAppStore((state) => state.selection);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
 
