@@ -1,4 +1,11 @@
-import type { CameraLayer, ScreenLayer, Transform } from '../types/scene';
+import type {
+  CameraLayer,
+  ScreenLayer,
+  TextLayer,
+  ImageLayer,
+  ShapeLayer,
+  Transform,
+} from '../types/scene';
 
 const DEFAULT_CAMERA_DIAMETER = 320;
 
@@ -46,6 +53,82 @@ export function createCameraLayer(
     transform: createBaseTransform(sceneWidth - DEFAULT_CAMERA_DIAMETER, sceneHeight - DEFAULT_CAMERA_DIAMETER),
     streamId: id,
     diameter: DEFAULT_CAMERA_DIAMETER,
+    videoOffset: { x: 0, y: 0 },
+    videoScale: 1,
   };
 }
 
+export function createTextLayer(
+  id: string,
+  sceneWidth: number,
+  sceneHeight: number
+): TextLayer {
+  return {
+    id,
+    type: 'text',
+    name: 'Text',
+    visible: true,
+    locked: false,
+    z: 0,
+    transform: createBaseTransform(sceneWidth / 2, sceneHeight / 3),
+    content: 'New Text',
+    font: 'Inter, system-ui, sans-serif',
+    fontSize: 48,
+    textColor: '#ffffff',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 16,
+    padding: 24,
+    shadow: '0px 8px 24px rgba(0, 0, 0, 0.45)',
+    autoSize: true,
+  };
+}
+
+interface ImageLayerOptions {
+  width: number;
+  height: number;
+  dataUri?: string;
+}
+
+export function createImageLayer(
+  id: string,
+  sceneWidth: number,
+  sceneHeight: number,
+  options: ImageLayerOptions
+): ImageLayer {
+  const { width, height, dataUri } = options;
+  return {
+    id,
+    type: 'image',
+    name: 'Image',
+    visible: true,
+    locked: false,
+    z: 0,
+    transform: createBaseTransform(sceneWidth / 2, sceneHeight / 2),
+    assetId: dataUri ? 'embedded' : 'placeholder',
+    width,
+    height,
+    dataUri,
+  };
+}
+
+export function createShapeLayer(
+  id: string,
+  sceneWidth: number,
+  sceneHeight: number
+): ShapeLayer {
+  return {
+    id,
+    type: 'shape',
+    name: 'Rectangle',
+    visible: true,
+    locked: false,
+    z: 0,
+    transform: createBaseTransform(sceneWidth / 2, sceneHeight / 2),
+    shapeType: 'rect',
+    width: 640,
+    height: 360,
+    fillColor: 'rgba(0, 0, 0, 0.4)',
+    strokeColor: 'rgba(255, 255, 255, 0.45)',
+    strokeWidth: 4,
+  };
+}

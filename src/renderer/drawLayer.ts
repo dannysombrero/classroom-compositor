@@ -4,14 +4,14 @@
 
 import type { Layer } from '../types/scene';
 import { getVideoForLayer } from '../media/sourceManager';
+import { getImageElement } from './imageCache';
 
 /**
  * Apply transform to canvas context.
  */
 function applyTransform(
   ctx: CanvasRenderingContext2D,
-  transform: Layer['transform'],
-  layer: Layer
+  transform: Layer['transform']
 ): void {
   const { pos, scale, rot, opacity } = transform;
 
@@ -41,7 +41,7 @@ export function drawScreenLayer(
 ): void {
   if (layer.type !== 'screen') return;
 
-  applyTransform(ctx, layer.transform, layer);
+  applyTransform(ctx, layer.transform);
 
   const video = getVideoForLayer(layer.id);
   if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
@@ -66,7 +66,7 @@ export function drawCameraLayer(
 ): void {
   if (layer.type !== 'camera') return;
 
-  applyTransform(ctx, layer.transform, layer);
+  applyTransform(ctx, layer.transform);
 
   const video = getVideoForLayer(layer.id);
   if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
@@ -99,7 +99,17 @@ export function drawCameraLayer(
     }
   }
 
-  ctx.drawImage(video, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+  const scale = layer.videoScale ?? 1;
+  const scaledWidth = drawWidth * scale;
+  const scaledHeight = drawHeight * scale;
+  const offset = layer.videoOffset ?? { x: 0, y: 0 };
+  ctx.drawImage(
+    video,
+    -scaledWidth / 2 - offset.x,
+    -scaledHeight / 2 - offset.y,
+    scaledWidth,
+    scaledHeight
+  );
   ctx.restore();
 
   const gradient = ctx.createRadialGradient(0, 0, radius * 0.7, 0, 0, radius);
@@ -124,11 +134,20 @@ export function drawImageLayer(
 ): void {
   if (layer.type !== 'image') return;
 
-  applyTransform(ctx, layer.transform, layer);
+  applyTransform(ctx, layer.transform);
 
-  // Placeholder: draw a rectangle with image dimensions
-  ctx.fillStyle = '#666666';
-  ctx.fillRect(-layer.width / 2, -layer.height / 2, layer.width, layer.height);
+  if (layer.dataUri) {
+    const image = getImageElement(layer.dataUri);
+    if (image.complete && image.naturalWidth > 0) {
+      ctx.drawImage(image, -layer.width / 2, -layer.height / 2, layer.width, layer.height);
+    } else {
+      ctx.fillStyle = '#333333';
+      ctx.fillRect(-layer.width / 2, -layer.height / 2, layer.width, layer.height);
+    }
+  } else {
+    ctx.fillStyle = '#666666';
+    ctx.fillRect(-layer.width / 2, -layer.height / 2, layer.width, layer.height);
+  }
 
   ctx.restore();
 }
@@ -142,7 +161,7 @@ export function drawTextLayer(
 ): void {
   if (layer.type !== 'text') return;
 
-  applyTransform(ctx, layer.transform, layer);
+  applyTransform(ctx, layer.transform);
 
   // Placeholder: draw a rounded rectangle with text
   const { content, fontSize, backgroundColor, borderRadius, padding } = layer;
@@ -182,7 +201,7 @@ export function drawTextLayer(
   ctx.fill();
 
   // Draw text
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = layer.textColor || '#ffffff';
   ctx.fillText(content, 0, 0);
 
   ctx.restore();
@@ -197,7 +216,7 @@ export function drawShapeLayer(
 ): void {
   if (layer.type !== 'shape') return;
 
-  applyTransform(ctx, layer.transform, layer);
+  applyTransform(ctx, layer.transform);
 
   const { width, height, fillColor, strokeColor, strokeWidth } = layer;
 
@@ -219,7 +238,7 @@ export function drawShapeLayer(
  * Draw a group layer (placeholder - groups will be drawn recursively).
  */
 export function drawGroupLayer(
-  ctx: CanvasRenderingContext2D,
+  _ctx: CanvasRenderingContext2D,
   layer: Layer
 ): void {
   if (layer.type !== 'group') return;

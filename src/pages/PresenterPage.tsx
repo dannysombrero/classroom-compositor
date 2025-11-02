@@ -19,7 +19,13 @@ import {
 import { useAppStore } from '../app/store';
 import { loadMostRecentScene } from '../app/persistence';
 import { createId } from '../utils/id';
-import { createScreenLayer, createCameraLayer } from '../layers/factory';
+import {
+  createScreenLayer,
+  createCameraLayer,
+  createTextLayer,
+  createImageLayer,
+  createShapeLayer,
+} from '../layers/factory';
 import {
   startScreenCapture,
   startCameraCapture,
@@ -27,10 +33,29 @@ import {
 } from '../media/sourceManager';
 import { FloatingPanel } from '../components/FloatingPanel';
 import { LayersPanel } from '../components/LayersPanel';
-import type { Layer, CameraLayer } from '../types/scene';
+import { TransformControls } from '../components/TransformControls';
+import type { Layer, CameraLayer, Scene } from '../types/scene';
 import { CameraOverlayControls } from '../components/CameraOverlayControls';
 
 const EMPTY_LAYERS: Layer[] = [];
+
+function readFileAsDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = (error) => reject(error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = (error) => reject(error);
+    image.src = src;
+  });
+}
 
 /**
  * Main presenter page component.
@@ -48,7 +73,8 @@ export function PresenterPage() {
   const [panelPosition, setPanelPosition] = useState({ x: 24, y: 24 });
   const [panelSize, setPanelSize] = useState({ width: 280, height: 360 });
   const [canvasLayout, setCanvasLayout] = useState<CanvasLayout | null>(null);
-  const sceneLayers = useAppStore((state) => {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const sceneLayers: Layer[] = useAppStore((state) => {
     if (!state.currentSceneId) return EMPTY_LAYERS;
     const scene = state.scenes[state.currentSceneId];
     return scene ? scene.layers : EMPTY_LAYERS;
@@ -56,14 +82,14 @@ export function PresenterPage() {
   const currentScene = useAppStore((state) => {
     if (!state.currentSceneId) return null;
     return state.scenes[state.currentSceneId] ?? null;
-  });
+  }) as Scene | null;
   const selectedLayer = useAppStore((state) => {
     if (!state.currentSceneId || state.selection.length === 0) return null;
     const scene = state.scenes[state.currentSceneId];
     if (!scene) return null;
     const id = state.selection[0];
     return scene.layers.find((layer) => layer.id === id) ?? null;
-  });
+  }) as Layer | null;
   const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLayer } = useAppStore();
 
   // Set up canvas ref callback
@@ -104,6 +130,8 @@ export function PresenterPage() {
         return;
       }
 
+      useAppStore.getState().setSelection([layerId]);
+
       const track = result.stream.getVideoTracks()[0];
       if (track) {
         updateLayer(layerId, { streamId: track.id });
@@ -141,6 +169,8 @@ export function PresenterPage() {
         return;
       }
 
+      useAppStore.getState().setSelection([layerId]);
+
       const track = result.stream.getVideoTracks()[0];
       if (track) {
         updateLayer(layerId, { streamId: track.id });
@@ -155,6 +185,90 @@ export function PresenterPage() {
       setIsAddingCamera(false);
     }
   }, [addLayer, getCurrentScene, isAddingCamera, removeLayer, updateLayer]);
+
+  const addTextLayer = useCallback(() => {
+    const scene = getCurrentScene();
+    if (!scene) {
+      console.warn('Presenter: Cannot add text layer without a scene');
+      return;
+    }
+
+    const layerId = createId('layer');
+    const layer = createTextLayer(layerId, scene.width, scene.height);
+    addLayer(layer);
+    useAppStore.getState().setSelection([layerId]);
+    requestCurrentStreamFrame();
+  }, [addLayer, getCurrentScene]);
+
+  const addShapeLayer = useCallback(() => {
+    const scene = getCurrentScene();
+    if (!scene) {
+      console.warn('Presenter: Cannot add shape layer without a scene');
+      return;
+    }
+
+    const layerId = createId('layer');
+    const layer = createShapeLayer(layerId, scene.width, scene.height);
+    addLayer(layer);
+    useAppStore.getState().setSelection([layerId]);
+    requestCurrentStreamFrame();
+  }, [addLayer, getCurrentScene]);
+
+  const addImageLayer = useCallback(() => {
+    const scene = getCurrentScene();
+    if (!scene) {
+      console.warn('Presenter: Cannot add image layer without a scene');
+      return;
+    }
+
+    const input = fileInputRef.current;
+    if (!input) {
+      console.warn('Presenter: Image input not available');
+      return;
+    }
+
+    const handleChange = async (event: Event) => {
+      const target = event.target as HTMLInputElement;
+      const file = target.files?.[0] ?? null;
+      target.value = '';
+
+      if (!file) {
+        return;
+      }
+
+      try {
+        const dataUri = await readFileAsDataURL(file);
+        const image = await loadImage(dataUri);
+        const layerId = createId('layer');
+        const naturalWidth = image.naturalWidth || 640;
+        const naturalHeight = image.naturalHeight || 360;
+        const layer = createImageLayer(layerId, scene.width, scene.height, {
+          width: naturalWidth,
+          height: naturalHeight,
+          dataUri,
+        });
+        layer.name = file.name ? file.name.replace(/\.[^/.]+$/, '') || 'Image' : 'Image';
+
+        const maxWidth = scene.width * 0.6;
+        const maxHeight = scene.height * 0.6;
+        const scaleFactor = Math.min(1, maxWidth / naturalWidth, maxHeight / naturalHeight);
+        if (scaleFactor < 1) {
+          layer.transform = {
+            ...layer.transform,
+            scale: { x: scaleFactor, y: scaleFactor },
+          };
+        }
+        addLayer(layer);
+        useAppStore.getState().setSelection([layerId]);
+        requestCurrentStreamFrame();
+      } catch (error) {
+        console.error('Presenter: Failed to load image layer', error);
+      }
+    };
+
+    input.addEventListener('change', handleChange, { once: true });
+    input.click();
+  }, [addLayer, getCurrentScene]);
 
   useEffect(() => {
     if (sceneLayers === EMPTY_LAYERS) {
@@ -431,9 +545,15 @@ export function PresenterPage() {
           layers={sceneLayers}
           onAddScreen={addScreenCaptureLayer}
           onAddCamera={addCameraLayer}
+          onAddText={addTextLayer}
+          onAddImage={addImageLayer}
+          onAddShape={addShapeLayer}
         />
       </FloatingPanel>
-      {canvasLayout && currentScene && selectedLayer?.type === 'camera' && (
+      {canvasLayout && currentScene && selectedLayer && !selectedLayer.locked && selectedLayer.type !== 'camera' && selectedLayer.type !== 'screen' && (
+        <TransformControls layout={canvasLayout} layer={selectedLayer} scene={currentScene} />
+      )}
+      {canvasLayout && currentScene && selectedLayer?.type === 'camera' && !selectedLayer.locked && (
         <CameraOverlayControls
           layout={canvasLayout}
           layer={selectedLayer as CameraLayer}
@@ -441,6 +561,12 @@ export function PresenterPage() {
           sceneHeight={currentScene.height}
         />
       )}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: 'none' }}
+      />
     </div>
   );
 }

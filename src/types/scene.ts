@@ -52,6 +52,10 @@ export interface CameraLayer extends BaseLayer {
   streamId?: string;
   /** Diameter in pixels for the circular mask before transform scale */
   diameter: number;
+  /** Offset of the video content relative to the mask center (scene units) */
+  videoOffset?: { x: number; y: number };
+  /** Additional scale factor applied to the video inside the mask */
+  videoScale?: number;
 }
 
 /**
@@ -64,6 +68,8 @@ export interface ImageLayer extends BaseLayer {
   /** Image dimensions */
   width: number;
   height: number;
+  /** Embedded data URI for local images (temporary until asset pipeline) */
+  dataUri?: string;
 }
 
 /**
@@ -77,6 +83,8 @@ export interface TextLayer extends BaseLayer {
   font: string;
   /** Font size in pixels */
   fontSize: number;
+  /** Text color */
+  textColor: string;
   /** Background color (CSS color string) */
   backgroundColor: string;
   /** Border radius in pixels */

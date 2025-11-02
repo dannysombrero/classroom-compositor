@@ -2,17 +2,22 @@ import { useMemo, useState, type CSSProperties, type DragEvent } from 'react';
 import type { Layer } from '../types/scene';
 import { useAppStore } from '../app/store';
 import { stopSource } from '../media/sourceManager';
+import { requestCurrentStreamFrame } from '../utils/viewerStream';
+import { LayerPropertiesPanel } from './LayerPropertiesPanel';
 
 interface LayersPanelProps {
   layers: Layer[];
   onAddScreen: () => Promise<void> | void;
   onAddCamera: () => Promise<void> | void;
+  onAddText: () => Promise<void> | void;
+  onAddImage: () => Promise<void> | void;
+  onAddShape: () => Promise<void> | void;
 }
 
 /**
  * Layer list with quick visibility toggles and add-source menu.
  */
-export function LayersPanel({ layers, onAddScreen, onAddCamera }: LayersPanelProps) {
+export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAddImage, onAddShape }: LayersPanelProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const updateLayer = useAppStore((state) => state.updateLayer);
   const removeLayer = useAppStore((state) => state.removeLayer);
@@ -21,6 +26,10 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera }: LayersPanelPro
   const selection = useAppStore((state) => state.selection);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const selectedLayer = useMemo(() => {
+    if (selection.length === 0) return null;
+    return layers.find((layer) => layer.id === selection[0]) ?? null;
+  }, [layers, selection]);
 
   const orderedLayers = useMemo(() => {
     // Highest z first for UI readability (top-most layer at top)
@@ -59,6 +68,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera }: LayersPanelPro
     const ascendingOrder = [...currentOrder].reverse();
     reorderLayers(ascendingOrder);
     setSelection([draggedId]);
+    requestCurrentStreamFrame();
   };
 
   const handleDragStart = (event: DragEvent<HTMLButtonElement>, layerId: string) => {
@@ -145,6 +155,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera }: LayersPanelPro
                   removeLayer(id);
                 });
                 setSelection([]);
+                requestCurrentStreamFrame();
               }}
               disabled={selection.length === 0}
               style={{
@@ -189,12 +200,33 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera }: LayersPanelPro
                 >
                   Camera…
                 </button>
+                <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.06)' }} />
                 <button
-                  disabled
-                  style={{ ...menuItemStyle, opacity: 0.5, cursor: 'not-allowed' }}
-                  title="Coming soon"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    void onAddText();
+                  }}
+                  style={menuItemStyle}
                 >
-                  Image Overlay
+                  Text Overlay
+                </button>
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    void onAddImage();
+                  }}
+                  style={menuItemStyle}
+                >
+                  Image Overlay…
+                </button>
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    void onAddShape();
+                  }}
+                  style={menuItemStyle}
+                >
+                  Shape Overlay
                 </button>
               </div>
             )}
@@ -287,6 +319,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera }: LayersPanelPro
                 onClick={(event) => {
                   event.stopPropagation();
                   toggleVisibility(layer.id, layer.visible);
+                  requestCurrentStreamFrame();
                 }}
                 style={{
                   border: 'none',
@@ -331,6 +364,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera }: LayersPanelPro
           })
         )}
       </div>
+      <LayerPropertiesPanel layer={selectedLayer ?? null} />
     </div>
   );
 }

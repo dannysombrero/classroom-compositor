@@ -6,7 +6,16 @@
  */
 
 import { create } from 'zustand';
-import type { Scene, Layer } from '../types/scene';
+import type {
+  Scene,
+  Layer,
+  CameraLayer,
+  ScreenLayer,
+  ImageLayer,
+  TextLayer,
+  ShapeLayer,
+  GroupLayer,
+} from '../types/scene';
 import { saveScene as persistScene } from './persistence';
 
 /**
@@ -83,6 +92,10 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
+function cloneLayer<T extends Layer>(layer: T, overrides: Partial<T>): T {
+  return Object.assign({}, layer, overrides);
+}
+
 /**
  * Create and export the Zustand store hook.
  * 
@@ -146,26 +159,60 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   addLayer: (layer: Layer) => {
-    const { getCurrentScene, saveScene } = get();
+    const { getCurrentScene } = get();
     const scene = getCurrentScene();
     if (!scene) return;
 
     // Ensure layer has an ID
-    if (!layer.id) {
-      layer = { ...layer, id: generateId() };
+    let workingLayer: Layer = layer;
+    if (!workingLayer.id) {
+      switch (workingLayer.type) {
+        case 'camera':
+          workingLayer = cloneLayer<CameraLayer>(workingLayer, { id: generateId() });
+          break;
+        case 'screen':
+          workingLayer = cloneLayer<ScreenLayer>(workingLayer, { id: generateId() });
+          break;
+        case 'image':
+          workingLayer = cloneLayer<ImageLayer>(workingLayer, { id: generateId() });
+          break;
+        case 'text':
+          workingLayer = cloneLayer<TextLayer>(workingLayer, { id: generateId() });
+          break;
+        case 'shape':
+          workingLayer = cloneLayer<ShapeLayer>(workingLayer, { id: generateId() });
+          break;
+        case 'group':
+          workingLayer = cloneLayer<GroupLayer>(workingLayer, { id: generateId() });
+          break;
+      }
     }
 
-    // Assign z-order if not set (place at top)
-    if (layer.z === undefined) {
-      const maxZ = scene.layers.length > 0
-        ? Math.max(...scene.layers.map((l) => l.z))
-        : 0;
-      layer = { ...layer, z: maxZ + 1 };
-    }
+    const maxZ = scene.layers.length > 0
+      ? Math.max(...scene.layers.map((l) => l.z))
+      : 0;
+    const nextLayer: Layer = (() => {
+      switch (workingLayer.type) {
+        case 'camera':
+          return cloneLayer<CameraLayer>(workingLayer, { z: maxZ + 1 });
+        case 'screen':
+          return cloneLayer<ScreenLayer>(workingLayer, { z: maxZ + 1 });
+        case 'image':
+          return cloneLayer<ImageLayer>(workingLayer, { z: maxZ + 1 });
+        case 'text':
+          return cloneLayer<TextLayer>(workingLayer, { z: maxZ + 1 });
+        case 'shape':
+          return cloneLayer<ShapeLayer>(workingLayer, { z: maxZ + 1 });
+        case 'group':
+          return cloneLayer<GroupLayer>(workingLayer, { z: maxZ + 1 });
+      }
+      const exhaustiveCheck: never = workingLayer as never;
+      throw new Error(`Unhandled layer type ${(exhaustiveCheck as Layer).type}`);
+    })();
 
     const updatedScene: Scene = {
       ...scene,
-      layers: [...scene.layers, layer],
+      layers: [...scene.layers, nextLayer],
     };
 
     set((state) => ({
@@ -219,18 +266,67 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const layerMap = new Map(scene.layers.map((layer) => [layer.id, layer]));
 
     // Build new layer array in the specified order, assigning z-order
-    const reorderedLayers: Layer[] = layerIds
-      .map((id, index) => {
-        const layer = layerMap.get(id);
-        if (!layer) return null;
-        return { ...layer, z: index };
-      })
-      .filter((layer): layer is Layer => layer !== null);
+    const total = layerIds.length;
+    const reorderedLayers: Layer[] = [];
+
+    layerIds.forEach((id, index) => {
+      const layer = layerMap.get(id);
+      if (!layer) return;
+      const z = total - index;
+      switch (layer.type) {
+        case 'camera':
+          reorderedLayers.push(cloneLayer<CameraLayer>(layer, { z }));
+          break;
+        case 'screen':
+          reorderedLayers.push(cloneLayer<ScreenLayer>(layer, { z }));
+          break;
+        case 'image':
+          reorderedLayers.push(cloneLayer<ImageLayer>(layer, { z }));
+          break;
+        case 'text':
+          reorderedLayers.push(cloneLayer<TextLayer>(layer, { z }));
+          break;
+        case 'shape':
+          reorderedLayers.push(cloneLayer<ShapeLayer>(layer, { z }));
+          break;
+        case 'group':
+          reorderedLayers.push(cloneLayer<GroupLayer>(layer, { z }));
+          break;
+        default: {
+          const exhaustiveCheck: never = layer as never;
+          throw new Error(`Unhandled layer type ${(exhaustiveCheck as Layer).type}`);
+        }
+      }
+    });
 
     // Add any layers not in the reorder list (shouldn't happen, but safety check)
     scene.layers.forEach((layer) => {
       if (!layerIds.includes(layer.id)) {
-        reorderedLayers.push({ ...layer, z: reorderedLayers.length });
+        const z = reorderedLayers.length;
+        switch (layer.type) {
+          case 'camera':
+            reorderedLayers.push(cloneLayer<CameraLayer>(layer, { z }));
+            break;
+          case 'screen':
+            reorderedLayers.push(cloneLayer<ScreenLayer>(layer, { z }));
+            break;
+          case 'image':
+            reorderedLayers.push(cloneLayer<ImageLayer>(layer, { z }));
+            break;
+          case 'text':
+            reorderedLayers.push(cloneLayer<TextLayer>(layer, { z }));
+            break;
+          case 'shape':
+            reorderedLayers.push(cloneLayer<ShapeLayer>(layer, { z }));
+            break;
+          case 'group':
+            reorderedLayers.push(cloneLayer<GroupLayer>(layer, { z }));
+            break;
+          default: {
+            const exhaustiveCheck: never = layer as never;
+            throw new Error(`Unhandled layer type ${(exhaustiveCheck as Layer).type}`);
+          }
+        }
       }
     });
 
@@ -244,4 +340,3 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }));
   },
 }));
-

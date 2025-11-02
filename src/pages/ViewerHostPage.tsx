@@ -5,8 +5,6 @@
  */
 
 import { useEffect, useRef } from 'react';
-import type { ViewerMessage } from '../utils/viewerStream';
-import { getCurrentStream } from '../utils/viewerStream';
 
 /**
  * Viewer page component for the second window that displays the presentation output.
