@@ -50,6 +50,8 @@ export interface CameraLayer extends BaseLayer {
   type: 'camera';
   /** MediaStream track ID for camera */
   streamId?: string;
+  /** Diameter in pixels for the circular mask before transform scale */
+  diameter: number;
 }
 
 /**
@@ -137,4 +139,3 @@ export interface Scene {
   /** Ordered array of layers */
   layers: Layer[];
 }
-

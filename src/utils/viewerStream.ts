@@ -31,7 +31,9 @@ export function captureCanvasStream(
   try {
     // Use captureStream if available (Chrome, Firefox, Edge)
     if ('captureStream' in canvas) {
-      return (canvas as any).captureStream(fps);
+      const stream: MediaStream = (canvas as any).captureStream(fps);
+      requestStreamFrame(stream);
+      return stream;
     }
 
     // Fallback: captureStream may not be available in all browsers
@@ -74,6 +76,14 @@ export function setCurrentStream(stream: MediaStream | null): void {
 }
 
 /**
+ * Request a frame from the current canvas capture stream.
+ * Helpful when using dirty rendering so the viewer sees the latest frame.
+ */
+export function requestCurrentStreamFrame(): void {
+  requestStreamFrame(globalStreamRef);
+}
+
+/**
  * Send a MediaStream to a viewer window.
  * Since MediaStream cannot be cloned via postMessage, we store it globally
  * and notify the viewer to retrieve it via window.opener.
@@ -82,27 +92,30 @@ export function setCurrentStream(stream: MediaStream | null): void {
  * @param stream - MediaStream to send
  */
 export function sendStreamToViewer(
-  window: Window,
+  targetWindow: Window,
   stream: MediaStream
 ): void {
   try {
+    const resolvedOrigin = resolveTargetOrigin(targetWindow);
+
     console.log('Sending stream to viewer:', {
       hasStream: !!stream,
       videoTracks: stream.getVideoTracks().length,
-      targetOrigin: window.location.origin,
+      targetOrigin: resolvedOrigin,
     });
     
     // Store stream globally so viewer can access it
     setCurrentStream(stream);
+    requestStreamFrame(stream);
     
     // Notify viewer that stream is available
     // The viewer will retrieve it via window.opener
-    window.postMessage(
+    targetWindow.postMessage(
       {
         type: 'stream',
         streamAvailable: true,
       } as any,
-      window.location.origin
+      resolvedOrigin
     );
     
     console.log('Stream notification sent successfully');
@@ -126,6 +139,42 @@ export function notifyStreamEnded(window: Window): void {
 }
 
 /**
+ * Request a frame from a canvas capture stream if supported.
+ */
+function requestStreamFrame(stream: MediaStream | null): void {
+  if (!stream) return;
+  
+  const track = stream.getVideoTracks?.()[0] as CanvasCaptureMediaStreamTrack | undefined;
+  if (track && typeof track.requestFrame === 'function') {
+    try {
+      track.requestFrame();
+    } catch (error) {
+      console.warn('Failed to request canvas stream frame:', error);
+    }
+  }
+}
+
+/**
+ * Determine the best origin to target when posting messages to the viewer window.
+ */
+function resolveTargetOrigin(targetWindow: Window): string {
+  try {
+    const targetOrigin = targetWindow.location?.origin;
+    if (targetOrigin && targetOrigin !== 'null') {
+      return targetOrigin;
+    }
+  } catch (error) {
+    console.warn('Failed to read viewer origin, falling back to presenter origin:', error);
+  }
+
+  if (typeof window !== 'undefined') {
+    return window.location.origin;
+  }
+
+  return '*';
+}
+
+/** 
  * Expose getCurrentStream globally so viewer can access it via window.opener
  * This is a workaround for MediaStream not being transferable via postMessage.
  */
@@ -141,4 +190,3 @@ if (typeof window !== 'undefined') {
     configurable: true,
   });
 }
-

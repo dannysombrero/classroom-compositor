@@ -25,15 +25,29 @@ export function ViewerHostPage() {
     if (video) {
       // Set up video event listeners once
       video.addEventListener('loadedmetadata', () => {
-        console.log('Viewer: Video metadata loaded, readyState:', video.readyState);
+        console.log('Viewer: Video metadata loaded', {
+          readyState: video.readyState,
+          videoWidth: video.videoWidth,
+          videoHeight: video.videoHeight,
+        });
       });
       
       video.addEventListener('playing', () => {
-        console.log('Viewer: Video is now playing!');
+        console.log('Viewer: Video is now playing!', {
+          readyState: video.readyState,
+          currentTime: video.currentTime,
+          videoWidth: video.videoWidth,
+          videoHeight: video.videoHeight,
+        });
       });
       
       video.addEventListener('play', () => {
-        console.log('Viewer: Video play event fired');
+        console.log('Viewer: Video play event fired', {
+          readyState: video.readyState,
+          currentTime: video.currentTime,
+          videoWidth: video.videoWidth,
+          videoHeight: video.videoHeight,
+        });
       });
       
       video.addEventListener('error', (e) => {
@@ -140,6 +154,8 @@ export function ViewerHostPage() {
               kind: tracks[0].kind,
               enabled: tracks[0].enabled,
               readyState: tracks[0].readyState,
+              muted: tracks[0].muted,
+              settings: tracks[0].getSettings?.() ?? null,
             });
           }
           
@@ -245,4 +261,3 @@ export function ViewerHostPage() {
     </div>
   );
 }
-

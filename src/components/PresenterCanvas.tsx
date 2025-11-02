@@ -7,6 +7,7 @@
 import { forwardRef, useEffect, useRef, useImperativeHandle } from 'react';
 import { useAppStore } from '../app/store';
 import { drawScene, getCanvasSize } from '../renderer/canvasRenderer';
+import { requestCurrentStreamFrame, DEFAULT_STREAM_FPS } from '../utils/viewerStream';
 
 interface PresenterCanvasProps {
   /** Whether to fit canvas to container */
@@ -169,6 +170,7 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
         
         // Draw the scene
         drawScene(currentScene, ctx);
+        requestCurrentStreamFrame();
         
         dirtyRef.current = false;
       }
@@ -190,6 +192,15 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
+  }, []);
+
+  // Keep stream alive by marking canvas dirty at stream frame rate
+  useEffect(() => {
+    const interval = setInterval(() => {
+      dirtyRef.current = true;
+    }, Math.max(1000 / DEFAULT_STREAM_FPS, 33));
+
+    return () => clearInterval(interval);
   }, []);
 
   // Mark dirty when scene or store changes
@@ -224,4 +235,3 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
     );
   }
 );
-

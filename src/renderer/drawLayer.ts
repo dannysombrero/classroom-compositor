@@ -3,6 +3,7 @@
  */
 
 import type { Layer } from '../types/scene';
+import { getVideoForLayer } from '../media/sourceManager';
 
 /**
  * Apply transform to canvas context.
@@ -32,7 +33,7 @@ function applyTransform(
 }
 
 /**
- * Draw a screen layer (placeholder for now).
+ * Draw a screen capture layer using the live video element.
  */
 export function drawScreenLayer(
   ctx: CanvasRenderingContext2D,
@@ -42,15 +43,22 @@ export function drawScreenLayer(
 
   applyTransform(ctx, layer.transform, layer);
 
-  // Placeholder: draw a dark rectangle
-  ctx.fillStyle = '#000000';
-  ctx.fillRect(-50, -50, 100, 100);
+  const video = getVideoForLayer(layer.id);
+  if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+    ctx.restore();
+    return;
+  }
+
+  const width = video.videoWidth || 1920;
+  const height = video.videoHeight || 1080;
+
+  ctx.drawImage(video, -width / 2, -height / 2, width, height);
 
   ctx.restore();
 }
 
 /**
- * Draw a camera layer (placeholder for now).
+ * Draw a camera layer with a circular mask and soft border.
  */
 export function drawCameraLayer(
   ctx: CanvasRenderingContext2D,
@@ -60,11 +68,49 @@ export function drawCameraLayer(
 
   applyTransform(ctx, layer.transform, layer);
 
-  // Placeholder: draw a circle (will be replaced with actual video)
-  ctx.fillStyle = '#444444';
+  const video = getVideoForLayer(layer.id);
+  if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+    ctx.restore();
+    return;
+  }
+
+  const diameter = layer.diameter ?? 320;
+  const radius = diameter / 2;
+
+  ctx.save();
   ctx.beginPath();
-  ctx.arc(0, 0, 50, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.closePath();
+  ctx.clip();
+
+  const videoWidth = video.videoWidth || diameter;
+  const videoHeight = video.videoHeight || diameter;
+  let drawWidth = diameter;
+  let drawHeight = diameter;
+
+  if (videoWidth > 0 && videoHeight > 0) {
+    const aspect = videoWidth / videoHeight;
+    if (aspect > 1) {
+      drawHeight = diameter;
+      drawWidth = diameter * aspect;
+    } else {
+      drawWidth = diameter;
+      drawHeight = diameter / aspect;
+    }
+  }
+
+  ctx.drawImage(video, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+  ctx.restore();
+
+  const gradient = ctx.createRadialGradient(0, 0, radius * 0.7, 0, 0, radius);
+  gradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
+  gradient.addColorStop(1, 'rgba(255, 255, 255, 0.6)');
+
+  ctx.lineWidth = Math.max(6, radius * 0.12);
+  ctx.strokeStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius - ctx.lineWidth / 2, 0, Math.PI * 2);
+  ctx.stroke();
 
   ctx.restore();
 }
@@ -181,4 +227,3 @@ export function drawGroupLayer(
   // Groups are drawn by iterating children in the main renderer
   // This is a placeholder that does nothing
 }
-

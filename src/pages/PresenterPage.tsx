@@ -13,10 +13,24 @@ import {
   notifyStreamEnded,
   setCurrentStream,
   DEFAULT_STREAM_FPS,
+  requestCurrentStreamFrame,
   type ViewerMessage,
 } from '../utils/viewerStream';
 import { useAppStore } from '../app/store';
 import { loadMostRecentScene } from '../app/persistence';
+import { createId } from '../utils/id';
+import { createScreenLayer, createCameraLayer } from '../layers/factory';
+import {
+  startScreenCapture,
+  startCameraCapture,
+  stopSource,
+} from '../media/sourceManager';
+import { FloatingPanel } from '../components/FloatingPanel';
+import { LayersPanel } from '../components/LayersPanel';
+import { shallow } from 'zustand/shallow';
+import type { Layer } from '../types/scene';
+
+const EMPTY_LAYERS: Layer[] = [];
 
 /**
  * Main presenter page component.
@@ -28,7 +42,20 @@ export function PresenterPage() {
   const viewerWindowRef = useRef<Window | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
-  const { getCurrentScene, createScene, loadScene, saveScene } = useAppStore();
+  const [isAddingScreen, setIsAddingScreen] = useState(false);
+  const [isAddingCamera, setIsAddingCamera] = useState(false);
+  const layerIdsRef = useRef<string[]>([]);
+  const [panelPosition, setPanelPosition] = useState({ x: 24, y: 24 });
+  const [panelSize, setPanelSize] = useState({ width: 280, height: 360 });
+  const sceneLayers = useAppStore(
+    (state) => {
+      if (!state.currentSceneId) return EMPTY_LAYERS;
+      const scene = state.scenes[state.currentSceneId];
+      return scene ? scene.layers : EMPTY_LAYERS;
+    },
+    shallow
+  );
+  const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLayer } = useAppStore();
 
   // Set up canvas ref callback
   const handleCanvasRef = (canvas: HTMLCanvasElement | null) => {
@@ -41,6 +68,95 @@ export function PresenterPage() {
       }
     }
   };
+
+  const addScreenCaptureLayer = useCallback(async () => {
+    if (isAddingScreen) return;
+
+    const scene = getCurrentScene();
+    if (!scene) {
+      console.warn('Presenter: Cannot add screen capture without a scene');
+      return;
+    }
+
+    const layerId = createId('layer');
+    const layer = createScreenLayer(layerId, scene.width, scene.height);
+
+    setIsAddingScreen(true);
+    addLayer(layer);
+
+    try {
+      const result = await startScreenCapture(layerId);
+      if (!result) {
+        removeLayer(layerId);
+        return;
+      }
+
+      const track = result.stream.getVideoTracks()[0];
+      if (track) {
+        updateLayer(layerId, { streamId: track.id });
+        track.addEventListener('ended', () => {
+          stopSource(layerId);
+          useAppStore.getState().removeLayer(layerId);
+        });
+      }
+
+      requestCurrentStreamFrame();
+    } finally {
+      setIsAddingScreen(false);
+    }
+  }, [addLayer, getCurrentScene, isAddingScreen, removeLayer, updateLayer]);
+
+  const addCameraLayer = useCallback(async () => {
+    if (isAddingCamera) return;
+
+    const scene = getCurrentScene();
+    if (!scene) {
+      console.warn('Presenter: Cannot add camera layer without a scene');
+      return;
+    }
+
+    const layerId = createId('layer');
+    const layer = createCameraLayer(layerId, scene.width, scene.height);
+
+    setIsAddingCamera(true);
+    addLayer(layer);
+
+    try {
+      const result = await startCameraCapture(layerId);
+      if (!result) {
+        removeLayer(layerId);
+        return;
+      }
+
+      const track = result.stream.getVideoTracks()[0];
+      if (track) {
+        updateLayer(layerId, { streamId: track.id });
+        track.addEventListener('ended', () => {
+          stopSource(layerId);
+          useAppStore.getState().removeLayer(layerId);
+        });
+      }
+
+      requestCurrentStreamFrame();
+    } finally {
+      setIsAddingCamera(false);
+    }
+  }, [addLayer, getCurrentScene, isAddingCamera, removeLayer, updateLayer]);
+
+  useEffect(() => {
+    if (sceneLayers === EMPTY_LAYERS) {
+      if (layerIdsRef.current.length > 0) {
+        layerIdsRef.current.forEach((id) => stopSource(id));
+        layerIdsRef.current = [];
+      }
+      return;
+    }
+
+    const currentIds = sceneLayers.map((layer) => layer.id);
+    const removed = layerIdsRef.current.filter((id) => !currentIds.includes(id));
+    removed.forEach((id) => stopSource(id));
+    layerIdsRef.current = currentIds;
+  }, [sceneLayers]);
 
   const startStreaming = useCallback((canvas: HTMLCanvasElement) => {
     // Stop existing stream
@@ -58,6 +174,16 @@ export function PresenterPage() {
 
     console.log('Presenter: Captured stream with', stream.getVideoTracks().length, 'video tracks');
     streamRef.current = stream;
+
+    const track = stream.getVideoTracks()[0];
+    if (track) {
+      console.log('Presenter: Stream track settings', {
+        readyState: track.readyState,
+        muted: track.muted,
+        enabled: track.enabled,
+        settings: track.getSettings?.() ?? null,
+      });
+    }
 
     // Store stream globally for viewer to access
     setCurrentStream(stream);
@@ -225,6 +351,7 @@ export function PresenterPage() {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
       }
+       layerIdsRef.current.forEach((id) => stopSource(id));
       if (viewerWindowRef.current && !viewerWindowRef.current.closed) {
         viewerWindowRef.current.close();
       }
@@ -241,6 +368,7 @@ export function PresenterPage() {
         padding: 0,
         overflow: 'hidden',
         backgroundColor: '#1a1a1a',
+        position: 'relative',
       }}
     >
       {/* Main canvas area */}
@@ -275,23 +403,19 @@ export function PresenterPage() {
           {isViewerOpen ? 'Viewer Open' : 'Open Viewer'}
         </button>
       </div>
-
-      {/* Overlay panel placeholder */}
-      <div
-        style={{
-          width: '300px',
-          backgroundColor: '#2a2a2a',
-          borderLeft: '1px solid #3a3a3a',
-          padding: '16px',
-          overflowY: 'auto',
-        }}
+      <FloatingPanel
+        title="Objects & Layers"
+        position={panelPosition}
+        size={panelSize}
+        onPositionChange={setPanelPosition}
+        onSizeChange={setPanelSize}
       >
-        {/* TODO: Overlay panel component with visibility toggles */}
-        <div style={{ color: '#fff', fontSize: '14px' }}>
-          Overlay Panel (placeholder)
-        </div>
-      </div>
+        <LayersPanel
+          layers={sceneLayers}
+          onAddScreen={addScreenCaptureLayer}
+          onAddCamera={addCameraLayer}
+        />
+      </FloatingPanel>
     </div>
   );
 }
-
