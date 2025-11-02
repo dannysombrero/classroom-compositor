@@ -46,6 +46,30 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
         // Fit canvas to container while maintaining aspect ratio
         const containerWidth = container.clientWidth;
         const containerHeight = container.clientHeight;
+        
+        // If container has no dimensions, use a default size and retry later
+        if (containerWidth === 0 || containerHeight === 0) {
+          // Use a reasonable default and schedule a retry
+          const defaultWidth = 800;
+          const defaultHeight = 600;
+          const dpr = window.devicePixelRatio || 1;
+          canvas.width = defaultWidth * dpr;
+          canvas.height = defaultHeight * dpr;
+          canvas.style.width = `${defaultWidth}px`;
+          canvas.style.height = `${defaultHeight}px`;
+          
+          const ctx = canvas.getContext('2d', { alpha: false });
+          if (ctx) {
+            const scaleX = defaultWidth / logicalWidth;
+            const scaleY = defaultHeight / logicalHeight;
+            ctx.setTransform(dpr * scaleX, 0, 0, dpr * scaleY, 0, 0);
+          }
+          
+          // Retry when container is ready
+          setTimeout(updateCanvasSize, 100);
+          return;
+        }
+        
         const aspectRatio = logicalWidth / logicalHeight;
 
         let displayWidth = containerWidth;
@@ -117,8 +141,27 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
           return;
         }
 
+        // Ensure canvas has dimensions before drawing
+        if (canvas.width === 0 || canvas.height === 0) {
+          // Canvas not ready yet, skip this frame
+          animationFrameRef.current = requestAnimationFrame(render);
+          return;
+        }
+
         // Get the current scene from store
         const currentScene = useAppStore.getState().getCurrentScene();
+        
+        // Debug: Log when rendering
+        if (dirtyRef.current) {
+          console.log('Rendering scene:', {
+            hasScene: !!currentScene,
+            sceneWidth: currentScene?.width,
+            sceneHeight: currentScene?.height,
+            canvasWidth: canvas.width,
+            canvasHeight: canvas.height,
+            layers: currentScene?.layers?.length || 0,
+          });
+        }
         
         // Note: Transform is already set by updateCanvasSize effect
         // We don't save/restore here because we want to preserve the transform
@@ -136,10 +179,13 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
     // Mark dirty when scene changes
     dirtyRef.current = true;
 
-    // Start render loop
-    render();
+    // Start render loop after a small delay to ensure canvas is set up
+    const timeoutId = setTimeout(() => {
+      render();
+    }, 50);
 
     return () => {
+      clearTimeout(timeoutId);
       if (animationFrameRef.current !== null) {
         cancelAnimationFrame(animationFrameRef.current);
       }
@@ -155,13 +201,23 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
     useImperativeHandle(ref, () => canvasRef.current!, []);
 
     return (
-      <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
+      <div 
+        ref={containerRef} 
+        style={{ 
+          width: '100%', 
+          height: '100%', 
+          position: 'relative',
+          minWidth: '100px',
+          minHeight: '100px',
+        }}
+      >
         <canvas
           ref={canvasRef}
           style={{
             display: 'block',
             maxWidth: '100%',
             maxHeight: '100%',
+            backgroundColor: '#1a1a1a', // Temporary background to see canvas bounds
           }}
         />
       </div>

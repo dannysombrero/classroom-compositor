@@ -152,18 +152,22 @@ export function PresenterPage() {
       const currentScene = getCurrentScene();
       if (currentScene) {
         // Scene already loaded, nothing to do
+        console.log('Scene already loaded:', currentScene.id);
         return;
       }
 
+      console.log('Initializing scene...');
       // Try to load most recent scene
       const mostRecent = await loadMostRecentScene();
       if (mostRecent && mostRecent.id) {
+        console.log('Loading most recent scene:', mostRecent.id);
         // Load the scene into store (we need to add it first, then load it)
         useAppStore.setState((state) => ({
           scenes: { ...state.scenes, [mostRecent.id!]: mostRecent },
           currentSceneId: mostRecent.id,
         }));
       } else {
+        console.log('No saved scenes, creating new scene');
         // No saved scenes, create a new one
         createScene();
       }

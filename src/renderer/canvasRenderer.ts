@@ -24,13 +24,48 @@ export function drawScene(scene: Scene | null, ctx: CanvasRenderingContext2D): v
     // Use default scene dimensions (1920x1080) to match the transform coordinate space
     const defaultWidth = 1920;
     const defaultHeight = 1080;
-    ctx.clearRect(0, 0, defaultWidth, defaultHeight);
+    
+    // Fill with dark background to show canvas is working
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(0, 0, defaultWidth, defaultHeight);
     return;
   }
 
-  // Clear canvas using scene coordinates
-  // The transform set in PresenterCanvas will scale these to the actual canvas size
-  ctx.clearRect(0, 0, scene.width, scene.height);
+  // Fill canvas with dark background (scene background color)
+  // This ensures we can see the canvas even when there are no layers
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(0, 0, scene.width, scene.height);
+  
+  // Draw a subtle border to show canvas bounds when empty
+  if (scene.layers.length === 0) {
+    ctx.strokeStyle = '#333333';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(1, 1, scene.width - 2, scene.height - 2);
+    
+    // Draw a subtle grid or corner markers to show it's working
+    ctx.strokeStyle = '#2a2a2a';
+    ctx.lineWidth = 1;
+    // Draw corner markers
+    const markerSize = 20;
+    ctx.beginPath();
+    // Top-left
+    ctx.moveTo(0, markerSize);
+    ctx.lineTo(0, 0);
+    ctx.lineTo(markerSize, 0);
+    // Top-right
+    ctx.moveTo(scene.width - markerSize, 0);
+    ctx.lineTo(scene.width, 0);
+    ctx.lineTo(scene.width, markerSize);
+    // Bottom-right
+    ctx.moveTo(scene.width, scene.height - markerSize);
+    ctx.lineTo(scene.width, scene.height);
+    ctx.lineTo(scene.width - markerSize, scene.height);
+    // Bottom-left
+    ctx.moveTo(markerSize, scene.height);
+    ctx.lineTo(0, scene.height);
+    ctx.lineTo(0, scene.height - markerSize);
+    ctx.stroke();
+  }
 
   // Sort layers by z-order
   const sortedLayers = [...scene.layers].sort((a, b) => a.z - b.z);
