@@ -34,8 +34,9 @@ import {
 import { FloatingPanel } from '../components/FloatingPanel';
 import { LayersPanel } from '../components/LayersPanel';
 import { TransformControls } from '../components/TransformControls';
-import type { Layer, CameraLayer, Scene } from '../types/scene';
+import type { Layer, CameraLayer, TextLayer, Scene } from '../types/scene';
 import { CameraOverlayControls } from '../components/CameraOverlayControls';
+import { TextEditOverlay } from '../components/TextEditOverlay';
 
 const EMPTY_LAYERS: Layer[] = [];
 
@@ -73,6 +74,7 @@ export function PresenterPage() {
   const [panelPosition, setPanelPosition] = useState({ x: 24, y: 24 });
   const [panelSize, setPanelSize] = useState({ width: 280, height: 360 });
   const [canvasLayout, setCanvasLayout] = useState<CanvasLayout | null>(null);
+  const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const sceneLayers: Layer[] = useAppStore((state) => {
     if (!state.currentSceneId) return EMPTY_LAYERS;
@@ -107,6 +109,23 @@ export function PresenterPage() {
   const handleCanvasLayoutChange = useCallback((layout: CanvasLayout) => {
     setCanvasLayout(layout);
   }, []);
+  useEffect(() => {
+    if (!selectedLayer || selectedLayer.type !== 'text') {
+      if (editingTextId !== null) {
+        setEditingTextId(null);
+      }
+      return;
+    }
+    if (editingTextId && editingTextId !== selectedLayer.id) {
+      setEditingTextId(null);
+    }
+  }, [editingTextId, selectedLayer]);
+
+  useEffect(() => {
+    if (editingTextId) {
+      requestCurrentStreamFrame();
+    }
+  }, [editingTextId]);
 
   const addScreenCaptureLayer = useCallback(async () => {
     if (isAddingScreen) return;
@@ -426,6 +445,9 @@ export function PresenterPage() {
     };
   }, [startStreaming]);
 
+  const isEditingSelectedText =
+    selectedLayer?.type === 'text' && editingTextId === selectedLayer.id;
+
   // Initialize scene on mount (load most recent or create new)
   useEffect(() => {
     const initializeScene = async () => {
@@ -512,6 +534,7 @@ export function PresenterPage() {
           ref={handleCanvasRef}
           fitToContainer
           onLayoutChange={handleCanvasLayoutChange}
+          skipLayerIds={editingTextId ? [editingTextId] : undefined}
         />
         
         {/* Open Viewer button */}
@@ -550,8 +573,13 @@ export function PresenterPage() {
           onAddShape={addShapeLayer}
         />
       </FloatingPanel>
-      {canvasLayout && currentScene && selectedLayer && !selectedLayer.locked && selectedLayer.type !== 'camera' && selectedLayer.type !== 'screen' && (
-        <TransformControls layout={canvasLayout} layer={selectedLayer} scene={currentScene} />
+      {canvasLayout && currentScene && selectedLayer && !selectedLayer.locked && selectedLayer.type !== 'camera' && selectedLayer.type !== 'screen' && !isEditingSelectedText && (
+        <TransformControls
+          layout={canvasLayout}
+          layer={selectedLayer}
+          scene={currentScene}
+          onRequestEdit={selectedLayer.type === 'text' ? () => setEditingTextId(selectedLayer.id) : undefined}
+        />
       )}
       {canvasLayout && currentScene && selectedLayer?.type === 'camera' && !selectedLayer.locked && (
         <CameraOverlayControls
@@ -559,6 +587,18 @@ export function PresenterPage() {
           layer={selectedLayer as CameraLayer}
           sceneWidth={currentScene.width}
           sceneHeight={currentScene.height}
+        />
+      )}
+      {canvasLayout && currentScene && selectedLayer?.type === 'text' && !selectedLayer.locked && isEditingSelectedText && (
+        <TextEditOverlay
+          layout={canvasLayout}
+          layer={selectedLayer as TextLayer}
+          onFinish={(cancelled) => {
+            setEditingTextId(null);
+            if (!cancelled) {
+              requestCurrentStreamFrame();
+            }
+          }}
         />
       )}
       <input

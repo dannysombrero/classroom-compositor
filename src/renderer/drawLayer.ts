@@ -5,6 +5,7 @@
 import type { Layer } from '../types/scene';
 import { getVideoForLayer } from '../media/sourceManager';
 import { getImageElement } from './imageCache';
+import { measureTextBlock } from '../utils/layerGeometry';
 
 /**
  * Apply transform to canvas context.
@@ -163,30 +164,28 @@ export function drawTextLayer(
 
   applyTransform(ctx, layer.transform);
 
-  // Placeholder: draw a rounded rectangle with text
-  const { content, fontSize, backgroundColor, borderRadius, padding } = layer;
-  ctx.font = `${fontSize}px sans-serif`;
+  const { content, fontSize, backgroundColor, borderRadius, padding, font, textColor } = layer;
+  const fontFamily = font || 'sans-serif';
+  ctx.font = `${fontSize}px ${fontFamily}`;
   ctx.fillStyle = backgroundColor;
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'center';
 
-  // Measure text
-  const metrics = ctx.measureText(content);
-  const textWidth = metrics.width;
-  const textHeight = fontSize;
+  const metrics = measureTextBlock(content, fontSize, fontFamily, padding);
+  const width = metrics.width;
+  const height = metrics.height;
+  const halfWidth = width / 2;
+  const halfHeight = height / 2;
 
-  // Draw background pill
-  const width = textWidth + padding * 2;
-  const height = textHeight + padding * 2;
   ctx.beginPath();
   
   // Use roundRect if available, otherwise use arcTo for compatibility
   if (ctx.roundRect) {
-    ctx.roundRect(-width / 2, -height / 2, width, height, borderRadius);
+    ctx.roundRect(-halfWidth, -halfHeight, width, height, borderRadius);
   } else {
     // Fallback: draw rounded rectangle manually
-    const x = -width / 2;
-    const y = -height / 2;
+    const x = -halfWidth;
+    const y = -halfHeight;
     ctx.moveTo(x + borderRadius, y);
     ctx.lineTo(x + width - borderRadius, y);
     ctx.quadraticCurveTo(x + width, y, x + width, y + borderRadius);
@@ -200,9 +199,14 @@ export function drawTextLayer(
   }
   ctx.fill();
 
-  // Draw text
-  ctx.fillStyle = layer.textColor || '#ffffff';
-  ctx.fillText(content, 0, 0);
+  ctx.fillStyle = textColor || '#ffffff';
+
+  const startY = -halfHeight + padding + metrics.lineHeight / 2;
+  metrics.lines.forEach((line, index) => {
+    const text = line === '' ? ' ' : line;
+    const y = startY + index * metrics.lineHeight;
+    ctx.fillText(text, 0, y);
+  });
 
   ctx.restore();
 }

@@ -18,7 +18,15 @@ import {
  * @param scene - Scene to draw
  * @param ctx - Canvas 2D rendering context
  */
-export function drawScene(scene: Scene | null, ctx: CanvasRenderingContext2D): void {
+interface DrawSceneOptions {
+  skipLayerIds?: string[];
+}
+
+export function drawScene(
+  scene: Scene | null,
+  ctx: CanvasRenderingContext2D,
+  options: DrawSceneOptions = {}
+): void {
   if (!scene) {
     // Clear canvas if no scene
     // Use default scene dimensions (1920x1080) to match the transform coordinate space
@@ -83,9 +91,12 @@ export function drawScene(scene: Scene | null, ctx: CanvasRenderingContext2D): v
   const sortedLayers = [...scene.layers].sort((a, b) => a.z - b.z);
 
   // Draw each layer
+  const skipSet = new Set(options.skipLayerIds ?? []);
+
   for (const layer of sortedLayers) {
     // Skip invisible layers
     if (!layer.visible) continue;
+    if (skipSet.has(layer.id)) continue;
 
     // Skip locked layers (optional, but good practice)
     // Actually, locked layers should still render, just not be editable
@@ -127,4 +138,3 @@ export function getCanvasSize(scene: Scene | null): { width: number; height: num
   }
   return { width: scene.width, height: scene.height };
 }
-

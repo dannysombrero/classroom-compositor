@@ -92,8 +92,39 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
-function cloneLayer<T extends Layer>(layer: T, overrides: Partial<T>): T {
-  return Object.assign({}, layer, overrides);
+function ensureLayerId<T extends Layer>(layer: T): T {
+  return layer.id ? layer : ({ ...layer, id: generateId() } as T);
+}
+
+function withLayerZ<T extends Layer>(layer: T, z: number): T {
+  return { ...layer, z } as T;
+}
+
+function cloneLayerWithZ<T extends Layer>(layer: T, z: number): T {
+  return { ...layer, z } as T;
+}
+
+function applyLayerUpdates(layer: Layer, updates: Partial<Layer>): Layer {
+  const merged = { ...layer, ...updates, type: layer.type } as Layer;
+
+  switch (layer.type) {
+    case 'screen':
+      return merged as ScreenLayer;
+    case 'camera':
+      return merged as CameraLayer;
+    case 'image':
+      return merged as ImageLayer;
+    case 'text':
+      return merged as TextLayer;
+    case 'shape':
+      return merged as ShapeLayer;
+    case 'group':
+      return merged as GroupLayer;
+    default: {
+      const exhaustiveCheck: never = layer;
+      return exhaustiveCheck;
+    }
+  }
 }
 
 /**
@@ -163,53 +194,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const scene = getCurrentScene();
     if (!scene) return;
 
-    // Ensure layer has an ID
-    let workingLayer: Layer = layer;
-    if (!workingLayer.id) {
-      switch (workingLayer.type) {
-        case 'camera':
-          workingLayer = cloneLayer<CameraLayer>(workingLayer, { id: generateId() });
-          break;
-        case 'screen':
-          workingLayer = cloneLayer<ScreenLayer>(workingLayer, { id: generateId() });
-          break;
-        case 'image':
-          workingLayer = cloneLayer<ImageLayer>(workingLayer, { id: generateId() });
-          break;
-        case 'text':
-          workingLayer = cloneLayer<TextLayer>(workingLayer, { id: generateId() });
-          break;
-        case 'shape':
-          workingLayer = cloneLayer<ShapeLayer>(workingLayer, { id: generateId() });
-          break;
-        case 'group':
-          workingLayer = cloneLayer<GroupLayer>(workingLayer, { id: generateId() });
-          break;
-      }
-    }
-
+    const workingLayer = ensureLayerId(layer);
     const maxZ = scene.layers.length > 0
       ? Math.max(...scene.layers.map((l) => l.z))
       : 0;
-    const nextLayer: Layer = (() => {
-      switch (workingLayer.type) {
-        case 'camera':
-          return cloneLayer<CameraLayer>(workingLayer, { z: maxZ + 1 });
-        case 'screen':
-          return cloneLayer<ScreenLayer>(workingLayer, { z: maxZ + 1 });
-        case 'image':
-          return cloneLayer<ImageLayer>(workingLayer, { z: maxZ + 1 });
-        case 'text':
-          return cloneLayer<TextLayer>(workingLayer, { z: maxZ + 1 });
-        case 'shape':
-          return cloneLayer<ShapeLayer>(workingLayer, { z: maxZ + 1 });
-        case 'group':
-          return cloneLayer<GroupLayer>(workingLayer, { z: maxZ + 1 });
-      }
-      const exhaustiveCheck: never = workingLayer as never;
-      throw new Error(`Unhandled layer type ${(exhaustiveCheck as Layer).type}`);
-    })();
-
+    const nextLayer = withLayerZ(workingLayer, maxZ + 1);
     const updatedScene: Scene = {
       ...scene,
       layers: [...scene.layers, nextLayer],
@@ -244,7 +233,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const updatedScene: Scene = {
       ...scene,
       layers: scene.layers.map((layer) =>
-        layer.id === layerId ? { ...layer, ...updates } : layer
+        layer.id === layerId ? applyLayerUpdates(layer, updates) : layer
       ),
     };
 
@@ -262,72 +251,31 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const scene = getCurrentScene();
     if (!scene) return;
 
-    // Create a map for quick lookup
-    const layerMap = new Map(scene.layers.map((layer) => [layer.id, layer]));
+    const layerMap = new Map(scene.layers.map((layer) => [layer.id, layer] as const));
+    const seen = new Set<string>();
+    const orderedIds: string[] = [];
 
-    // Build new layer array in the specified order, assigning z-order
-    const total = layerIds.length;
-    const reorderedLayers: Layer[] = [];
+    for (const id of layerIds) {
+      if (!seen.has(id) && layerMap.has(id)) {
+        orderedIds.push(id);
+        seen.add(id);
+      }
+    }
 
-    layerIds.forEach((id, index) => {
+    for (const layer of scene.layers) {
+      if (!seen.has(layer.id)) {
+        orderedIds.push(layer.id);
+        seen.add(layer.id);
+      }
+    }
+
+    const total = orderedIds.length;
+    const reorderedLayers: Layer[] = orderedIds.map((id, index) => {
       const layer = layerMap.get(id);
-      if (!layer) return;
-      const z = total - index;
-      switch (layer.type) {
-        case 'camera':
-          reorderedLayers.push(cloneLayer<CameraLayer>(layer, { z }));
-          break;
-        case 'screen':
-          reorderedLayers.push(cloneLayer<ScreenLayer>(layer, { z }));
-          break;
-        case 'image':
-          reorderedLayers.push(cloneLayer<ImageLayer>(layer, { z }));
-          break;
-        case 'text':
-          reorderedLayers.push(cloneLayer<TextLayer>(layer, { z }));
-          break;
-        case 'shape':
-          reorderedLayers.push(cloneLayer<ShapeLayer>(layer, { z }));
-          break;
-        case 'group':
-          reorderedLayers.push(cloneLayer<GroupLayer>(layer, { z }));
-          break;
-        default: {
-          const exhaustiveCheck: never = layer as never;
-          throw new Error(`Unhandled layer type ${(exhaustiveCheck as Layer).type}`);
-        }
+      if (!layer) {
+        throw new Error(`Layer ${id} not found during reorder`);
       }
-    });
-
-    // Add any layers not in the reorder list (shouldn't happen, but safety check)
-    scene.layers.forEach((layer) => {
-      if (!layerIds.includes(layer.id)) {
-        const z = reorderedLayers.length;
-        switch (layer.type) {
-          case 'camera':
-            reorderedLayers.push(cloneLayer<CameraLayer>(layer, { z }));
-            break;
-          case 'screen':
-            reorderedLayers.push(cloneLayer<ScreenLayer>(layer, { z }));
-            break;
-          case 'image':
-            reorderedLayers.push(cloneLayer<ImageLayer>(layer, { z }));
-            break;
-          case 'text':
-            reorderedLayers.push(cloneLayer<TextLayer>(layer, { z }));
-            break;
-          case 'shape':
-            reorderedLayers.push(cloneLayer<ShapeLayer>(layer, { z }));
-            break;
-          case 'group':
-            reorderedLayers.push(cloneLayer<GroupLayer>(layer, { z }));
-            break;
-          default: {
-            const exhaustiveCheck: never = layer as never;
-            throw new Error(`Unhandled layer type ${(exhaustiveCheck as Layer).type}`);
-          }
-        }
-      }
+      return cloneLayerWithZ(layer, total - index);
     });
 
     const updatedScene: Scene = {

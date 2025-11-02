@@ -14,6 +14,8 @@ interface PresenterCanvasProps {
   fitToContainer?: boolean;
   /** Notify layout changes for interaction overlays */
   onLayoutChange?: (layout: CanvasLayout) => void;
+  /** Layer IDs to omit during render (e.g., when editing text inline) */
+  skipLayerIds?: string[];
 }
 
 export interface CanvasLayout {
@@ -32,7 +34,7 @@ export interface CanvasLayout {
  * @returns Canvas element with resize logic and render loop
  */
 export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProps>(
-  ({ fitToContainer = true, onLayoutChange }, ref) => {
+  ({ fitToContainer = true, onLayoutChange, skipLayerIds }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | null>(null);
@@ -202,7 +204,7 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
         // set by updateCanvasSize
         
         // Draw the scene
-        drawScene(currentScene, ctx);
+        drawScene(currentScene, ctx, { skipLayerIds });
         requestCurrentStreamFrame();
         
         dirtyRef.current = false;
@@ -240,6 +242,10 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
   useEffect(() => {
     dirtyRef.current = true;
   }, [scene]);
+
+  useEffect(() => {
+    dirtyRef.current = true;
+  }, [skipLayerIds]);
 
     // Expose canvas ref to parent
     useImperativeHandle(ref, () => canvasRef.current!, []);

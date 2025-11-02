@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, type PointerEvent as ReactPointerEvent } from 'react';
 import type { Layer, Scene } from '../types/scene';
 import type { CanvasLayout } from './PresenterCanvas';
-import { getLayerBaseSize, getLayerBoundingSize } from '../utils/layerGeometry';
+import { getLayerBaseSize, getLayerBoundingSize, measureTextBlock } from '../utils/layerGeometry';
 import { useAppStore } from '../app/store';
 import { requestCurrentStreamFrame } from '../utils/viewerStream';
 
@@ -22,15 +22,17 @@ type DragState =
       handle: ResizeHandle;
       opposite: { x: number; y: number };
       baseSize: { width: number; height: number };
+      initialFontSize?: number;
     };
 
 interface TransformControlsProps {
   layout: CanvasLayout;
   layer: Layer;
   scene: Scene;
+  onRequestEdit?: () => void;
 }
 
-export function TransformControls({ layout, layer, scene }: TransformControlsProps) {
+export function TransformControls({ layout, layer, scene, onRequestEdit }: TransformControlsProps) {
   const updateLayer = useAppStore((state) => state.updateLayer);
   const dragStateRef = useRef<DragState | null>(null);
   const layerRef = useRef(layer);
@@ -118,6 +120,7 @@ export function TransformControls({ layout, layer, scene }: TransformControlsPro
       handle,
       opposite: opposite[handle],
       baseSize,
+      initialFontSize: currentLayer.type === 'text' ? currentLayer.fontSize : undefined,
     };
 
     window.addEventListener('pointermove', handlePointerMove, { passive: false });
@@ -160,28 +163,74 @@ export function TransformControls({ layout, layer, scene }: TransformControlsPro
       const newHalfWidth = Math.max(minHalfWidth, Math.abs(pointerScene.x - opposite.x) / 2);
       const newHalfHeight = Math.max(minHalfHeight, Math.abs(pointerScene.y - opposite.y) / 2);
 
-      const newCenter = {
-        x: (pointerScene.x + opposite.x) / 2,
-        y: (pointerScene.y + opposite.y) / 2,
-      };
-
       let newScaleX = baseSize.width > 0 ? (newHalfWidth * 2) / baseSize.width : currentLayer.transform.scale.x;
       let newScaleY = baseSize.height > 0 ? (newHalfHeight * 2) / baseSize.height : currentLayer.transform.scale.y;
 
       if (currentLayer.type === 'text') {
-        const widthScale = (newHalfWidth * 2) / baseSize.width;
-        const nextFontSize = Math.max(12, currentLayer.fontSize * widthScale);
+        const baseWidth = baseSize.width || 1;
+        const baseHeight = baseSize.height || 1;
+        const targetWidth = Math.max(MIN_SIZE, Math.abs(pointerScene.x - opposite.x));
+        const targetHeight = Math.max(MIN_SIZE, Math.abs(pointerScene.y - opposite.y));
+        const widthScale = targetWidth / baseWidth;
+        const heightScale = targetHeight / baseHeight;
+        const uniformScale = Math.max(0.1, Math.min(widthScale, heightScale));
+        const initialFontSize = dragState.initialFontSize ?? currentLayer.fontSize;
+        const nextFontSize = Math.max(10, Math.min(initialFontSize * uniformScale, 512));
+        const metrics = measureTextBlock(
+          currentLayer.content,
+          nextFontSize,
+          currentLayer.font,
+          currentLayer.padding
+        );
+        const measuredWidth = Math.max(MIN_SIZE, metrics.width);
+        const measuredHeight = Math.max(MIN_SIZE, metrics.height);
+
+        let derivedCenter: { x: number; y: number };
+        switch (dragState.handle) {
+          case 'top-left':
+            derivedCenter = {
+              x: opposite.x - measuredWidth / 2,
+              y: opposite.y - measuredHeight / 2,
+            };
+            break;
+          case 'top-right':
+            derivedCenter = {
+              x: opposite.x + measuredWidth / 2,
+              y: opposite.y - measuredHeight / 2,
+            };
+            break;
+          case 'bottom-right':
+            derivedCenter = {
+              x: opposite.x + measuredWidth / 2,
+              y: opposite.y + measuredHeight / 2,
+            };
+            break;
+          case 'bottom-left':
+            derivedCenter = {
+              x: opposite.x - measuredWidth / 2,
+              y: opposite.y + measuredHeight / 2,
+            };
+            break;
+          default:
+            derivedCenter = currentLayer.transform.pos;
+        }
+
         updateLayer(currentLayer.id, {
           fontSize: nextFontSize,
           transform: {
             ...currentLayer.transform,
-            pos: newCenter,
+            pos: derivedCenter,
             scale: { x: 1, y: 1 },
           },
         });
         requestCurrentStreamFrame();
         return;
       }
+
+      const newCenter = {
+        x: (pointerScene.x + opposite.x) / 2,
+        y: (pointerScene.y + opposite.y) / 2,
+      };
 
       if (currentLayer.type === 'image' || currentLayer.type === 'shape') {
         newScaleX = Math.max(newScaleX, MIN_SIZE / baseSize.width);
@@ -222,8 +271,15 @@ export function TransformControls({ layout, layer, scene }: TransformControlsPro
     [handlePointerMove, endDrag]
   );
 
+  const handleDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (layerRef.current.type === 'text' && onRequestEdit) {
+      event.stopPropagation();
+      onRequestEdit();
+    }
+  };
+
   return (
-    <div style={boxStyle} onPointerDown={startMove}>
+    <div style={boxStyle} onPointerDown={startMove} onDoubleClick={handleDoubleClick}>
       {handles.map((handle) => (
         <button
           key={handle.key}
