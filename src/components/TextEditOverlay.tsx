@@ -119,6 +119,7 @@ export function TextEditOverlay({ layout, layer, onFinish }: TextEditOverlayProp
         wordBreak: 'break-word',
         boxSizing: 'border-box',
         outline: 'none',
+        textAlign: layer.textAlign ?? 'center',
         pointerEvents: 'auto',
         zIndex: 32,
       }}

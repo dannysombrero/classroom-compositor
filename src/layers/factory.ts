@@ -74,6 +74,7 @@ export function createTextLayer(
     content: 'New Text',
     font: 'Inter, system-ui, sans-serif',
     fontSize: 48,
+    textAlign: 'center',
     textColor: '#ffffff',
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
     borderRadius: 16,

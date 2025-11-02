@@ -7,6 +7,12 @@ interface LayerPropertiesPanelProps {
   layer: Layer | null;
 }
 
+const ALIGNMENT_OPTIONS: Array<{ value: 'left' | 'center' | 'right'; label: string }> = [
+  { value: 'left', label: 'L' },
+  { value: 'center', label: 'C' },
+  { value: 'right', label: 'R' },
+];
+
 export function LayerPropertiesPanel({ layer }: LayerPropertiesPanelProps) {
   const updateLayer = useAppStore((state) => state.updateLayer);
 
@@ -64,6 +70,29 @@ export function LayerPropertiesPanel({ layer }: LayerPropertiesPanelProps) {
               style={panelStyle.numberInput}
             />
           </label>
+          <div style={panelStyle.label}>
+            <span>Alignment</span>
+            <div style={panelStyle.alignmentRow}>
+              {ALIGNMENT_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    updateLayer(textValues.id, { textAlign: option.value });
+                    requestCurrentStreamFrame();
+                  }}
+                  style={{
+                    ...panelStyle.alignmentButton,
+                    ...(textValues.textAlign === option.value
+                      ? panelStyle.alignmentButtonActive
+                      : null),
+                  }}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <label style={panelStyle.labelRow}>
             <span>Text Color</span>
             <input
@@ -265,6 +294,25 @@ const panelStyle: Record<string, CSSProperties> = {
     fontSize: '12px',
     color: 'rgba(255, 255, 255, 0.8)',
     gap: '8px',
+  },
+  alignmentRow: {
+    display: 'flex',
+    gap: '4px',
+  },
+  alignmentButton: {
+    flex: 1,
+    padding: '6px 0',
+    borderRadius: '4px',
+    border: '1px solid rgba(255, 255, 255, 0.15)',
+    background: 'rgba(0, 0, 0, 0.25)',
+    color: '#f5f5f5',
+    fontSize: '11px',
+    cursor: 'pointer',
+    transition: 'background 0.2s, border-color 0.2s',
+  },
+  alignmentButtonActive: {
+    background: 'rgba(0, 166, 255, 0.25)',
+    borderColor: 'rgba(0, 166, 255, 0.8)',
   },
   numberInput: {
     width: '70px',

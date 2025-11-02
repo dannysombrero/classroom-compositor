@@ -164,12 +164,13 @@ export function drawTextLayer(
 
   applyTransform(ctx, layer.transform);
 
-  const { content, fontSize, backgroundColor, borderRadius, padding, font, textColor } = layer;
+  const { content, fontSize, backgroundColor, borderRadius, padding, font, textColor, textAlign } = layer;
   const fontFamily = font || 'sans-serif';
+  const align = textAlign ?? 'center';
   ctx.font = `${fontSize}px ${fontFamily}`;
   ctx.fillStyle = backgroundColor;
   ctx.textBaseline = 'middle';
-  ctx.textAlign = 'center';
+  ctx.textAlign = align;
 
   const metrics = measureTextBlock(content, fontSize, fontFamily, padding);
   const width = metrics.width;
@@ -202,10 +203,16 @@ export function drawTextLayer(
   ctx.fillStyle = textColor || '#ffffff';
 
   const startY = -halfHeight + padding + metrics.lineHeight / 2;
+  const x =
+    align === 'left'
+      ? -halfWidth + padding
+      : align === 'right'
+        ? halfWidth - padding
+        : 0;
   metrics.lines.forEach((line, index) => {
     const text = line === '' ? ' ' : line;
     const y = startY + index * metrics.lineHeight;
-    ctx.fillText(text, 0, y);
+    ctx.fillText(text, x, y);
   });
 
   ctx.restore();

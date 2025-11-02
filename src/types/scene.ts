@@ -83,6 +83,8 @@ export interface TextLayer extends BaseLayer {
   font: string;
   /** Font size in pixels */
   fontSize: number;
+  /** Text alignment */
+  textAlign: 'left' | 'center' | 'right';
   /** Text color */
   textColor: string;
   /** Background color (CSS color string) */
