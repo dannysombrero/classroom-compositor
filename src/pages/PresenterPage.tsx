@@ -37,6 +37,11 @@ import { TransformControls } from '../components/TransformControls';
 import type { Layer, CameraLayer, TextLayer, Scene } from '../types/scene';
 import { CameraOverlayControls } from '../components/CameraOverlayControls';
 import { TextEditOverlay } from '../components/TextEditOverlay';
+import { ControlStrip } from '../components/ControlStrip';
+import { ConfidencePreview } from '../components/ConfidencePreview';
+import { PresentationOverlay } from '../components/PresentationOverlay';
+import { tinykeys } from 'tinykeys';
+import type { KeyBindingMap } from 'tinykeys';
 
 const EMPTY_LAYERS: Layer[] = [];
 
@@ -75,7 +80,12 @@ export function PresenterPage() {
   const [panelSize, setPanelSize] = useState({ width: 280, height: 360 });
   const [canvasLayout, setCanvasLayout] = useState<CanvasLayout | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  const [isPresentationMode, setIsPresentationMode] = useState(false);
+  const [isConfidencePreviewVisible, setIsConfidencePreviewVisible] = useState(false);
+  const [controlStripVisible, setControlStripVisible] = useState(true);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const controlStripTimerRef = useRef<number | null>(null);
+  const clipboardRef = useRef<Layer[] | null>(null);
   const sceneLayers: Layer[] = useAppStore((state) => {
     if (!state.currentSceneId) return EMPTY_LAYERS;
     const scene = state.scenes[state.currentSceneId];
@@ -93,6 +103,35 @@ export function PresenterPage() {
     return scene.layers.find((layer) => layer.id === id) ?? null;
   }) as Layer | null;
   const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLayer } = useAppStore();
+
+  const showControlStrip = useCallback(() => {
+    setControlStripVisible(true);
+    if (controlStripTimerRef.current !== null) {
+      window.clearTimeout(controlStripTimerRef.current);
+    }
+    controlStripTimerRef.current = window.setTimeout(() => {
+      setControlStripVisible(false);
+    }, 4000);
+  }, []);
+
+  useEffect(() => {
+    showControlStrip();
+    const handlePointer = () => showControlStrip();
+    window.addEventListener('pointermove', handlePointer);
+    window.addEventListener('keydown', handlePointer);
+    return () => {
+      window.removeEventListener('pointermove', handlePointer);
+      window.removeEventListener('keydown', handlePointer);
+    };
+  }, [showControlStrip]);
+
+  useEffect(() => {
+    return () => {
+      if (controlStripTimerRef.current !== null) {
+        window.clearTimeout(controlStripTimerRef.current);
+      }
+    };
+  }, []);
 
   // Set up canvas ref callback
   const handleCanvasRef = (canvas: HTMLCanvasElement | null) => {
@@ -338,8 +377,6 @@ export function PresenterPage() {
     if (viewerWindowRef.current && !viewerWindowRef.current.closed) {
       console.log('Presenter: Sending stream to viewer window');
       sendStreamToViewer(viewerWindowRef.current, stream);
-    } else {
-      console.warn('Presenter: No viewer window available to send stream');
     }
 
     // Handle stream ended
@@ -350,13 +387,19 @@ export function PresenterPage() {
       }
       streamRef.current = null;
       setCurrentStream(null);
+      setIsPresentationMode(false);
+      setIsConfidencePreviewVisible(false);
+      setControlStripVisible(true);
+      showControlStrip();
     });
-  }, []);
+  }, [setIsConfidencePreviewVisible, setIsPresentationMode, showControlStrip]);
 
   const openViewer = () => {
     if (viewerWindowRef.current && !viewerWindowRef.current.closed) {
       // Viewer already open, just focus it
       viewerWindowRef.current.focus();
+      ensureCanvasStream();
+      showControlStrip();
       return;
     }
 
@@ -369,6 +412,7 @@ export function PresenterPage() {
 
     viewerWindowRef.current = viewer;
     setIsViewerOpen(true);
+    showControlStrip();
 
     // Wait for viewer to load, then send stream
     viewer.addEventListener('load', () => {
@@ -445,8 +489,272 @@ export function PresenterPage() {
     };
   }, [startStreaming]);
 
+  const ensureCanvasStream = useCallback((): MediaStream | null => {
+    if (streamRef.current) {
+      return streamRef.current;
+    }
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      console.warn('Presenter: Cannot ensure stream without a canvas');
+      return null;
+    }
+    startStreaming(canvas);
+    return streamRef.current;
+  }, [startStreaming]);
+
+  const isTextInputTarget = (event: KeyboardEvent): boolean => {
+    const target = event.target as HTMLElement | null;
+    if (!target) return false;
+    const tag = target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) {
+      return true;
+    }
+    return Boolean(editingTextId);
+  };
+
+  const getSelectedLayers = useCallback((): Layer[] => {
+    const state = useAppStore.getState();
+    const scene = state.getCurrentScene();
+    if (!scene) return [];
+    return state.selection
+      .map((id) => scene.layers.find((layer) => layer.id === id))
+      .filter((layer): layer is Layer => Boolean(layer));
+  }, []);
+
+  const nudgeSelection = useCallback(
+    (dx: number, dy: number) => {
+      const state = useAppStore.getState();
+      const scene = state.getCurrentScene();
+      if (!scene) return;
+      const selection = state.selection;
+      if (selection.length === 0) return;
+      selection.forEach((id) => {
+        const layer = scene.layers.find((entry) => entry.id === id);
+        if (!layer || layer.locked) return;
+        state.updateLayer(id, {
+          transform: {
+            ...layer.transform,
+            pos: {
+              x: layer.transform.pos.x + dx,
+              y: layer.transform.pos.y + dy,
+            },
+          },
+        });
+      });
+      requestCurrentStreamFrame();
+    },
+    []
+  );
+
+  const duplicateLayers = useCallback(() => {
+    const layers = getSelectedLayers();
+    if (layers.length === 0) return;
+    const state = useAppStore.getState();
+    const newIds: string[] = [];
+    layers.forEach((layer, index) => {
+      const clone: Layer = JSON.parse(JSON.stringify(layer));
+      clone.id = createId('layer');
+      clone.name = `${layer.name || 'Layer'} Copy`;
+      clone.transform = {
+        ...layer.transform,
+        pos: {
+          x: layer.transform.pos.x + 24 + index * 12,
+          y: layer.transform.pos.y + 24 + index * 12,
+        },
+      };
+      newIds.push(clone.id);
+      state.addLayer(clone);
+    });
+    state.setSelection(newIds);
+    requestCurrentStreamFrame();
+  }, [getSelectedLayers]);
+
+  const copyLayersToClipboard = useCallback(() => {
+    const layers = getSelectedLayers();
+    if (layers.length === 0) return;
+    clipboardRef.current = layers.map((layer) => JSON.parse(JSON.stringify(layer)));
+  }, [getSelectedLayers]);
+
+  const pasteClipboardLayers = useCallback(() => {
+    const clipboard = clipboardRef.current;
+    if (!clipboard || clipboard.length === 0) return;
+    const state = useAppStore.getState();
+    const newIds: string[] = [];
+    clipboard.forEach((layer, index) => {
+      const clone: Layer = JSON.parse(JSON.stringify(layer));
+      clone.id = createId('layer');
+      clone.name = `${layer.name || 'Layer'} Paste`;
+      clone.transform = {
+        ...layer.transform,
+        pos: {
+          x: layer.transform.pos.x + 32 + index * 12,
+          y: layer.transform.pos.y + 32 + index * 12,
+        },
+      };
+      newIds.push(clone.id);
+      state.addLayer(clone);
+    });
+    state.setSelection(newIds);
+    requestCurrentStreamFrame();
+  }, []);
+
+  const toggleVisibilityForSelection = useCallback(() => {
+    const layers = getSelectedLayers();
+    if (layers.length === 0) return;
+    const state = useAppStore.getState();
+    layers.forEach((layer) => {
+      state.updateLayer(layer.id, { visible: !layer.visible });
+    });
+    requestCurrentStreamFrame();
+  }, [getSelectedLayers]);
+
+  const toggleLockForSelection = useCallback(() => {
+    const layers = getSelectedLayers();
+    if (layers.length === 0) return;
+    const state = useAppStore.getState();
+    layers.forEach((layer) => {
+      state.updateLayer(layer.id, { locked: !layer.locked });
+    });
+    requestCurrentStreamFrame();
+  }, [getSelectedLayers]);
+
+  const togglePresentationMode = useCallback(() => {
+    if (!isPresentationMode) {
+      const stream = ensureCanvasStream();
+      if (!stream) {
+        console.warn('Presenter: Cannot enter presentation mode without a stream');
+        return;
+      }
+    }
+    setIsPresentationMode((prev) => !prev);
+    showControlStrip();
+  }, [ensureCanvasStream, isPresentationMode, showControlStrip]);
+
+  const exitPresentationMode = useCallback(() => {
+    if (isPresentationMode) {
+      setIsPresentationMode(false);
+      showControlStrip();
+    }
+  }, [isPresentationMode, showControlStrip]);
+
+  const toggleConfidencePreview = useCallback(() => {
+    if (!isConfidencePreviewVisible) {
+      const stream = ensureCanvasStream();
+      if (!stream) {
+        console.warn('Presenter: Cannot show confidence preview without a stream');
+        return;
+      }
+    }
+    setIsConfidencePreviewVisible((prev) => !prev);
+    showControlStrip();
+  }, [ensureCanvasStream, isConfidencePreviewVisible, showControlStrip]);
+
+  useEffect(() => {
+    const hotkeys: KeyBindingMap = {
+      f: (event: KeyboardEvent) => {
+        if (isTextInputTarget(event)) return;
+        event.preventDefault();
+        togglePresentationMode();
+      },
+      Escape: (event: KeyboardEvent) => {
+        if (!isPresentationMode) return;
+        event.preventDefault();
+        exitPresentationMode();
+      },
+      p: (event: KeyboardEvent) => {
+        if (isTextInputTarget(event)) return;
+        event.preventDefault();
+        toggleConfidencePreview();
+      },
+      ArrowLeft: (event: KeyboardEvent) => {
+        if (isTextInputTarget(event)) return;
+        event.preventDefault();
+        nudgeSelection(-1, 0);
+      },
+      ArrowRight: (event: KeyboardEvent) => {
+        if (isTextInputTarget(event)) return;
+        event.preventDefault();
+        nudgeSelection(1, 0);
+      },
+      ArrowUp: (event: KeyboardEvent) => {
+        if (isTextInputTarget(event)) return;
+        event.preventDefault();
+        nudgeSelection(0, -1);
+      },
+      ArrowDown: (event: KeyboardEvent) => {
+        if (isTextInputTarget(event)) return;
+        event.preventDefault();
+        nudgeSelection(0, 1);
+      },
+      'Shift+ArrowLeft': (event: KeyboardEvent) => {
+        if (isTextInputTarget(event)) return;
+        event.preventDefault();
+        nudgeSelection(-10, 0);
+      },
+      'Shift+ArrowRight': (event: KeyboardEvent) => {
+        if (isTextInputTarget(event)) return;
+        event.preventDefault();
+        nudgeSelection(10, 0);
+      },
+      'Shift+ArrowUp': (event: KeyboardEvent) => {
+        if (isTextInputTarget(event)) return;
+        event.preventDefault();
+        nudgeSelection(0, -10);
+      },
+      'Shift+ArrowDown': (event: KeyboardEvent) => {
+        if (isTextInputTarget(event)) return;
+        event.preventDefault();
+        nudgeSelection(0, 10);
+      },
+      '$mod+d': (event: KeyboardEvent) => {
+        if (isTextInputTarget(event)) return;
+        event.preventDefault();
+        duplicateLayers();
+      },
+      '$mod+c': (event: KeyboardEvent) => {
+        if (isTextInputTarget(event)) return;
+        event.preventDefault();
+        copyLayersToClipboard();
+      },
+      '$mod+v': (event: KeyboardEvent) => {
+        if (isTextInputTarget(event)) return;
+        event.preventDefault();
+        pasteClipboardLayers();
+      },
+      v: (event: KeyboardEvent) => {
+        if (isTextInputTarget(event)) return;
+        event.preventDefault();
+        toggleVisibilityForSelection();
+      },
+      l: (event: KeyboardEvent) => {
+        if (isTextInputTarget(event)) return;
+        event.preventDefault();
+        toggleLockForSelection();
+      },
+    };
+
+    const unsubscribe = tinykeys(window, hotkeys);
+
+    return () => {
+      unsubscribe();
+    };
+  }, [
+    copyLayersToClipboard,
+    duplicateLayers,
+    exitPresentationMode,
+    isPresentationMode,
+    nudgeSelection,
+    pasteClipboardLayers,
+    toggleConfidencePreview,
+    toggleLockForSelection,
+    togglePresentationMode,
+    toggleVisibilityForSelection,
+  ]);
+
   const isEditingSelectedText =
     selectedLayer?.type === 'text' && editingTextId === selectedLayer.id;
+
+  const controlStripShouldBeVisible = isPresentationMode ? true : controlStripVisible;
 
   // Initialize scene on mount (load most recent or create new)
   useEffect(() => {
@@ -536,26 +844,6 @@ export function PresenterPage() {
           onLayoutChange={handleCanvasLayoutChange}
           skipLayerIds={editingTextId ? [editingTextId] : undefined}
         />
-        
-        {/* Open Viewer button */}
-        <button
-          onClick={openViewer}
-          style={{
-            position: 'absolute',
-            top: '16px',
-            right: '16px',
-            padding: '8px 16px',
-            backgroundColor: isViewerOpen ? '#4a4a4a' : '#0066cc',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontSize: '14px',
-            fontWeight: 500,
-          }}
-        >
-          {isViewerOpen ? 'Viewer Open' : 'Open Viewer'}
-        </button>
       </div>
       <FloatingPanel
         title="Objects & Layers"
@@ -606,6 +894,28 @@ export function PresenterPage() {
         type="file"
         accept="image/*"
         style={{ display: 'none' }}
+      />
+      <ControlStrip
+        visible={controlStripShouldBeVisible}
+        onTogglePresentation={togglePresentationMode}
+        presentationActive={isPresentationMode}
+        onToggleConfidence={toggleConfidencePreview}
+        confidenceActive={isConfidencePreviewVisible}
+        onOpenViewer={openViewer}
+        viewerOpen={isViewerOpen}
+      />
+      <ConfidencePreview
+        stream={streamRef.current}
+        visible={isConfidencePreviewVisible}
+        onClose={() => {
+          setIsConfidencePreviewVisible(false);
+          showControlStrip();
+        }}
+      />
+      <PresentationOverlay
+        stream={streamRef.current}
+        active={isPresentationMode}
+        onExit={exitPresentationMode}
       />
     </div>
   );

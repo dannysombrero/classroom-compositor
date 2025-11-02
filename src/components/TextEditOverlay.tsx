@@ -46,10 +46,19 @@ export function TextEditOverlay({ layout, layer, onFinish }: TextEditOverlayProp
   const widthScene = metrics.width * scaleX;
   const heightScene = metrics.height * scaleY;
 
-  const leftPx = layout.x + (layer.transform.pos.x - widthScene / 2) * layout.scaleX;
-  const topPx = layout.y + (layer.transform.pos.y - heightScene / 2) * layout.scaleY;
+  // Calculate center position in screen pixels
+  const centerPx = {
+    x: layout.x + layer.transform.pos.x * layout.scaleX,
+    y: layout.y + layer.transform.pos.y * layout.scaleY,
+  };
+
+  // Calculate dimensions in screen pixels
   const widthPx = Math.max(widthScene * layout.scaleX, 48);
   const heightPx = Math.max(heightScene * layout.scaleY, 32);
+
+  // Position textarea centered at the same point as canvas text
+  const leftPx = centerPx.x - widthPx / 2;
+  const topPx = centerPx.y - heightPx / 2;
   const paddingX = layer.padding * scaleX * layout.scaleX;
   const paddingY = layer.padding * scaleY * layout.scaleY;
   const fontSizePx = layer.fontSize * scaleY * layout.scaleY;

@@ -1,10 +1,12 @@
 /**
  * Persistence abstraction layer for scenes and assets.
  * 
- * Currently implemented with localStorage, but designed to be swappable
- * with Dexie (IndexedDB) later without changing the API.
+ * Dexie (IndexedDB) is the primary backing store with a localStorage
+ * fallback for environments where IndexedDB is not available (tests,
+ * legacy browsers).
  */
 
+import Dexie, { type Table } from 'dexie';
 import type { Scene } from '../types/scene';
 
 /**
@@ -16,10 +18,28 @@ const SCENES_METADATA_KEY = 'classroom-compositor:scenes-metadata';
 /**
  * Metadata about saved scenes (for listing/loading most recent).
  */
-interface SceneMetadata {
+export interface SceneMetadata {
   id: string;
   name: string;
   updatedAt: number;
+}
+
+interface SceneRecord extends SceneMetadata {
+  data: Scene;
+}
+
+/**
+ * Dexie database schema.
+ */
+class ClassroomCompositorDB extends Dexie {
+  scenes!: Table<SceneRecord, string>;
+
+  constructor() {
+    super('classroom-compositor');
+    this.version(1).stores({
+      scenes: '&id, updatedAt, name',
+    });
+  }
 }
 
 /**
@@ -127,10 +147,115 @@ class LocalStorageAdapter implements PersistenceAdapter {
 }
 
 /**
- * Default persistence adapter instance.
- * Can be swapped with a Dexie adapter later.
+ * Dexie implementation of the persistence adapter.
  */
-export const persistence: PersistenceAdapter = new LocalStorageAdapter();
+class DexieAdapter implements PersistenceAdapter {
+  private db: ClassroomCompositorDB;
+  private ready: Promise<ClassroomCompositorDB>;
+  private legacy = new LocalStorageAdapter();
+
+  constructor() {
+    this.db = new ClassroomCompositorDB();
+    this.ready = this.db.open().then(async () => {
+      await this.migrateLegacyData(this.db);
+      return this.db;
+    });
+  }
+
+  private async getDB(): Promise<ClassroomCompositorDB> {
+    return this.ready.catch((error) => {
+      console.error('Dexie initialization failed:', error);
+      throw error;
+    });
+  }
+
+  private async migrateLegacyData(db: ClassroomCompositorDB): Promise<void> {
+    const existingCount = await db.scenes.count();
+    if (existingCount > 0) {
+      return;
+    }
+
+    const metadata = await this.legacy.loadScenesMetadata();
+    if (metadata.length === 0) {
+      return;
+    }
+
+    const records: SceneRecord[] = [];
+    for (const item of metadata) {
+      const scene = await this.legacy.loadScene(item.id);
+      if (!scene) continue;
+      records.push({
+        id: item.id,
+        name: scene.name || item.name || 'Untitled Scene',
+        updatedAt: item.updatedAt ?? Date.now(),
+        data: cloneScene(scene),
+      });
+    }
+
+    if (records.length > 0) {
+      await db.scenes.bulkPut(records);
+    }
+  }
+
+  async loadScenesMetadata(): Promise<SceneMetadata[]> {
+    const db = await this.getDB();
+    const rows = await db.scenes.orderBy('updatedAt').reverse().toArray();
+    return rows.map(({ id, name, updatedAt }) => ({ id, name, updatedAt }));
+  }
+
+  async loadScene(id: string): Promise<Scene | null> {
+    const db = await this.getDB();
+    const record = await db.scenes.get(id);
+    return record ? cloneScene(record.data) : null;
+  }
+
+  async saveScene(scene: Scene): Promise<void> {
+    if (!scene.id) {
+      throw new Error('Scene must have an ID to save');
+    }
+    const db = await this.getDB();
+    const name = scene.name || 'Untitled Scene';
+    const entry: SceneRecord = {
+      id: scene.id,
+      name,
+      updatedAt: Date.now(),
+      data: cloneScene(scene),
+    };
+    await db.scenes.put(entry);
+  }
+
+  async deleteScene(id: string): Promise<void> {
+    const db = await this.getDB();
+    await db.scenes.delete(id);
+  }
+}
+
+function cloneScene(scene: Scene): Scene {
+  if (typeof structuredClone === 'function') {
+    return structuredClone(scene);
+  }
+  return JSON.parse(JSON.stringify(scene)) as Scene;
+}
+
+function canUseIndexedDB(): boolean {
+  return typeof indexedDB !== 'undefined';
+}
+
+function createPersistenceAdapter(): PersistenceAdapter {
+  if (canUseIndexedDB()) {
+    try {
+      return new DexieAdapter();
+    } catch (error) {
+      console.warn('Falling back to localStorage persistence:', error);
+    }
+  }
+  return new LocalStorageAdapter();
+}
+
+/**
+ * Default persistence adapter instance.
+ */
+export const persistence: PersistenceAdapter = createPersistenceAdapter();
 
 /**
  * Load all scenes metadata.
@@ -172,4 +297,3 @@ export async function loadMostRecentScene(): Promise<Scene | null> {
   const mostRecent = metadata[0];
   return loadScene(mostRecent.id);
 }
-

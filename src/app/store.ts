@@ -127,6 +127,12 @@ function applyLayerUpdates(layer: Layer, updates: Partial<Layer>): Layer {
   }
 }
 
+function persistSceneImmediate(scene: Scene): void {
+  void persistScene(scene).catch((error) => {
+    console.error('Store: Failed to persist scene', error);
+  });
+}
+
 /**
  * Create and export the Zustand store hook.
  * 
@@ -162,6 +168,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       currentSceneId: id,
       selection: [],
     }));
+    persistSceneImmediate(scene);
   },
 
   loadScene: (id: string) => {
@@ -207,6 +214,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set((state) => ({
       scenes: { ...state.scenes, [state.currentSceneId!]: updatedScene },
     }));
+    persistSceneImmediate(updatedScene);
   },
 
   removeLayer: (layerId: string) => {
@@ -223,6 +231,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       scenes: { ...state.scenes, [state.currentSceneId!]: updatedScene },
       selection: state.selection.filter((id) => id !== layerId),
     }));
+    persistSceneImmediate(updatedScene);
   },
 
   updateLayer: (layerId: string, updates: Partial<Layer>) => {
@@ -240,6 +249,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set((state) => ({
       scenes: { ...state.scenes, [state.currentSceneId!]: updatedScene },
     }));
+    persistSceneImmediate(updatedScene);
   },
 
   setSelection: (layerIds: string[]) => {
@@ -286,5 +296,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set((state) => ({
       scenes: { ...state.scenes, [state.currentSceneId!]: updatedScene },
     }));
+    persistSceneImmediate(updatedScene);
   },
 }));

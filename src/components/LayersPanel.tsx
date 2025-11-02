@@ -40,6 +40,10 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
     updateLayer(layerId, { visible: !visible });
   };
 
+  const toggleLock = (layerId: string, locked: boolean) => {
+    updateLayer(layerId, { locked: !locked });
+  };
+
   const isSelected = (layerId: string) => selection.includes(layerId);
 
   const handleRowClick = (layerId: string) => {
@@ -299,9 +303,28 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                   style={{
                     fontSize: '13px',
                     fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
                   }}
                 >
                   {layer.name}
+                  {layer.locked && (
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: '16px',
+                        height: '16px',
+                        borderRadius: '50%',
+                        background: 'rgba(255, 255, 255, 0.12)',
+                      }}
+                      title="Layer locked"
+                    >
+                      🔒
+                    </span>
+                  )}
                 </span>
                 <span
                   style={{
@@ -314,6 +337,56 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                   {layer.type}
                 </span>
               </div>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    toggleLock(layer.id, layer.locked);
+                  }}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    cursor: 'pointer',
+                    padding: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    opacity: layer.locked ? 1 : 0.65,
+                  }}
+                  aria-label={layer.locked ? 'Unlock layer' : 'Lock layer'}
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="rgba(255, 255, 255, 0.85)"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    {layer.locked ? (
+                      <>
+                        <rect x="5" y="10" width="14" height="11" rx="2" />
+                        <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+                      </>
+                    ) : (
+                      <>
+                        <rect x="5" y="11" width="14" height="10" rx="2" />
+                        <path d="M7 11V7a5 5 0 0 1 9-3" />
+                        <path d="m15.5 11.5 3.5 3.5" />
+                      </>
+                    )}
+                  </svg>
+                </button>
               <button
                 type="button"
                 onClick={(event) => {
@@ -359,7 +432,8 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                   />
                 </svg>
               </button>
-            </button>
+            </div>
+          </button>
           );
           })
         )}

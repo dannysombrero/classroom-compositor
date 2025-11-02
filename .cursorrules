@@ -1,0 +1,165 @@
+# Classroom Compositor — Workspace Rules
+
+## Project Context
+This is a local-first, browser-based classroom compositor for layering webcam and overlays over screen capture. MVP focuses on speed, simple overlays, and Presenter/Viewer split with single-screen Presentation Mode.
+
+## Technology Stack
+- **Framework**: React 18+ with TypeScript (strict mode)
+- **State Management**: Zustand (slices pattern, serializable state)
+- **Rendering**: Canvas 2D (thin renderer layer, possible future WebGL2)
+- **Persistence**: Dexie (IndexedDB wrapper)
+- **Hotkeys**: tinykeys library
+- **Build Tool**: Vite
+- **No Backend**: MVP is client-side only; Viewer is second window on same device
+
+## Architecture Patterns
+
+### State Management
+- Use Zustand slices for all state
+- State MUST be serializable (no functions, DOM refs, or classes in state)
+- Isolate side effects outside of store; actions should be pure
+- NO inline mutations outside store actions
+- Each slice should handle a specific domain (scenes, layers, assets, etc.)
+
+### Component Design
+- Write small, testable, functional components with clear props
+- Prefer composition over inheritance
+- Keep components modular and focused on single responsibility
+- Components in `/src/components/`, pages in `/src/pages/`
+
+### Rendering
+- Canvas 2D rendering layer in `/src/renderer/`
+- Use dirty-rect optimization and throttled redraws
+- Scene graph rendering order: groups → children → camera → images → shapes → text
+- Avoid unnecessary React re-renders (use memo, useMemo, useCallback strategically)
+
+### Data Model
+- **Scene**: canvas size + ordered layers array
+- **Layer types**: Screen, Camera, Image, Text, Shape, Group
+- **Layer properties**: id, name, visible, locked, z-index, transform {pos, scale, rot, opacity}
+- **Groups**: Store child layer IDs, apply group transform, preserve per-child visibility on toggle
+
+### Asset Management
+- Default strategy: reference by URI (don't embed unless necessary)
+- Clipboard pastes: embed by default (store as blobId + sha256)
+- Use Dexie for IndexedDB persistence of scenes and assets
+- Provide "Embed" and "Externalize" actions for assets
+
+## Code Quality Standards
+
+### TypeScript
+- Always use TypeScript strict mode
+- Define explicit types for all exported functions and components
+- Use TSDoc comments for all exported functions, types, and complex logic
+- Prefer interfaces for public APIs, type aliases for internal use
+
+### Documentation
+- Add TSDoc comments to all exported functions and types
+- Include `@param` and `@returns` tags
+- Document complex algorithms or non-obvious logic with inline comments
+- Use TODO comments for open questions (see Open Questions section)
+
+### Dependencies
+- Minimize external dependencies
+- Justify any new dependency before adding
+- Prefer built-in browser APIs when possible
+- NO global CSS frameworks (keep CSS minimal)
+
+## Performance Requirements
+- Target: 1080p @ 30fps on typical Windows 11 school machines
+- Use throttling for high-frequency updates (e.g., mouse move)
+- Implement dirty-rect optimization for canvas redraws
+- Avoid unnecessary re-renders with proper memoization
+- Keep render loop efficient; profile if performance degrades
+
+## MVP Scope Restrictions
+
+### MUST NOT Include (Not in MVP)
+- ❌ Chroma key / green screen
+- ❌ WebRTC / network features (planned for v1.2)
+- ❌ Recording / export video (planned for v1.1)
+- ❌ Timer widget (planned for v1.1)
+- ❌ Cloud sync
+- ❌ Student authentication
+- ❌ Server-side rendering or backend
+- ❌ Background blur (planned for v1.1)
+- ❌ Text presets (planned for v1.1)
+- ❌ Scene collections/"classes" (planned for v1.2)
+
+### MUST Include (MVP Day-1)
+- ✅ Screen/window capture
+- ✅ Webcam with circle mask and soft border
+- ✅ Text pill overlays (font, size, bg, opacity, radius, padding, shadow, autosize)
+- ✅ Image overlays
+- ✅ Rectangle shapes
+- ✅ Snap-to-grid layout
+- ✅ Z-order management
+- ✅ Groups with group transforms
+- ✅ Layer visibility toggles (preserve per-item visibility in groups)
+- ✅ Hotkeys (see Hotkeys section)
+- ✅ Presenter window (edits + renders to canvas)
+- ✅ Viewer window (separate window via `window.open`, receives `captureStream`)
+- ✅ Presentation Mode (F key, Esc to exit)
+- ✅ Confidence Preview (P key)
+- ✅ Auto-hide control strip
+- ✅ Save/Save As scenes to IndexedDB
+
+## Hotkeys Implementation
+Use tinykeys library for all keyboard shortcuts:
+
+**Selection & Editing:**
+- Click / Shift+click / marquee drag for selection
+- Arrow keys: nudge 1px
+- Shift+Arrow keys: nudge 10px
+- Ctrl/Cmd+G: Group selected layers
+- Ctrl/Cmd+Shift+G: Ungroup
+- Ctrl/Cmd+C: Copy
+- Ctrl/Cmd+V: Paste
+- Ctrl/Cmd+D: Duplicate
+- V: Toggle visibility of focused layer/group
+- L: Lock/unlock focused layer
+
+**Presentation:**
+- F: Toggle Presentation Mode (full-screen, hide chrome)
+- Esc: Exit Presentation Mode
+- P: Toggle Confidence Preview (floating thumbnail)
+- Alt or bump top edge: Show control strip
+
+## Windows & Modes Architecture
+- **Presenter Window**: Edits + renders to single `<canvas>` element
+- **Viewer Window**: Opened via `window.open('/viewer')`, receives `canvas.captureStream(30)` via `postMessage`, plays `<video>` full-bleed
+- **Presentation Mode**: Full-screen with hidden chrome, press F to toggle, Esc to exit
+- **Confidence Preview**: Floating DOM thumbnail overlay (press P to toggle)
+- **Control Strip**: DOM-only, auto-hide, appears on Alt key or mouse bump to top edge
+
+## Open Questions (Use TODO Comments)
+When encountering these areas, leave TODO comments for future refinement:
+- Grid spacing customization
+- Undo/Redo history middleware architecture
+- Viewer reconnection UX when capture stream stops
+- Future WebGL2 renderer swap details
+
+## File Organization
+- `/src/components/` - Reusable UI components
+- `/src/pages/` - Top-level page components (PresenterPage, ViewerPage)
+- `/src/renderer/` - Canvas rendering logic
+- `/src/types/` - TypeScript type definitions
+- `/src/layers/` - Layer-related logic and factories
+- `/src/media/` - Media source management (camera, screen capture)
+- `/src/utils/` - Shared utilities
+- `/src/app/` - Store and persistence setup
+
+## Example Prompt Pattern
+When requesting new features, follow this pattern:
+"Create `ComponentName.tsx` that [describes functionality]. Include [specific features]. Use Zustand store for state. Provide TSDoc comments. Do not add [out-of-scope features]."
+
+## Code Generation Guidelines
+- Always generate TypeScript with strict typing
+- Create small, focused components (< 200 lines ideal)
+- Use functional React (no class components)
+- Include TSDoc for all exports
+- Test components are testable (pure functions, clear props)
+- Avoid external dependencies unless justified
+- No inline styles; use minimal CSS modules if needed
+- Throttle high-frequency events (mouse move, resize, etc.)
+- Use dirty-rect patterns for canvas optimization
