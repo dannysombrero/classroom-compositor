@@ -42,6 +42,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
 
   const toggleLock = (layerId: string, locked: boolean) => {
     updateLayer(layerId, { locked: !locked });
+    requestCurrentStreamFrame();
   };
 
   const isSelected = (layerId: string) => selection.includes(layerId);
@@ -238,15 +239,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
         </div>
       </div>
 
-      <div
-        style={{
-          flex: 1,
-          overflowY: 'auto',
-          borderRadius: '6px',
-          border: '1px solid rgba(255, 255, 255, 0.08)',
-          background: 'rgba(18, 18, 18, 0.6)',
-        }}
-      >
+      <div style={layersListStyle}>
         {orderedLayers.length === 0 ? (
           <div
             style={{
@@ -438,10 +431,29 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
           })
         )}
       </div>
-      <LayerPropertiesPanel layer={selectedLayer ?? null} />
+      <div style={propertiesContainerStyle}>
+        <LayerPropertiesPanel layer={selectedLayer ?? null} />
+      </div>
     </div>
   );
 }
+
+const layersListStyle: CSSProperties = {
+  maxHeight: '240px',
+  overflowY: 'auto',
+  borderRadius: '6px',
+  border: '1px solid rgba(255, 255, 255, 0.08)',
+  background: 'rgba(18, 18, 18, 0.6)',
+  width: '100%',
+};
+
+const propertiesContainerStyle: CSSProperties = {
+  flex: '1 1 auto',
+  minHeight: 0,
+  overflowY: 'auto',
+  paddingTop: '12px',
+  width: '100%',
+};
 
 const menuItemStyle: CSSProperties = {
   width: '100%',

@@ -83,6 +83,7 @@ export function PresenterPage() {
   const [isPresentationMode, setIsPresentationMode] = useState(false);
   const [isConfidencePreviewVisible, setIsConfidencePreviewVisible] = useState(false);
   const [controlStripVisible, setControlStripVisible] = useState(true);
+  const [isSceneLoading, setIsSceneLoading] = useState(true);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const controlStripTimerRef = useRef<number | null>(null);
   const clipboardRef = useRef<Layer[] | null>(null);
@@ -102,7 +103,7 @@ export function PresenterPage() {
     const id = state.selection[0];
     return scene.layers.find((layer) => layer.id === id) ?? null;
   }) as Layer | null;
-  const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLayer } = useAppStore();
+  const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLayer, undo, redo } = useAppStore();
 
   const showControlStrip = useCallback(() => {
     setControlStripVisible(true);
@@ -618,6 +619,18 @@ export function PresenterPage() {
     requestCurrentStreamFrame();
   }, [getSelectedLayers]);
 
+  const deleteSelection = useCallback(() => {
+    const state = useAppStore.getState();
+    const ids = state.selection;
+    if (ids.length === 0) return;
+    ids.forEach((id) => {
+      stopSource(id);
+      state.removeLayer(id);
+    });
+    state.setSelection([]);
+    requestCurrentStreamFrame();
+  }, []);
+
   const togglePresentationMode = useCallback(() => {
     if (!isPresentationMode) {
       const stream = ensureCanvasStream();
@@ -721,6 +734,21 @@ export function PresenterPage() {
         event.preventDefault();
         pasteClipboardLayers();
       },
+      '$mod+z': (event: KeyboardEvent) => {
+        if (isTextInputTarget(event)) return;
+        event.preventDefault();
+        undo();
+      },
+      '$mod+Shift+z': (event: KeyboardEvent) => {
+        if (isTextInputTarget(event)) return;
+        event.preventDefault();
+        redo();
+      },
+      '$mod+y': (event: KeyboardEvent) => {
+        if (isTextInputTarget(event)) return;
+        event.preventDefault();
+        redo();
+      },
       v: (event: KeyboardEvent) => {
         if (isTextInputTarget(event)) return;
         event.preventDefault();
@@ -730,6 +758,16 @@ export function PresenterPage() {
         if (isTextInputTarget(event)) return;
         event.preventDefault();
         toggleLockForSelection();
+      },
+      Delete: (event: KeyboardEvent) => {
+        if (isTextInputTarget(event)) return;
+        event.preventDefault();
+        deleteSelection();
+      },
+      Backspace: (event: KeyboardEvent) => {
+        if (isTextInputTarget(event)) return;
+        event.preventDefault();
+        deleteSelection();
       },
     };
 
@@ -749,6 +787,9 @@ export function PresenterPage() {
     toggleLockForSelection,
     togglePresentationMode,
     toggleVisibilityForSelection,
+    deleteSelection,
+    undo,
+    redo,
   ]);
 
   const isEditingSelectedText =
@@ -761,25 +802,29 @@ export function PresenterPage() {
     const initializeScene = async () => {
       const currentScene = getCurrentScene();
       if (currentScene) {
-        // Scene already loaded, nothing to do
         console.log('Scene already loaded:', currentScene.id);
+        setIsSceneLoading(false);
         return;
       }
 
       console.log('Initializing scene...');
-      // Try to load most recent scene
-      const mostRecent = await loadMostRecentScene();
-      if (mostRecent && mostRecent.id) {
-        console.log('Loading most recent scene:', mostRecent.id);
-        // Load the scene into store (we need to add it first, then load it)
-        useAppStore.setState((state) => ({
-          scenes: { ...state.scenes, [mostRecent.id!]: mostRecent },
-          currentSceneId: mostRecent.id,
-        }));
-      } else {
-        console.log('No saved scenes, creating new scene');
-        // No saved scenes, create a new one
+      try {
+        const mostRecent = await loadMostRecentScene();
+        if (mostRecent && mostRecent.id) {
+          console.log('Loading most recent scene:', mostRecent.id);
+          useAppStore.setState((state) => ({
+            scenes: { ...state.scenes, [mostRecent.id!]: mostRecent },
+            currentSceneId: mostRecent.id,
+          }));
+        } else {
+          console.log('No saved scenes, creating new scene');
+          createScene();
+        }
+      } catch (error) {
+        console.error('Failed to load most recent scene', error);
         createScene();
+      } finally {
+        setIsSceneLoading(false);
       }
     };
 
@@ -845,6 +890,26 @@ export function PresenterPage() {
           skipLayerIds={editingTextId ? [editingTextId] : undefined}
         />
       </div>
+      {isSceneLoading && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'rgba(10, 10, 10, 0.75)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 80,
+            pointerEvents: 'none',
+            color: '#f5f5f5',
+            fontSize: '14px',
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+          }}
+        >
+          Loading your scene…
+        </div>
+      )}
       <FloatingPanel
         title="Objects & Layers"
         position={panelPosition}

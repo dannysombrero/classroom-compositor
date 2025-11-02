@@ -28,11 +28,21 @@ interface AppState {
   currentSceneId: string | null;
   /** Array of selected layer IDs */
   selection: string[];
+  /** Undo stack for current scene */
+  history: Scene[];
+  /** Redo stack for current scene */
+  future: Scene[];
 }
 
 /**
  * Store actions interface.
  */
+interface UpdateLayerOptions {
+  recordHistory?: boolean;
+  persist?: boolean;
+  historySnapshot?: Scene | null;
+}
+
 interface AppActions {
   /**
    * Get the current scene being edited.
@@ -67,7 +77,7 @@ interface AppActions {
   /**
    * Update a layer with a partial update.
    */
-  updateLayer: (layerId: string, updates: Partial<Layer>) => void;
+  updateLayer: (layerId: string, updates: Partial<Layer>, options?: UpdateLayerOptions) => void;
 
   /**
    * Set the selected layer IDs.
@@ -78,6 +88,8 @@ interface AppActions {
    * Reorder layers by their z-order.
    */
   reorderLayers: (layerIds: string[]) => void;
+  undo: () => void;
+  redo: () => void;
 }
 
 /**
@@ -133,6 +145,14 @@ function persistSceneImmediate(scene: Scene): void {
   });
 }
 
+function snapshotScene(scene: Scene | null): Scene | null {
+  if (!scene) return null;
+  if (typeof structuredClone === 'function') {
+    return structuredClone(scene);
+  }
+  return JSON.parse(JSON.stringify(scene)) as Scene;
+}
+
 /**
  * Create and export the Zustand store hook.
  * 
@@ -146,6 +166,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   scenes: {},
   currentSceneId: null,
   selection: [],
+  history: [],
+  future: [],
 
   // Actions
   getCurrentScene: () => {
@@ -167,6 +189,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
       scenes: { ...state.scenes, [id]: scene },
       currentSceneId: id,
       selection: [],
+      history: [],
+      future: [],
     }));
     persistSceneImmediate(scene);
   },
@@ -174,7 +198,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   loadScene: (id: string) => {
     const { scenes } = get();
     if (scenes[id]) {
-      set({ currentSceneId: id, selection: [] });
+      set({ currentSceneId: id, selection: [], history: [], future: [] });
     }
   },
 
@@ -206,6 +230,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       ? Math.max(...scene.layers.map((l) => l.z))
       : 0;
     const nextLayer = withLayerZ(workingLayer, maxZ + 1);
+    const snapshot = snapshotScene(scene);
     const updatedScene: Scene = {
       ...scene,
       layers: [...scene.layers, nextLayer],
@@ -213,6 +238,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     set((state) => ({
       scenes: { ...state.scenes, [state.currentSceneId!]: updatedScene },
+      history: snapshot ? [...state.history, snapshot] : state.history,
+      future: [],
     }));
     persistSceneImmediate(updatedScene);
   },
@@ -222,6 +249,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const scene = getCurrentScene();
     if (!scene) return;
 
+    const snapshot = snapshotScene(scene);
     const updatedScene: Scene = {
       ...scene,
       layers: scene.layers.filter((layer) => layer.id !== layerId),
@@ -230,15 +258,20 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set((state) => ({
       scenes: { ...state.scenes, [state.currentSceneId!]: updatedScene },
       selection: state.selection.filter((id) => id !== layerId),
+      history: snapshot ? [...state.history, snapshot] : state.history,
+      future: [],
     }));
     persistSceneImmediate(updatedScene);
   },
 
-  updateLayer: (layerId: string, updates: Partial<Layer>) => {
+  updateLayer: (layerId: string, updates: Partial<Layer>, options: UpdateLayerOptions = {}) => {
+    const { recordHistory = true, persist = true, historySnapshot } = options;
     const { getCurrentScene } = get();
     const scene = getCurrentScene();
     if (!scene) return;
 
+    const snapshotSource = historySnapshot ?? (recordHistory ? snapshotScene(scene) : null);
+    const snapshotClone = snapshotSource ? snapshotScene(snapshotSource) : null;
     const updatedScene: Scene = {
       ...scene,
       layers: scene.layers.map((layer) =>
@@ -248,8 +281,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     set((state) => ({
       scenes: { ...state.scenes, [state.currentSceneId!]: updatedScene },
+      history: snapshotClone ? [...state.history, snapshotClone] : state.history,
+      future: snapshotClone ? [] : state.future,
     }));
-    persistSceneImmediate(updatedScene);
+    if (persist) {
+      persistSceneImmediate(updatedScene);
+    }
   },
 
   setSelection: (layerIds: string[]) => {
@@ -261,6 +298,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const scene = getCurrentScene();
     if (!scene) return;
 
+    const snapshot = snapshotScene(scene);
     const layerMap = new Map(scene.layers.map((layer) => [layer.id, layer] as const));
     const seen = new Set<string>();
     const orderedIds: string[] = [];
@@ -295,7 +333,41 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     set((state) => ({
       scenes: { ...state.scenes, [state.currentSceneId!]: updatedScene },
+      history: snapshot ? [...state.history, snapshot] : state.history,
+      future: [],
     }));
     persistSceneImmediate(updatedScene);
+  },
+
+  undo: () => {
+    const state = get();
+    const { history, currentSceneId } = state;
+    if (!currentSceneId || history.length === 0) return;
+    const scenes = state.scenes;
+    const current = scenes[currentSceneId];
+    const previous = history[history.length - 1];
+    if (!current || !previous) return;
+    set({
+      scenes: { ...scenes, [currentSceneId]: previous },
+      history: history.slice(0, -1),
+      future: [snapshotScene(current)!, ...state.future],
+    });
+    persistSceneImmediate(previous);
+  },
+
+  redo: () => {
+    const state = get();
+    const { future, currentSceneId } = state;
+    if (!currentSceneId || future.length === 0) return;
+    const scenes = state.scenes;
+    const current = scenes[currentSceneId];
+    const nextScene = future[0];
+    if (!current || !nextScene) return;
+    set({
+      scenes: { ...scenes, [currentSceneId]: nextScene },
+      history: [...state.history, snapshotScene(current)!],
+      future: future.slice(1),
+    });
+    persistSceneImmediate(nextScene);
   },
 }));

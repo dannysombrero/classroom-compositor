@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import type { Layer } from '../types/scene';
 import { useAppStore } from '../app/store';
 import { requestCurrentStreamFrame } from '../utils/viewerStream';
@@ -7,17 +7,21 @@ interface LayerPropertiesPanelProps {
   layer: Layer | null;
 }
 
-const ALIGNMENT_OPTIONS: Array<{ value: 'left' | 'center' | 'right'; label: string }> = [
-  { value: 'left', label: 'L' },
-  { value: 'center', label: 'C' },
-  { value: 'right', label: 'R' },
+const ALIGNMENT_OPTIONS: Array<{ value: 'left' | 'center' | 'right'; lines: number[] }> = [
+  { value: 'left', lines: [100, 80, 60] },
+  { value: 'center', lines: [60, 100, 60] },
+  { value: 'right', lines: [60, 80, 100] },
 ];
+
+const IMAGE_SCALE_MIN_PERCENT = 5;
+const IMAGE_SCALE_MAX_PERCENT = 400;
 
 export function LayerPropertiesPanel({ layer }: LayerPropertiesPanelProps) {
   const updateLayer = useAppStore((state) => state.updateLayer);
 
   const supportsFill = layer?.type === 'shape';
   const supportsText = layer?.type === 'text';
+  const supportsImage = layer?.type === 'image';
 
   const textValues = useMemo(() => {
     if (layer?.type !== 'text') return null;
@@ -31,6 +35,19 @@ export function LayerPropertiesPanel({ layer }: LayerPropertiesPanelProps) {
     return layer;
   }, [layer]);
 
+  const imageValues = useMemo(() => {
+    if (layer?.type !== 'image') return null;
+    return layer;
+  }, [layer]);
+  const [imageWidthInput, setImageWidthInput] = useState('');
+  const [imageHeightInput, setImageHeightInput] = useState('');
+
+  useEffect(() => {
+    if (!imageValues) return;
+    setImageWidthInput(Math.round(imageValues.transform.scale.x * 100).toString());
+    setImageHeightInput(Math.round(imageValues.transform.scale.y * 100).toString());
+  }, [imageValues?.id, imageValues?.transform.scale.x, imageValues?.transform.scale.y, imageValues?.scaleLocked]);
+
   const shapeFillAlpha = shapeValues ? extractAlpha(shapeValues.fillColor) : 1;
 
   if (!layer) {
@@ -42,6 +59,175 @@ export function LayerPropertiesPanel({ layer }: LayerPropertiesPanelProps) {
   return (
     <div style={panelStyle.container}>
       <div style={panelStyle.sectionTitle}>Properties</div>
+      {supportsImage && imageValues && (
+        <div style={panelStyle.section}>
+          <div style={panelStyle.labelRow}>
+            <span>Scale lock</span>
+            <button
+              type="button"
+              onClick={() => {
+                const next = !(imageValues.scaleLocked ?? true);
+                updateLayer(imageValues.id, { scaleLocked: next });
+                requestCurrentStreamFrame();
+              }}
+              style={{
+                ...panelStyle.lockToggle,
+                ...((imageValues.scaleLocked ?? true) ? panelStyle.lockToggleActive : null),
+              }}
+            >
+              {(imageValues.scaleLocked ?? true) ? '🔒 linked' : '🔓 free'}
+            </button>
+          </div>
+          <div style={panelStyle.labelRow}>
+            <span>Base Size</span>
+            <span style={panelStyle.valueText}>
+              {Math.round(imageValues.width)} × {Math.round(imageValues.height)} px
+            </span>
+          </div>
+          <label style={panelStyle.labelRow}>
+            <span>Width %</span>
+            <input
+              type="number"
+              min={IMAGE_SCALE_MIN_PERCENT}
+              max={IMAGE_SCALE_MAX_PERCENT}
+              value={imageWidthInput}
+              onChange={(event) => {
+                const input = event.target.value;
+                setImageWidthInput(input);
+                if (input.trim() === '') {
+                  return;
+                }
+                const raw = Number(input);
+                if (Number.isNaN(raw)) {
+                  return;
+                }
+                if (raw < IMAGE_SCALE_MIN_PERCENT) {
+                  return;
+                }
+                const percent = Math.min(raw, IMAGE_SCALE_MAX_PERCENT);
+                const scaleValue = percent / 100;
+                const locked = imageValues.scaleLocked ?? true;
+                updateLayer(imageValues.id, {
+                  transform: {
+                    ...imageValues.transform,
+                    scale: {
+                      x: scaleValue,
+                      y: locked ? scaleValue : imageValues.transform.scale.y,
+                    },
+                  },
+                });
+                setImageWidthInput(percent.toString());
+                if (locked) {
+                  setImageHeightInput(percent.toString());
+                }
+                requestCurrentStreamFrame();
+              }}
+              style={panelStyle.numberInput}
+              onBlur={() => {
+                if (imageWidthInput.trim() === '') {
+                  const fallback = clampPercent(Math.round(imageValues.transform.scale.x * 100));
+                  setImageWidthInput(fallback.toString());
+                  return;
+                }
+                const raw = Number(imageWidthInput);
+                if (Number.isNaN(raw)) {
+                  const fallback = clampPercent(Math.round(imageValues.transform.scale.x * 100));
+                  setImageWidthInput(fallback.toString());
+                  return;
+                }
+                const clamped = clampPercent(raw);
+                setImageWidthInput(clamped.toString());
+                const locked = imageValues.scaleLocked ?? true;
+                const scaleValue = clamped / 100;
+                updateLayer(imageValues.id, {
+                  transform: {
+                    ...imageValues.transform,
+                    scale: {
+                      x: scaleValue,
+                      y: locked ? scaleValue : imageValues.transform.scale.y,
+                    },
+                  },
+                });
+                if (locked) {
+                  setImageHeightInput(clamped.toString());
+                }
+                requestCurrentStreamFrame();
+              }}
+            />
+          </label>
+          <label style={panelStyle.labelRow}>
+            <span>Height %</span>
+            <input
+              type="number"
+              min={IMAGE_SCALE_MIN_PERCENT}
+              max={IMAGE_SCALE_MAX_PERCENT}
+              value={imageHeightInput}
+              onChange={(event) => {
+                const input = event.target.value;
+                setImageHeightInput(input);
+                if (input.trim() === '') {
+                  return;
+                }
+                const raw = Number(input);
+                if (Number.isNaN(raw)) {
+                  return;
+                }
+                if (raw < IMAGE_SCALE_MIN_PERCENT) {
+                  return;
+                }
+                const percent = Math.min(raw, IMAGE_SCALE_MAX_PERCENT);
+                const scaleValue = percent / 100;
+                const locked = imageValues.scaleLocked ?? true;
+                updateLayer(imageValues.id, {
+                  transform: {
+                    ...imageValues.transform,
+                    scale: {
+                      x: locked ? scaleValue : imageValues.transform.scale.x,
+                      y: scaleValue,
+                    },
+                  },
+                });
+                setImageHeightInput(percent.toString());
+                if (locked) {
+                  setImageWidthInput(percent.toString());
+                }
+                requestCurrentStreamFrame();
+              }}
+              style={panelStyle.numberInput}
+              onBlur={() => {
+                if (imageHeightInput.trim() === '') {
+                  const fallback = clampPercent(Math.round(imageValues.transform.scale.y * 100));
+                  setImageHeightInput(fallback.toString());
+                  return;
+                }
+                const raw = Number(imageHeightInput);
+                if (Number.isNaN(raw)) {
+                  const fallback = clampPercent(Math.round(imageValues.transform.scale.y * 100));
+                  setImageHeightInput(fallback.toString());
+                  return;
+                }
+                const clamped = clampPercent(raw);
+                setImageHeightInput(clamped.toString());
+                const locked = imageValues.scaleLocked ?? true;
+                const scaleValue = clamped / 100;
+                updateLayer(imageValues.id, {
+                  transform: {
+                    ...imageValues.transform,
+                    scale: {
+                      x: locked ? scaleValue : imageValues.transform.scale.x,
+                      y: scaleValue,
+                    },
+                  },
+                });
+                if (locked) {
+                  setImageWidthInput(clamped.toString());
+                }
+                requestCurrentStreamFrame();
+              }}
+            />
+          </label>
+        </div>
+      )}
       {supportsText && textValues && (
         <div style={panelStyle.section}>
           <label style={panelStyle.label}>
@@ -88,7 +274,19 @@ export function LayerPropertiesPanel({ layer }: LayerPropertiesPanelProps) {
                       : null),
                   }}
                 >
-                  {option.label}
+                  <div style={panelStyle.alignmentIcon}>
+                    {option.lines.map((percent, index) => (
+                      <span
+                        key={index}
+                        style={{
+                          ...panelStyle.alignmentIconLine,
+                          width: `${percent}%`,
+                          marginLeft: option.value === 'left' ? 0 : 'auto',
+                          marginRight: option.value === 'right' ? 0 : 'auto',
+                        }}
+                      />
+                    ))}
+                  </div>
                 </button>
               ))}
             </div>
@@ -143,6 +341,23 @@ export function LayerPropertiesPanel({ layer }: LayerPropertiesPanelProps) {
 
       {supportsFill && shapeValues && (
         <div style={panelStyle.section}>
+          <div style={panelStyle.labelRow}>
+            <span>Scale lock</span>
+            <button
+              type="button"
+              onClick={() => {
+                const next = !(shapeValues.scaleLocked ?? true);
+                updateLayer(shapeValues.id, { scaleLocked: next });
+                requestCurrentStreamFrame();
+              }}
+              style={{
+                ...panelStyle.lockToggle,
+                ...((shapeValues.scaleLocked ?? true) ? panelStyle.lockToggleActive : null),
+              }}
+            >
+              {(shapeValues.scaleLocked ?? true) ? '🔒 linked' : '🔓 free'}
+            </button>
+          </div>
           <label style={panelStyle.labelRow}>
             <span>Fill</span>
             <input
@@ -198,6 +413,40 @@ export function LayerPropertiesPanel({ layer }: LayerPropertiesPanelProps) {
               onChange={(event) => {
                 const next = Number(event.target.value || 0);
                 updateLayer(shapeValues.id, { strokeWidth: next });
+                requestCurrentStreamFrame();
+              }}
+              style={panelStyle.numberInput}
+            />
+          </label>
+          <label style={panelStyle.labelRow}>
+            <span>Width (px)</span>
+            <input
+              type="number"
+              min={10}
+              max={8000}
+              value={Math.round(shapeValues.width)}
+              onChange={(event) => {
+                const raw = Number(event.target.value);
+                if (Number.isNaN(raw)) return;
+                const width = Math.max(1, Math.min(raw, 8000));
+                updateLayer(shapeValues.id, { width });
+                requestCurrentStreamFrame();
+              }}
+              style={panelStyle.numberInput}
+            />
+          </label>
+          <label style={panelStyle.labelRow}>
+            <span>Height (px)</span>
+            <input
+              type="number"
+              min={10}
+              max={8000}
+              value={Math.round(shapeValues.height)}
+              onChange={(event) => {
+                const raw = Number(event.target.value);
+                if (Number.isNaN(raw)) return;
+                const height = Math.max(1, Math.min(raw, 8000));
+                updateLayer(shapeValues.id, { height });
                 requestCurrentStreamFrame();
               }}
               style={panelStyle.numberInput}
@@ -261,6 +510,11 @@ function toHex(value: number): string {
   return value.toString(16).padStart(2, '0');
 }
 
+function clampPercent(value: number): number {
+  if (Number.isNaN(value)) return IMAGE_SCALE_MIN_PERCENT;
+  return Math.min(IMAGE_SCALE_MAX_PERCENT, Math.max(IMAGE_SCALE_MIN_PERCENT, value));
+}
+
 const panelStyle: Record<string, CSSProperties> = {
   container: {
     borderTop: '1px solid rgba(255, 255, 255, 0.08)',
@@ -268,6 +522,9 @@ const panelStyle: Record<string, CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     gap: '12px',
+    maxHeight: '100%',
+    overflowY: 'auto',
+    paddingRight: '4px',
   },
   sectionTitle: {
     fontSize: '12px',
@@ -311,6 +568,38 @@ const panelStyle: Record<string, CSSProperties> = {
     transition: 'background 0.2s, border-color 0.2s',
   },
   alignmentButtonActive: {
+    background: 'rgba(0, 166, 255, 0.25)',
+    borderColor: 'rgba(0, 166, 255, 0.8)',
+  },
+  alignmentIcon: {
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'stretch',
+    gap: '3px',
+    width: '100%',
+    padding: '0 6px',
+  },
+  alignmentIconLine: {
+    display: 'block',
+    height: '2px',
+    borderRadius: '1px',
+    background: 'currentColor',
+  },
+  valueText: {
+    fontSize: '12px',
+    color: 'rgba(255, 255, 255, 0.75)',
+  },
+  lockToggle: {
+    border: '1px solid rgba(255, 255, 255, 0.18)',
+    borderRadius: '6px',
+    background: 'rgba(255, 255, 255, 0.08)',
+    color: '#f5f5f5',
+    fontSize: '11px',
+    padding: '4px 10px',
+    cursor: 'pointer',
+  },
+  lockToggleActive: {
     background: 'rgba(0, 166, 255, 0.25)',
     borderColor: 'rgba(0, 166, 255, 0.8)',
   },

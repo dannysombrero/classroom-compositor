@@ -70,6 +70,8 @@ export interface ImageLayer extends BaseLayer {
   height: number;
   /** Embedded data URI for local images (temporary until asset pipeline) */
   dataUri?: string;
+  /** Maintain uniform scaling when resizing */
+  scaleLocked?: boolean;
 }
 
 /**
@@ -116,6 +118,8 @@ export interface ShapeLayer extends BaseLayer {
   strokeColor?: string;
   /** Stroke width in pixels */
   strokeWidth?: number;
+  /** Maintain uniform scaling when resizing */
+  scaleLocked?: boolean;
 }
 
 /**

@@ -6,6 +6,8 @@ import { useAppStore } from '../app/store';
 import { requestCurrentStreamFrame } from '../utils/viewerStream';
 
 const MIN_SIZE = 40;
+const IMAGE_SCALE_MIN = 0.05;
+const IMAGE_SCALE_MAX = 6;
 
 type ResizeHandle = 'top-left' | 'top-right' | 'bottom-right' | 'bottom-left';
 
@@ -15,6 +17,8 @@ type DragState =
       pointerId: number;
       offsetX: number;
       offsetY: number;
+      historySnapshot?: Scene | null;
+      historyApplied?: boolean;
     }
   | {
       type: 'resize';
@@ -23,6 +27,8 @@ type DragState =
       opposite: { x: number; y: number };
       baseSize: { width: number; height: number };
       initialFontSize?: number;
+      historySnapshot?: Scene | null;
+      historyApplied?: boolean;
     };
 
 interface TransformControlsProps {
@@ -31,6 +37,11 @@ interface TransformControlsProps {
   scene: Scene;
   onRequestEdit?: () => void;
 }
+
+const cloneSceneForHistory = (source: Scene | null): Scene | null => {
+  if (!source) return null;
+  return JSON.parse(JSON.stringify(source)) as Scene;
+};
 
 export function TransformControls({ layout, layer, scene, onRequestEdit }: TransformControlsProps) {
   const updateLayer = useAppStore((state) => state.updateLayer);
@@ -74,6 +85,23 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
     { key: 'bottom-left', left: '-8px', top: `calc(100% - 8px)` },
   ];
 
+  const computeCenterFromHandle = useCallback(
+    (handle: ResizeHandle, opposite: { x: number; y: number }, halfWidth: number, halfHeight: number) => {
+      switch (handle) {
+        case 'top-left':
+          return { x: opposite.x - halfWidth, y: opposite.y - halfHeight };
+        case 'top-right':
+          return { x: opposite.x + halfWidth, y: opposite.y - halfHeight };
+        case 'bottom-right':
+          return { x: opposite.x + halfWidth, y: opposite.y + halfHeight };
+        case 'bottom-left':
+        default:
+          return { x: opposite.x - halfWidth, y: opposite.y + halfHeight };
+      }
+    },
+    []
+  );
+
   const pointerToScene = useCallback(
     (clientX: number, clientY: number) => ({
       x: (clientX - layout.x) / layout.scaleX,
@@ -90,6 +118,8 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
       pointerId: event.pointerId,
       offsetX: pointerScene.x - layerRef.current.transform.pos.x,
       offsetY: pointerScene.y - layerRef.current.transform.pos.y,
+      historySnapshot: cloneSceneForHistory(useAppStore.getState().getCurrentScene()),
+      historyApplied: false,
     };
     window.addEventListener('pointermove', handlePointerMove, { passive: false });
     window.addEventListener('pointerup', endDrag);
@@ -121,6 +151,8 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
       opposite: opposite[handle],
       baseSize,
       initialFontSize: currentLayer.type === 'text' ? currentLayer.fontSize : undefined,
+      historySnapshot: cloneSceneForHistory(useAppStore.getState().getCurrentScene()),
+      historyApplied: false,
     };
 
     window.addEventListener('pointermove', handlePointerMove, { passive: false });
@@ -140,6 +172,20 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
 
       const currentLayer = layerRef.current;
       const pointerScene = pointerToScene(event.clientX, event.clientY);
+      const currentDrag = dragStateRef.current;
+
+      const historyOptions = () => {
+        if (!currentDrag) return { recordHistory: false, persist: false };
+        if (!currentDrag.historyApplied && currentDrag.historySnapshot) {
+          currentDrag.historyApplied = true;
+          return {
+            recordHistory: false,
+            persist: false,
+            historySnapshot: currentDrag.historySnapshot,
+          } as const;
+        }
+        return { recordHistory: false, persist: false } as const;
+      };
 
       if (dragState.type === 'move') {
         const newPos = {
@@ -151,7 +197,7 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
             ...currentLayer.transform,
             pos: newPos,
           },
-        });
+        }, historyOptions());
         requestCurrentStreamFrame();
         return;
       }
@@ -222,20 +268,38 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
             pos: derivedCenter,
             scale: { x: 1, y: 1 },
           },
-        });
+        }, historyOptions());
         requestCurrentStreamFrame();
         return;
       }
 
-      const newCenter = {
-        x: (pointerScene.x + opposite.x) / 2,
-        y: (pointerScene.y + opposite.y) / 2,
-      };
-
-      if (currentLayer.type === 'image' || currentLayer.type === 'shape') {
-        newScaleX = Math.max(newScaleX, MIN_SIZE / baseSize.width);
-        newScaleY = Math.max(newScaleY, MIN_SIZE / baseSize.height);
+      if (currentLayer.type === 'image') {
+        const locked = currentLayer.scaleLocked ?? true;
+        const minScaleX = Math.max(MIN_SIZE / baseSize.width, IMAGE_SCALE_MIN);
+        const minScaleY = Math.max(MIN_SIZE / baseSize.height, IMAGE_SCALE_MIN);
+        newScaleX = Math.min(IMAGE_SCALE_MAX, Math.max(newScaleX, minScaleX));
+        newScaleY = Math.min(IMAGE_SCALE_MAX, Math.max(newScaleY, minScaleY));
+        if (locked) {
+          const uniformScale = Math.min(newScaleX, newScaleY);
+          newScaleX = uniformScale;
+          newScaleY = uniformScale;
+        }
+      } else if (currentLayer.type === 'shape') {
+        const locked = currentLayer.scaleLocked ?? true;
+        const minScaleX = Math.max(MIN_SIZE / baseSize.width, IMAGE_SCALE_MIN);
+        const minScaleY = Math.max(MIN_SIZE / baseSize.height, IMAGE_SCALE_MIN);
+        newScaleX = Math.min(IMAGE_SCALE_MAX, Math.max(newScaleX, minScaleX));
+        newScaleY = Math.min(IMAGE_SCALE_MAX, Math.max(newScaleY, minScaleY));
+        if (locked) {
+          const uniformScale = Math.min(newScaleX, newScaleY);
+          newScaleX = uniformScale;
+          newScaleY = uniformScale;
+        }
       }
+
+      const scaledHalfWidth = (baseSize.width * Math.abs(newScaleX)) / 2;
+      const scaledHalfHeight = (baseSize.height * Math.abs(newScaleY)) / 2;
+      const newCenter = computeCenterFromHandle(dragState.handle, opposite, scaledHalfWidth, scaledHalfHeight);
 
       updateLayer(currentLayer.id, {
         transform: {
@@ -246,10 +310,10 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
             y: newScaleY,
           },
         },
-      });
+      }, historyOptions());
       requestCurrentStreamFrame();
     },
-    [pointerToScene, updateLayer]
+    [computeCenterFromHandle, pointerToScene, updateLayer]
   );
 
   const endDrag = useCallback((event: PointerEvent) => {
@@ -259,6 +323,9 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', endDrag);
       window.removeEventListener('pointercancel', endDrag);
+      if (dragState.historyApplied) {
+        void useAppStore.getState().saveScene();
+      }
     }
   }, [handlePointerMove]);
 

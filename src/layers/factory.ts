@@ -109,6 +109,7 @@ export function createImageLayer(
     width,
     height,
     dataUri,
+    scaleLocked: true,
   };
 }
 
@@ -131,5 +132,6 @@ export function createShapeLayer(
     fillColor: 'rgba(0, 0, 0, 0.4)',
     strokeColor: 'rgba(255, 255, 255, 0.45)',
     strokeWidth: 4,
+    scaleLocked: true,
   };
 }
