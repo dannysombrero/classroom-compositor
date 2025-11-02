@@ -178,7 +178,7 @@ export function FloatingPanel({
       <div
         style={{
           flex: 1,
-          overflow: 'hidden',
+          overflow: 'visible',
           display: 'flex',
           flexDirection: 'column',
         }}
@@ -217,4 +217,3 @@ export function FloatingPanel({
     </div>
   );
 }
-

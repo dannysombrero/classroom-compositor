@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useMemo, useState, type CSSProperties, type DragEvent } from 'react';
 import type { Layer } from '../types/scene';
 import { useAppStore } from '../app/store';
 import { shallow } from 'zustand/shallow';
@@ -17,8 +17,11 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera }: LayersPanelPro
   const [menuOpen, setMenuOpen] = useState(false);
   const updateLayer = useAppStore((state) => state.updateLayer);
   const removeLayer = useAppStore((state) => state.removeLayer);
+  const reorderLayers = useAppStore((state) => state.reorderLayers);
   const setSelection = useAppStore((state) => state.setSelection);
   const selection = useAppStore((state) => state.selection, shallow);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   const orderedLayers = useMemo(() => {
     // Highest z first for UI readability (top-most layer at top)
@@ -33,6 +36,69 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera }: LayersPanelPro
 
   const handleRowClick = (layerId: string) => {
     setSelection([layerId]);
+  };
+
+  const handleReorder = (draggedId: string, targetId: string | null, placeBefore: boolean) => {
+    const currentOrder = orderedLayers.map((layer) => layer.id);
+    const draggedIndex = currentOrder.indexOf(draggedId);
+    if (draggedIndex === -1) return;
+
+    currentOrder.splice(draggedIndex, 1);
+
+    let insertIndex: number;
+    if (targetId && currentOrder.includes(targetId)) {
+      insertIndex = currentOrder.indexOf(targetId);
+      if (!placeBefore) {
+        insertIndex += 1;
+      }
+    } else {
+      insertIndex = placeBefore ? 0 : currentOrder.length;
+    }
+
+    currentOrder.splice(insertIndex, 0, draggedId);
+
+    const ascendingOrder = [...currentOrder].reverse();
+    reorderLayers(ascendingOrder);
+    setSelection([draggedId]);
+  };
+
+  const handleDragStart = (event: DragEvent<HTMLButtonElement>, layerId: string) => {
+    setDraggingId(layerId);
+    setDragOverId(layerId);
+    event.dataTransfer.effectAllowed = 'move';
+    try {
+      event.dataTransfer.setData('text/plain', layerId);
+    } catch {
+      // Some browsers may throw; ignore since we track in state.
+    }
+  };
+
+  const handleDragOver = (event: DragEvent<HTMLButtonElement>, layerId: string) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    if (dragOverId !== layerId) {
+      setDragOverId(layerId);
+    }
+  };
+
+  const handleDrop = (event: DragEvent<HTMLButtonElement>, targetId: string) => {
+    event.preventDefault();
+    if (!draggingId || draggingId === targetId) {
+      setDraggingId(null);
+      setDragOverId(null);
+      return;
+    }
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const placeBefore = event.clientY < rect.top + rect.height / 2;
+    handleReorder(draggingId, targetId, placeBefore);
+    setDraggingId(null);
+    setDragOverId(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggingId(null);
+    setDragOverId(null);
   };
 
   return (
@@ -158,16 +224,28 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera }: LayersPanelPro
             No layers yet. Click + to add a source.
           </div>
         ) : (
-          orderedLayers.map((layer) => (
+          orderedLayers.map((layer) => {
+            const isDragTarget = dragOverId === layer.id && draggingId !== null;
+            const isDragging = draggingId === layer.id;
+            return (
             <button
               key={layer.id}
               onClick={() => handleRowClick(layer.id)}
+              draggable
+              onDragStart={(event) => handleDragStart(event, layer.id)}
+              onDragOver={(event) => handleDragOver(event, layer.id)}
+              onDrop={(event) => handleDrop(event, layer.id)}
+              onDragEnd={handleDragEnd}
               style={{
                 width: '100%',
                 border: 'none',
-                background: isSelected(layer.id)
-                  ? 'rgba(0, 102, 204, 0.35)'
-                  : 'transparent',
+                background: isDragging
+                  ? 'rgba(0, 102, 204, 0.45)'
+                  : isSelected(layer.id)
+                    ? 'rgba(0, 102, 204, 0.35)'
+                    : isDragTarget
+                      ? 'rgba(255, 255, 255, 0.08)'
+                      : 'transparent',
                 color: '#f5f5f5',
                 padding: '10px 12px',
                 display: 'flex',
@@ -250,7 +328,8 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera }: LayersPanelPro
                 </svg>
               </button>
             </button>
-          ))
+          );
+          })
         )}
       </div>
     </div>
