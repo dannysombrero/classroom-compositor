@@ -1,0 +1,236 @@
+# 🧭 Project Handover: ClassCast (classcast.app)
+**Prepared for:** Codex Development Team & Product Management  
+**Author:** Daniel — Lead Concept Developer  
+**Date:** 2025-11-02  
+
+---
+
+## 🚀 Overview
+**ClassCast** is a lightweight, browser-based *classroom compositing and engagement platform* designed to give teachers the expressive power of a livestream (like OBS) without the technical bloat.
+
+It enables educators to:
+- Combine **screen/window capture**, **webcam feed**, and **overlays** into clear visual scenes.  
+- Mirror the composed canvas to a “viewer” window or URL for projection.  
+- Toggle overlays and scenes live via an intuitive panel.  
+- Eventually record, replay, and analyze lessons as engaging “class streams.”
+
+The guiding principle: **make classroom presentations feel alive** while keeping the tool friction-free for district-managed environments.
+
+---
+
+## 🧱 Current MVP Status (Sprint 1)
+
+### ✅ Functional
+- Presenter → Viewer multi-window loop working (`canvas.captureStream()` + `requestFrame`).  
+- Viewer mirror updates in real-time; gray placeholder scene renders.  
+- React + TypeScript + Vite toolchain operational.  
+- Base project structure (services, hooks, types) complete.
+
+### 🧩 Outstanding for MVP Completion
+- Screen/window capture & webcam layers (circle mask + soft border)  
+- Overlay panel with visibility toggles, z-order control, and grouping  
+- Layer CRUD (text, image, rectangle overlays + transforms + snap)  
+- Scene persistence (Dexie / IndexedDB → LocalStorage shim)  
+- Presentation Mode (F/Esc), Confidence Preview (P), minimal control strip  
+- Hotkeys (copy/paste/duplicate/nudge/group)  
+- Asset management (referenced vs embedded)  
+- Renderer polish (camera masking, dirty redraws)
+
+---
+
+## 🎯 Next Implementation Target
+Implement the **sources layer** — screen capture and webcam input.  
+Once real video streams render in the presenter canvas, all overlay and scene logic can be exercised in context.
+
+---
+
+## 🗺️ Roadmap by Phase
+
+### **Sprint 1–2 · Core Composition**
+- Screen/window capture (`getDisplayMedia`)  
+- Webcam capture (`getUserMedia`)  
+- Canvas compositing + Z-order rendering  
+- Overlay panel UI  
+- Scene save/load (Dexie schema, shim active)
+
+---
+
+### **Sprint 3 · Engagement Layer**
+Goal: simulate stream-like energy without external accounts.
+- Fake / AI “classmates” (Tier 1 = scripted timed chat events)  
+- Comment ticker + emoji reactions (BroadcastChannel prototype)  
+- Theme presets (“Classroom Vibes”)  
+- Local moderation filter (blocklist + regex + rate-limit)  
+- Engagement event logger foundation
+
+---
+
+### **Sprint 4 · Replay & Analytics Foundation**
+Goal: allow teachers to review lessons & engagement trends.
+- Local engagement logging (hearts, overlay toggles, comments)  
+- **After-Class Replay v1:**  
+  - Record composited canvas via MediaRecorder  
+  - 720p/1080p @ 15 fps recommended  
+  - Timeslice + File System Access API write  
+  - JSON event log for chat/reactions  
+- Basic Analytics dashboard (“hearts per minute”, “top interactions”)
+
+---
+
+### **Sprint 5 · Accounts & Cloud Sync**
+- Optional teacher login (Supabase/Firebase)  
+- Scene & asset cloud sync  
+- Participation leaderboard (local → cloud extension)  
+- Optional saved-stream library foundation (future paid feature)
+
+---
+
+### **Sprint 6 + · Differentiators / AI Layer**
+- AI Classmates (Tier 2–3): context-aware reactions & questions  
+- AI Engagement Summary: tone & confusion analysis  
+- Replay 2.0 (video + chat synchronization)  
+- Advanced moderation (TF.js / external API opt-in)
+
+---
+
+## ⚙️ Technical Design
+
+### Stack
+| Layer | Tech |
+|-------|------|
+| **Frontend** | React + TypeScript + Vite |
+| **Rendering** | HTML Canvas 2D (OffscreenCanvas later for perf) |
+| **Persistence** | Dexie (IndexedDB) + LocalStorage shim |
+| **Routing** | Simple pathname check (no Router yet) |
+| **Testing** | Vitest + React Testing Library |
+
+---
+
+### Service Interfaces (defined / stubbed)
+
+#### `RecordingService`
+```ts
+export type RecQuality = 'low_720p15' | 'std_1080p15' | 'high_1080p30';
+export interface RecordingOpts {
+  quality: RecQuality;
+  includeMic: boolean;
+  includeSystemAudio: boolean;
+}
+export interface RecordingService {
+  isSupported(): boolean;
+  start(opts: RecordingOpts): Promise<void>;
+  pause(): void;
+  resume(): void;
+  stop(): Promise<{ videoPath?: string; bytes?: number }>;
+}
+
+Currently a no-op stub; ensures future recording & audio integration require no UI refactor.
+
+ModerationService
+export interface Moderation {
+  filter(input: string): { allowed: boolean; redacted?: string; reason?: string };
+}
+
+Implements local blocklist + regex MVP; TF.js toxicity or cloud API can be swapped in later.
+
+Replay / Storage Metrics
+Mode
+Resolution
+FPS
+Est. Bitrate
+45 min Approx.
+Notes
+Low
+720p
+15
+1–2.5 Mbps
+0.35–0.85 GB
+Balanced
+Standard
+1080p
+15
+2–5 Mbps
+0.7–1.7 GB
+Recommended
+High
+1080p
+30
+3–8 Mbps
+1.2–2.8 GB
+Heavy but smooth
+
+Chat/event log ≈ < 1 MB per class.
+Use timesliced recording + File System Access API to avoid memory ballooning.
+
+⸻
+
+Moderation Model (Local-First)
+	1.	Strict / Standard / Off presets.
+	2.	Word & phrase blocklist + PII regex.
+	3.	TF.js toxicity model (optional).
+	4.	Future cloud moderation API (opt-in).
+
+⸻
+
+🧠 Engagement & Differentiation Summary
+Feature
+Priority
+Description
+Fake AI Classmates (Tier 1)
+High
+Scripted chat for liveliness
+“Memify Mode”
+Low
+Event-triggered memes
+After-Class Replay
+High
+Replay canvas + chat timeline
+Participation Leaderboard
+Medium
+Gamified reactions
+Theme Presets
+Medium
+Quick visual styles
+Analytics Dashboard
+High
+Engagement insights
+AI ClassBots (Tier 2)
+Future
+Personality-driven AI students
+AI Summary
+Future
+Post-class report of key moments
+
+
+🔒 Privacy & Compliance
+	•	No student audio/video captured by default.
+	•	Replay records only teacher’s composited output + simulated chat.
+	•	Local moderation keeps all chat G-rated.
+	•	Entirely local first; cloud sync is opt-in for district safety.
+
+⸻
+
+🔮 Long-Term Vision
+
+ClassCast evolves into an interactive classroom broadcast platform — blending presentation clarity with the immediacy of a livestream.
+AI classmates, reactions, and analytics transform static instruction into an engaging, game-like experience while preserving teacher simplicity.
+
+⸻
+
+✅ Next Immediate Steps (for Codex & PM)
+	1.	Implement Screen + Webcam sources (Sprint 2).
+	2.	Add RecordingService & ModerationService stubs (no-ops).
+	3.	Build Overlay Panel + group visibility controls.
+	4.	Finalize Dexie scene schema.
+	5.	Begin draft of docs/engagement_layer.md (event model + fake chat API).
+	6.	Update docs/MVP_Scope.md and docs/Architecture.md to reflect this handover.
+
+⸻
+
+Handoff Summary
+
+All architectural groundwork and MVP design decisions are established.
+Next milestones: source integration → overlay tooling → engagement foundation.
+Recording & replay are planned but deferred; stubs exist for easy future integration.
+Maintain focus on teacher-friendly simplicity while expanding the creative, “stream-like” energy that defines ClassCast.
+
