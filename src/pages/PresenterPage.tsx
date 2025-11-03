@@ -45,6 +45,12 @@ import type { KeyBindingMap } from 'tinykeys';
 import { CanvasSelectionOverlay } from '../components/CanvasSelectionOverlay';
 
 const EMPTY_LAYERS: Layer[] = [];
+const IS_DEV = import.meta.env.DEV;
+const devLog = (...args: unknown[]): void => {
+  if (IS_DEV) {
+    console.log(...args);
+  }
+};
 
 function readFileAsDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -104,7 +110,14 @@ export function PresenterPage() {
     const id = state.selection[0];
     return scene.layers.find((layer) => layer.id === id) ?? null;
   }) as Layer | null;
-  const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLayer, undo, redo } = useAppStore();
+  const getCurrentScene = useAppStore((state) => state.getCurrentScene);
+  const createScene = useAppStore((state) => state.createScene);
+  const saveScene = useAppStore((state) => state.saveScene);
+  const addLayer = useAppStore((state) => state.addLayer);
+  const removeLayer = useAppStore((state) => state.removeLayer);
+  const updateLayer = useAppStore((state) => state.updateLayer);
+  const undo = useAppStore((state) => state.undo);
+  const redo = useAppStore((state) => state.redo);
 
   const showControlStrip = useCallback(() => {
     setControlStripVisible(true);
@@ -361,12 +374,12 @@ export function PresenterPage() {
       return;
     }
 
-    console.log('Presenter: Captured stream with', stream.getVideoTracks().length, 'video tracks');
+    devLog('Presenter: Captured stream with', stream.getVideoTracks().length, 'video tracks');
     streamRef.current = stream;
 
     const track = stream.getVideoTracks()[0];
     if (track) {
-      console.log('Presenter: Stream track settings', {
+      devLog('Presenter: Stream track settings', {
         readyState: track.readyState,
         muted: track.muted,
         enabled: track.enabled,
@@ -379,7 +392,7 @@ export function PresenterPage() {
 
     // Send to viewer window if open
     if (viewerWindowRef.current && !viewerWindowRef.current.closed) {
-      console.log('Presenter: Sending stream to viewer window');
+      devLog('Presenter: Sending stream to viewer window');
       sendStreamToViewer(viewerWindowRef.current, stream);
     }
 
@@ -387,7 +400,7 @@ export function PresenterPage() {
     const streamTrack = stream.getVideoTracks()[0];
     if (streamTrack) {
       const handleStreamEnded = () => {
-        console.log('Presenter: Stream ended');
+        devLog('Presenter: Stream ended');
         if (viewerWindowRef.current && !viewerWindowRef.current.closed) {
           notifyStreamEnded(viewerWindowRef.current);
         }
@@ -461,29 +474,29 @@ export function PresenterPage() {
       }
 
       if (event.data?.type === 'request-stream') {
-        console.log('Presenter: Viewer requested stream');
+        devLog('Presenter: Viewer requested stream');
         // Viewer is requesting the stream, notify that it's available
         // (we can't send MediaStream via postMessage, so viewer will get it from opener)
         if (streamRef.current) {
-          console.log('Presenter: Notifying viewer that stream is available');
+          devLog('Presenter: Notifying viewer that stream is available');
           // Just notify - viewer will get stream from opener.currentStream
           sendStreamToViewer(viewerWindowRef.current!, streamRef.current);
         } else if (canvasRef.current) {
-          console.log('Presenter: Starting new stream for viewer');
+          devLog('Presenter: Starting new stream for viewer');
           startStreaming(canvasRef.current);
         } else {
           console.warn('Presenter: No canvas available to create stream');
         }
       } else if (event.data?.type === 'viewer-ready') {
-        console.log('Presenter: Received viewer-ready message');
+        devLog('Presenter: Received viewer-ready message');
         // Viewer is ready, start streaming if we don't have a stream yet
         // If stream exists, viewer will get it from opener.currentStream automatically
         if (streamRef.current) {
-          console.log('Presenter: Stream already available, viewer will get it from opener');
+          devLog('Presenter: Stream already available, viewer will get it from opener');
           // Don't send notification - viewer already has access via opener.currentStream
         } else if (canvasRef.current) {
           // Start streaming to newly ready viewer
-          console.log('Presenter: Starting new stream for viewer');
+          devLog('Presenter: Starting new stream for viewer');
           startStreaming(canvasRef.current);
         } else {
           console.warn('Presenter: No canvas available to stream');
@@ -809,22 +822,22 @@ export function PresenterPage() {
     const initializeScene = async () => {
       const currentScene = getCurrentScene();
       if (currentScene) {
-        console.log('Scene already loaded:', currentScene.id);
+        devLog('Scene already loaded:', currentScene.id);
         setIsSceneLoading(false);
         return;
       }
 
-      console.log('Initializing scene...');
+      devLog('Initializing scene...');
       try {
         const mostRecent = await loadMostRecentScene();
         if (mostRecent && mostRecent.id) {
-          console.log('Loading most recent scene:', mostRecent.id);
+          devLog('Loading most recent scene:', mostRecent.id);
           useAppStore.setState((state) => ({
             scenes: { ...state.scenes, [mostRecent.id!]: mostRecent },
             currentSceneId: mostRecent.id,
           }));
         } else {
-          console.log('No saved scenes, creating new scene');
+          devLog('No saved scenes, creating new scene');
           createScene();
         }
       } catch (error) {

@@ -21,6 +21,8 @@ import { saveScene as persistScene } from './persistence';
 /**
  * Application state interface.
  */
+type SaveStatus = 'idle' | 'saving' | 'error';
+
 interface AppState {
   /** All saved scenes by ID */
   scenes: Record<string, Scene>;
@@ -32,6 +34,10 @@ interface AppState {
   history: Scene[];
   /** Redo stack for current scene */
   future: Scene[];
+  /** Status of persistence pipeline */
+  saveStatus: SaveStatus;
+  /** Last persistence error, if any */
+  lastSaveError: string | null;
 }
 
 /**
@@ -146,12 +152,6 @@ function applyLayerUpdates(layer: Layer, updates: Partial<Layer>): Layer {
   }
 }
 
-function persistSceneImmediate(scene: Scene): void {
-  void persistScene(scene).catch((error) => {
-    console.error('Store: Failed to persist scene', error);
-  });
-}
-
 function snapshotScene(scene: Scene | null): Scene | null {
   if (!scene) return null;
   if (typeof structuredClone === 'function') {
@@ -168,13 +168,84 @@ function snapshotScene(scene: Scene | null): Scene | null {
  * const { scene, addLayer } = useAppStore();
  * ```
  */
-export const useAppStore = create<AppStore>((set, get) => ({
+export const useAppStore = create<AppStore>((set, get) => {
+  const SAVE_DEBOUNCE_MS = 750;
+  const pendingSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  let activeSaveCount = 0;
+
+  const beginSaveAttempt = () =>
+    set((state) => {
+      if (state.saveStatus === 'saving' && state.lastSaveError === null) {
+        return {};
+      }
+      return { saveStatus: 'saving', lastSaveError: null };
+    });
+
+  const finishSaveSuccess = () => {
+    if (pendingSaveTimers.size === 0 && activeSaveCount === 0) {
+      set((state) => {
+        if (state.saveStatus === 'idle' && state.lastSaveError === null) {
+          return {};
+        }
+        return { saveStatus: 'idle', lastSaveError: null };
+      });
+    }
+  };
+
+  const cancelPendingSave = (sceneId: string | undefined | null) => {
+    if (!sceneId) return;
+    const timer = pendingSaveTimers.get(sceneId);
+    if (timer) {
+      clearTimeout(timer);
+      pendingSaveTimers.delete(sceneId);
+    }
+  };
+
+  const runPersist = async (scene: Scene) => {
+    const sceneId = scene.id;
+    if (!sceneId) return;
+    activeSaveCount += 1;
+    beginSaveAttempt();
+    let succeeded = false;
+    try {
+      await persistScene(scene);
+      succeeded = true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('Store: Failed to persist scene', error);
+      set({ saveStatus: 'error', lastSaveError: message });
+    } finally {
+      activeSaveCount = Math.max(0, activeSaveCount - 1);
+      if (succeeded) {
+        finishSaveSuccess();
+      }
+    }
+  };
+
+  const queuePersist = (scene: Scene) => {
+    const sceneId = scene.id;
+    if (!sceneId) return;
+    beginSaveAttempt();
+    const existing = pendingSaveTimers.get(sceneId);
+    if (existing) {
+      clearTimeout(existing);
+    }
+    const timer = setTimeout(() => {
+      pendingSaveTimers.delete(sceneId);
+      void runPersist(scene);
+    }, SAVE_DEBOUNCE_MS);
+    pendingSaveTimers.set(sceneId, timer);
+  };
+
+  return {
   // State
   scenes: {},
   currentSceneId: null,
   selection: [],
   history: [],
   future: [],
+  saveStatus: 'idle',
+  lastSaveError: null,
 
   // Actions
   getCurrentScene: () => {
@@ -199,7 +270,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       history: [],
       future: [],
     }));
-    persistSceneImmediate(scene);
+    queuePersist(scene);
   },
 
   loadScene: (id: string) => {
@@ -217,13 +288,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
       set({
         scenes: { ...scenes, [currentSceneId]: { ...scene } },
       });
-
-      // Persist to storage
-      try {
-        await persistScene(scene);
-      } catch (error) {
-        console.error('Failed to persist scene:', error);
-      }
+      cancelPendingSave(scene.id ?? null);
+      await runPersist(scene);
     }
   },
 
@@ -248,7 +314,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       history: snapshot ? [...state.history, snapshot] : state.history,
       future: [],
     }));
-    persistSceneImmediate(updatedScene);
+    queuePersist(updatedScene);
   },
 
   removeLayer: (layerId: string) => {
@@ -268,7 +334,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       history: snapshot ? [...state.history, snapshot] : state.history,
       future: [],
     }));
-    persistSceneImmediate(updatedScene);
+    queuePersist(updatedScene);
   },
 
   updateLayer: (layerId: string, updates: Partial<Layer>, options: UpdateLayerOptions = {}) => {
@@ -277,8 +343,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const scene = getCurrentScene();
     if (!scene) return;
 
-    const snapshotSource = historySnapshot ?? (recordHistory ? snapshotScene(scene) : null);
-    const snapshotClone = snapshotSource ? snapshotScene(snapshotSource) : null;
+    const snapshotEntry = historySnapshot ?? (recordHistory ? snapshotScene(scene) : null);
     const updatedScene: Scene = {
       ...scene,
       layers: scene.layers.map((layer) =>
@@ -288,11 +353,11 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     set((state) => ({
       scenes: { ...state.scenes, [state.currentSceneId!]: updatedScene },
-      history: snapshotClone ? [...state.history, snapshotClone] : state.history,
-      future: snapshotClone ? [] : state.future,
+      history: snapshotEntry ? [...state.history, snapshotEntry] : state.history,
+      future: snapshotEntry ? [] : state.future,
     }));
     if (persist) {
-      persistSceneImmediate(updatedScene);
+      queuePersist(updatedScene);
     }
   },
 
@@ -304,8 +369,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     if (!scene) return;
 
     const updateMap = new Map(updates.map((entry) => [entry.id, entry.changes]));
-    const snapshotSource = historySnapshot ?? (recordHistory ? snapshotScene(scene) : null);
-    const snapshotClone = snapshotSource ? snapshotScene(snapshotSource) : null;
+    const snapshotEntry = historySnapshot ?? (recordHistory ? snapshotScene(scene) : null);
 
     const updatedScene: Scene = {
       ...scene,
@@ -317,12 +381,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     set((state) => ({
       scenes: { ...state.scenes, [state.currentSceneId!]: updatedScene },
-      history: snapshotClone ? [...state.history, snapshotClone] : state.history,
-      future: snapshotClone ? [] : state.future,
+      history: snapshotEntry ? [...state.history, snapshotEntry] : state.history,
+      future: snapshotEntry ? [] : state.future,
     }));
 
     if (persist) {
-      persistSceneImmediate(updatedScene);
+      queuePersist(updatedScene);
     }
   },
 
@@ -373,7 +437,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       history: snapshot ? [...state.history, snapshot] : state.history,
       future: [],
     }));
-    persistSceneImmediate(updatedScene);
+    queuePersist(updatedScene);
   },
 
   undo: () => {
@@ -389,7 +453,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       history: history.slice(0, -1),
       future: [snapshotScene(current)!, ...state.future],
     });
-    persistSceneImmediate(previous);
+    queuePersist(previous);
   },
 
   redo: () => {
@@ -405,6 +469,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       history: [...state.history, snapshotScene(current)!],
       future: future.slice(1),
     });
-    persistSceneImmediate(nextScene);
+    queuePersist(nextScene);
   },
-}));
+  };
+});

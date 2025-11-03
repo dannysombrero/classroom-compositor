@@ -20,6 +20,7 @@ import {
  */
 interface DrawSceneOptions {
   skipLayerIds?: string[];
+  dirtyRect?: { x: number; y: number; width: number; height: number };
 }
 
 export function drawScene(
@@ -27,6 +28,18 @@ export function drawScene(
   ctx: CanvasRenderingContext2D,
   options: DrawSceneOptions = {}
 ): void {
+  const dirtyRect = options.dirtyRect;
+  const shouldClip =
+    !!dirtyRect &&
+    dirtyRect.width > 0 &&
+    dirtyRect.height > 0;
+  if (shouldClip) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(dirtyRect.x, dirtyRect.y, dirtyRect.width, dirtyRect.height);
+    ctx.clip();
+  }
+
   if (!scene) {
     // Clear canvas if no scene
     // Use default scene dimensions (1920x1080) to match the transform coordinate space
@@ -36,6 +49,9 @@ export function drawScene(
     // Fill with dark background to show canvas is working
     ctx.fillStyle = '#0a0a0a';
     ctx.fillRect(0, 0, defaultWidth, defaultHeight);
+    if (shouldClip) {
+      ctx.restore();
+    }
     return;
   }
 
@@ -126,6 +142,10 @@ export function drawScene(
         // Unknown layer type, skip
         console.warn('Unknown layer type:', layer);
     }
+  }
+
+  if (shouldClip) {
+    ctx.restore();
   }
 }
 

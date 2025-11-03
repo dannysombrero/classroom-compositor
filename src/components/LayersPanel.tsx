@@ -427,7 +427,6 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
           )}
         </div>
         </section>
-        <div style={cardDividerStyle} />
         <section style={propertiesSectionOuterStyle}>
           <div style={propertiesHeaderStyle}>Properties</div>
           <div style={propertiesContentStyle}>
@@ -458,10 +457,11 @@ const panelShellStyle: CSSProperties = {
 };
 
 const layersSectionStyle: CSSProperties = {
-  flex: '1 1 55%',
+  flex: '0 0 65%',
   display: 'flex',
   flexDirection: 'column',
   minHeight: 0,
+  borderBottom: '2px solid rgba(255, 255, 255, 0.12)', // Stronger visual separation
 };
 
 const layersHeaderStyle: CSSProperties = {
@@ -482,11 +482,7 @@ const layersScrollStyle: CSSProperties = {
   overflowY: 'auto',
 };
 
-const cardDividerStyle: CSSProperties = {
-  height: '1px',
-  background: 'rgba(255, 255, 255, 0.08)',
-  margin: '0 12px',
-};
+// Removed - no longer needed with border on layersSection
 
 const menuTriggerWrapperStyle: CSSProperties = {
   display: 'flex',
@@ -497,8 +493,7 @@ const menuTriggerWrapperStyle: CSSProperties = {
 const menuPopoverStyle: CSSProperties = {
   position: 'absolute',
   top: '32px',
-  right: '100%',
-  transform: 'translateX(-18px)',
+  left: '14px', // Align with "Objects & Layers" text (same as header padding)
   background: 'rgba(24, 24, 24, 0.95)',
   borderRadius: '8px',
   border: '1px solid rgba(255, 255, 255, 0.08)',
@@ -535,21 +530,24 @@ const iconButtonStyle: CSSProperties = {
   padding: 0,
 };
 
+
 const propertiesSectionOuterStyle: CSSProperties = {
-  flex: '0 0 auto',
+  flex: '0 0 35%',
   display: 'flex',
   flexDirection: 'column',
-  padding: '12px 16px 16px',
-  gap: '10px',
-  maxHeight: '48%',
+  padding: '14px 16px 16px',
+  gap: '12px',
+  minHeight: 0,
 };
 
 const propertiesHeaderStyle: CSSProperties = {
-  fontSize: '12px',
-  letterSpacing: '0.05em',
+  fontSize: '11px',
+  letterSpacing: '0.06em',
   textTransform: 'uppercase',
-  color: 'rgba(255, 255, 255, 0.7)',
-  fontWeight: 600,
+  color: 'rgba(255, 255, 255, 0.65)',
+  fontWeight: 700,
+  paddingBottom: '8px',
+  borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
 };
 
 const propertiesContentStyle: CSSProperties = {

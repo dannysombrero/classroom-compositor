@@ -5,6 +5,8 @@ import { useAppStore } from '../app/store';
 import { getLayerBaseSize } from '../utils/layerGeometry';
 import { requestCurrentStreamFrame } from '../utils/viewerStream';
 
+const FRAME_THROTTLE_MS = 16; // ~60fps
+
 interface CanvasSelectionOverlayProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   layout: CanvasLayout | null;
@@ -46,6 +48,7 @@ interface SceneRect {
 export function CanvasSelectionOverlay({ canvasRef, layout, scene }: CanvasSelectionOverlayProps) {
   const [marqueeRect, setMarqueeRect] = useState<SceneRect | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
+  const lastFrameRequestRef = useRef<number>(0);
   const selection = useAppStore((state) => state.selection);
 
   const topLayers = useMemo(() => {
@@ -205,7 +208,13 @@ export function CanvasSelectionOverlay({ canvasRef, layout, scene }: CanvasSelec
 
           store.updateLayers(layerUpdates, historyOptions);
           state.historyApplied = true;
-          requestCurrentStreamFrame();
+          
+          // Throttled frame request to limit redraws to ~60fps
+          const now = Date.now();
+          if (now - lastFrameRequestRef.current > FRAME_THROTTLE_MS) {
+            requestCurrentStreamFrame();
+            lastFrameRequestRef.current = now;
+          }
         }
         return;
       }

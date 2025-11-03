@@ -4,10 +4,12 @@
  * Handles canvas resize logic and renders layers from the store.
  */
 
-import { forwardRef, useEffect, useRef, useImperativeHandle } from 'react';
+import { forwardRef, useCallback, useEffect, useRef, useImperativeHandle } from 'react';
 import { useAppStore } from '../app/store';
 import { drawScene, getCanvasSize } from '../renderer/canvasRenderer';
-import { requestCurrentStreamFrame, DEFAULT_STREAM_FPS } from '../utils/viewerStream';
+import { requestCurrentStreamFrame } from '../utils/viewerStream';
+import type { Layer, Scene } from '../types/scene';
+import { getLayerBaseSize } from '../utils/layerGeometry';
 
 interface PresenterCanvasProps {
   /** Whether to fit canvas to container */
@@ -39,6 +41,8 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
   const containerRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | null>(null);
   const dirtyRef = useRef<boolean>(true);
+  const previousSceneRef = useRef<Scene | null>(null);
+  const previousSkipKeyRef = useRef<string>('');
 
   const scene = useAppStore((state) => {
     const currentScene = state.getCurrentScene();
@@ -61,6 +65,65 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
       });
     });
   };
+
+  const requestRender = useCallback(() => {
+    if (animationFrameRef.current !== null) {
+      return;
+    }
+
+    const renderFrame = () => {
+      animationFrameRef.current = null;
+      if (!dirtyRef.current) {
+        return;
+      }
+
+      const canvas = canvasRef.current;
+      if (!canvas) {
+        return;
+      }
+
+      const ctx = canvas.getContext('2d', { alpha: false });
+      if (!ctx || canvas.width === 0 || canvas.height === 0) {
+        // Canvas not ready yet; try again shortly.
+        dirtyRef.current = true;
+        requestRender();
+        return;
+      }
+
+      const currentScene = useAppStore.getState().getCurrentScene();
+      const previousScene = previousSceneRef.current;
+      const skipKey = (skipLayerIds ?? []).join('|');
+      const skipChanged = previousSkipKeyRef.current !== skipKey;
+      const dirtyRect = skipChanged
+        ? fullCanvasRect(currentScene ?? previousScene)
+        : computeDirtyRect(previousScene, currentScene);
+
+      if (!dirtyRect) {
+        dirtyRef.current = false;
+        previousSceneRef.current = currentScene ?? null;
+        previousSkipKeyRef.current = skipKey;
+        return;
+      }
+
+      drawScene(currentScene, ctx, { skipLayerIds, dirtyRect });
+      requestCurrentStreamFrame();
+
+      dirtyRef.current = false;
+      previousSceneRef.current = currentScene ?? null;
+      previousSkipKeyRef.current = skipKey;
+
+      if (dirtyRef.current) {
+        requestRender();
+      }
+    };
+
+    animationFrameRef.current = requestAnimationFrame(renderFrame);
+  }, [skipLayerIds]);
+
+  const markDirty = useCallback(() => {
+    dirtyRef.current = true;
+    requestRender();
+  }, [requestRender]);
 
   // Update canvas size based on scene dimensions or default
   useEffect(() => {
@@ -150,7 +213,7 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
         emitLayoutChange(1, 1);
       }
 
-      dirtyRef.current = true;
+      markDirty();
     };
 
     // Initial size
@@ -161,91 +224,26 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
       window.addEventListener('resize', updateCanvasSize);
       return () => window.removeEventListener('resize', updateCanvasSize);
     }
-  }, [scene, fitToContainer, onLayoutChange]);
+  }, [scene, fitToContainer, onLayoutChange, markDirty]);
 
-  // Render loop with requestAnimationFrame
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const render = () => {
-      if (dirtyRef.current) {
-        // Use same context options as updateCanvasSize to ensure consistent context
-        const ctx = canvas.getContext('2d', { alpha: false });
-        if (!ctx) {
-          animationFrameRef.current = requestAnimationFrame(render);
-          return;
-        }
-
-        // Ensure canvas has dimensions before drawing
-        if (canvas.width === 0 || canvas.height === 0) {
-          // Canvas not ready yet, skip this frame
-          animationFrameRef.current = requestAnimationFrame(render);
-          return;
-        }
-
-        // Get the current scene from store
-        const currentScene = useAppStore.getState().getCurrentScene();
-        
-        // Debug: Log when rendering
-        if (dirtyRef.current) {
-          console.log('Rendering scene:', {
-            hasScene: !!currentScene,
-            sceneWidth: currentScene?.width,
-            sceneHeight: currentScene?.height,
-            canvasWidth: canvas.width,
-            canvasHeight: canvas.height,
-            layers: currentScene?.layers?.length || 0,
-          });
-        }
-        
-        // Note: Transform is already set by updateCanvasSize effect
-        // We don't save/restore here because we want to preserve the transform
-        // set by updateCanvasSize
-        
-        // Draw the scene
-        drawScene(currentScene, ctx, { skipLayerIds });
-        requestCurrentStreamFrame();
-        
-        dirtyRef.current = false;
-      }
-
-      animationFrameRef.current = requestAnimationFrame(render);
-    };
-
-    // Mark dirty when scene changes
-    dirtyRef.current = true;
-
-    // Start render loop after a small delay to ensure canvas is set up
-    const timeoutId = setTimeout(() => {
-      render();
-    }, 50);
+    markDirty();
 
     return () => {
-      clearTimeout(timeoutId);
       if (animationFrameRef.current !== null) {
         cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
     };
-  }, []);
-
-  // Keep stream alive by marking canvas dirty at stream frame rate
-  useEffect(() => {
-    const interval = setInterval(() => {
-      dirtyRef.current = true;
-    }, Math.max(1000 / DEFAULT_STREAM_FPS, 33));
-
-    return () => clearInterval(interval);
-  }, []);
-
-  // Mark dirty when scene or store changes
-  useEffect(() => {
-    dirtyRef.current = true;
-  }, [scene]);
+  }, [markDirty]);
 
   useEffect(() => {
-    dirtyRef.current = true;
-  }, [skipLayerIds]);
+    markDirty();
+  }, [scene, markDirty]);
+
+  useEffect(() => {
+    markDirty();
+  }, [skipLayerIds, markDirty]);
 
     // Expose canvas ref to parent
     useImperativeHandle(ref, () => canvasRef.current!, []);
@@ -274,3 +272,136 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
     );
   }
 );
+
+type DirtyRect = { x: number; y: number; width: number; height: number };
+
+function fullCanvasRect(scene: Scene | null): DirtyRect {
+  const width = scene?.width ?? 1920;
+  const height = scene?.height ?? 1080;
+  return { x: 0, y: 0, width, height };
+}
+
+function computeDirtyRect(previous: Scene | null, next: Scene | null): DirtyRect | null {
+  if (!next) {
+    if (!previous) {
+      return null;
+    }
+    return fullCanvasRect(previous);
+  }
+
+  if (!previous) {
+    return fullCanvasRect(next);
+  }
+
+  if (previous.width !== next.width || previous.height !== next.height) {
+    return fullCanvasRect(next);
+  }
+
+  const prevOrder = previous.layers.map((layer) => layer.id).join('|');
+  const nextOrder = next.layers.map((layer) => layer.id).join('|');
+  if (prevOrder !== nextOrder) {
+    return {
+      x: 0,
+      y: 0,
+      width: next.width,
+      height: next.height,
+    };
+  }
+
+  let rect: DirtyRect | null = null;
+
+  const previousMap = new Map(previous.layers.map((layer) => [layer.id, layer]));
+
+  for (const layer of next.layers) {
+    const prevLayer = previousMap.get(layer.id);
+    if (!prevLayer) {
+      if (layer.visible) {
+        rect = unionRects(rect, inflateRect(getLayerBounds(layer, next), 4, next));
+      }
+      continue;
+    }
+
+    const layerChanged = prevLayer !== layer;
+    const visibilityChanged = prevLayer.visible !== layer.visible;
+
+    if (layerChanged || visibilityChanged) {
+      if (prevLayer.visible) {
+        rect = unionRects(rect, inflateRect(getLayerBounds(prevLayer, previous), 4, previous));
+      }
+      if (layer.visible) {
+        rect = unionRects(rect, inflateRect(getLayerBounds(layer, next), 4, next));
+      }
+    }
+
+    previousMap.delete(layer.id);
+  }
+
+  for (const remaining of previousMap.values()) {
+    if (remaining.visible) {
+      rect = unionRects(rect, inflateRect(getLayerBounds(remaining, previous), 4, previous));
+    }
+  }
+
+  if (!rect) {
+    return null;
+  }
+
+  rect.x = Math.max(0, rect.x);
+  rect.y = Math.max(0, rect.y);
+  rect.width = Math.min(next.width - rect.x, rect.width);
+  rect.height = Math.min(next.height - rect.y, rect.height);
+  return rect;
+}
+
+function unionRects(existing: DirtyRect | null, next: DirtyRect): DirtyRect {
+  if (!existing) return { ...next };
+  const minX = Math.min(existing.x, next.x);
+  const minY = Math.min(existing.y, next.y);
+  const maxX = Math.max(existing.x + existing.width, next.x + next.width);
+  const maxY = Math.max(existing.y + existing.height, next.y + next.height);
+  return {
+    x: minX,
+    y: minY,
+    width: maxX - minX,
+    height: maxY - minY,
+  };
+}
+
+function inflateRect(rect: DirtyRect, amount: number, scene: Scene): DirtyRect {
+  const inflated = {
+    x: rect.x - amount,
+    y: rect.y - amount,
+    width: rect.width + amount * 2,
+    height: rect.height + amount * 2,
+  };
+  inflated.x = Math.max(0, inflated.x);
+  inflated.y = Math.max(0, inflated.y);
+  inflated.width = Math.max(0, Math.min(scene.width - inflated.x, inflated.width));
+  inflated.height = Math.max(0, Math.min(scene.height - inflated.y, inflated.height));
+  return inflated;
+}
+
+function getLayerBounds(layer: Layer, scene: Scene): DirtyRect {
+  const size = getLayerBaseSize(layer, scene);
+  const scaleX = Math.abs(layer.transform.scale.x || 1);
+  const scaleY = Math.abs(layer.transform.scale.y || 1);
+  const width = size.width * scaleX;
+  const height = size.height * scaleY;
+  const angle = Math.abs(layer.transform.rot || 0);
+  let finalWidth = width;
+  let finalHeight = height;
+  if (angle % 360 !== 0) {
+    const rad = (angle * Math.PI) / 180;
+    const cos = Math.abs(Math.cos(rad));
+    const sin = Math.abs(Math.sin(rad));
+    finalWidth = width * cos + height * sin;
+    finalHeight = width * sin + height * cos;
+  }
+
+  return {
+    x: layer.transform.pos.x - finalWidth / 2,
+    y: layer.transform.pos.y - finalHeight / 2,
+    width: finalWidth,
+    height: finalHeight,
+  };
+}
