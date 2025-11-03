@@ -44,6 +44,7 @@ import { tinykeys } from 'tinykeys';
 import type { KeyBindingMap } from 'tinykeys';
 
 const EMPTY_LAYERS: Layer[] = [];
+const LAYERS_PANEL_SIZE = { width: 280, height: 760 } as const;
 
 function readFileAsDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -77,7 +78,6 @@ export function PresenterPage() {
   const [isAddingCamera, setIsAddingCamera] = useState(false);
   const layerIdsRef = useRef<string[]>([]);
   const [panelPosition, setPanelPosition] = useState({ x: 24, y: 24 });
-  const [panelSize, setPanelSize] = useState({ width: 280, height: 360 });
   const [canvasLayout, setCanvasLayout] = useState<CanvasLayout | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [isPresentationMode, setIsPresentationMode] = useState(false);
@@ -913,9 +913,8 @@ export function PresenterPage() {
       <FloatingPanel
         title="Objects & Layers"
         position={panelPosition}
-        size={panelSize}
+        size={LAYERS_PANEL_SIZE}
         onPositionChange={setPanelPosition}
-        onSizeChange={setPanelSize}
       >
         <LayersPanel
           layers={sceneLayers}

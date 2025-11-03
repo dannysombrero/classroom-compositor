@@ -34,6 +34,23 @@ export function FloatingPanel({
   } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
+  const [edgeHover, setEdgeHover] = useState(false);
+
+  const EDGE_TOLERANCE = 12;
+
+  const isNearEdge = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const panel = panelRef.current;
+    if (!panel) return false;
+    const rect = panel.getBoundingClientRect();
+    const offsetX = event.clientX - rect.left;
+    const offsetY = event.clientY - rect.top;
+    return (
+      offsetX <= EDGE_TOLERANCE ||
+      rect.width - offsetX <= EDGE_TOLERANCE ||
+      offsetY <= EDGE_TOLERANCE ||
+      rect.height - offsetY <= EDGE_TOLERANCE
+    );
+  }, []);
 
   const clampPosition = useCallback(
     (nextX: number, nextY: number) => {
@@ -47,8 +64,13 @@ export function FloatingPanel({
       const viewportHeight = window.innerHeight;
       const { offsetWidth, offsetHeight } = panel;
 
-      const clampedX = Math.min(Math.max(0, nextX), viewportWidth - offsetWidth);
-      const clampedY = Math.min(Math.max(0, nextY), viewportHeight - offsetHeight);
+      const visibleMargin = 80;
+      const minX = Math.min(visibleMargin - offsetWidth, 0);
+      const maxX = Math.max(viewportWidth - visibleMargin, 0);
+      const minY = Math.min(visibleMargin - offsetHeight, 0);
+      const maxY = Math.max(viewportHeight - visibleMargin, 0);
+      const clampedX = Math.min(Math.max(minX, nextX), maxX);
+      const clampedY = Math.min(Math.max(minY, nextY), maxY);
       onPositionChange({ x: clampedX, y: clampedY });
     },
     [onPositionChange]
@@ -111,7 +133,7 @@ export function FloatingPanel({
     };
   }, [clampPosition, clampSize]);
 
-  const startDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+  const beginDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     const panel = panelRef.current;
     if (!panel) return;
@@ -122,7 +144,29 @@ export function FloatingPanel({
       offsetY: event.clientY - rect.top,
     };
     setIsDragging(true);
+    setEdgeHover(false);
     (event.target as HTMLElement).setPointerCapture(event.pointerId);
+  };
+
+  const startDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+    beginDrag(event);
+  };
+
+  const handlePanelPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    if (isNearEdge(event)) {
+      beginDrag(event);
+    }
+  };
+
+  const handlePanelPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (isDragging) return;
+    setEdgeHover(isNearEdge(event));
+  };
+
+  const handlePanelPointerLeave = () => {
+    setEdgeHover(false);
   };
 
   const startResize = (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -141,6 +185,9 @@ export function FloatingPanel({
   return (
     <div
       ref={panelRef}
+      onPointerDown={handlePanelPointerDown}
+      onPointerMove={handlePanelPointerMove}
+      onPointerLeave={handlePanelPointerLeave}
       style={{
         position: 'absolute',
         left: `${position.x}px`,
@@ -157,10 +204,10 @@ export function FloatingPanel({
         backdropFilter: 'blur(8px)',
         border: '1px solid rgba(255, 255, 255, 0.08)',
         zIndex: 20,
+        cursor: isDragging ? 'grabbing' : edgeHover ? 'grab' : 'default',
       }}
     >
       <div
-        onPointerDown={startDrag}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -172,6 +219,7 @@ export function FloatingPanel({
           fontWeight: 600,
           textTransform: 'uppercase',
         }}
+        onPointerDown={startDrag}
       >
         {title}
       </div>

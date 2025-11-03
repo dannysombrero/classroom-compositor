@@ -121,6 +121,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
+        minHeight: 0,
         padding: '12px',
         gap: '12px',
       }}
@@ -438,8 +439,11 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
   );
 }
 
+const LAYERS_LIST_HEIGHT = 240;
+
 const layersListStyle: CSSProperties = {
-  maxHeight: '240px',
+  height: `${LAYERS_LIST_HEIGHT}px`,
+  maxHeight: `${LAYERS_LIST_HEIGHT}px`,
   overflowY: 'auto',
   borderRadius: '6px',
   border: '1px solid rgba(255, 255, 255, 0.08)',
