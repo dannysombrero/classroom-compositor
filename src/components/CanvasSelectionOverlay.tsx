@@ -368,27 +368,9 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
     setMarqueeRect(null);
   }, [layersSortedByZ, normalizeRect, scene, setSelection]);
 
-  const finishMove = useCallback((state: MoveSelectionState, options?: { cancel?: boolean }) => {
-    const shouldSave = state.historyApplied && !options?.cancel;
-    interactionRef.current = IDLE_STATE;
-    if (shouldSave) {
-      void useAppStore.getState().saveScene();
-    }
-  }, []);
-
   const handlePointerUp = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       const state = interactionRef.current;
-      if (state.type === 'move-selection') {
-        if (state.pointerId !== event.pointerId) {
-          return;
-        }
-        finishMove(state);
-        event.currentTarget.releasePointerCapture(event.pointerId);
-        event.preventDefault();
-        return;
-      }
-
       if (state.type !== 'layer-click' && state.type !== 'marquee') {
         return;
       }
@@ -406,21 +388,17 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
       event.currentTarget.releasePointerCapture(event.pointerId);
       event.preventDefault();
     },
-    [finishMarquee, finishMove]
+    [finishMarquee]
   );
 
   const handlePointerCancel = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const state = interactionRef.current;
-    if (state.type === 'move-selection' && state.pointerId === event.pointerId) {
-      finishMove(state, { cancel: true });
-    } else if (state.type === 'marquee' && state.pointerId === event.pointerId) {
+    if (state.type === 'marquee' && state.pointerId === event.pointerId) {
       interactionRef.current = IDLE_STATE;
       setMarqueeRect(null);
-    } else if (state.type === 'layer-click' && state.pointerId === event.pointerId) {
-      interactionRef.current = IDLE_STATE;
     }
     event.currentTarget.releasePointerCapture(event.pointerId);
-  }, [finishMove]);
+  }, []);
 
   if (!layout || !scene) {
     return null;
