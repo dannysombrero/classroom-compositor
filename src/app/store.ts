@@ -17,6 +17,7 @@ import type {
   GroupLayer,
 } from '../types/scene';
 import { saveScene as persistScene } from './persistence';
+import { getLayerBoundingSize } from '../utils/layerGeometry';
 
 /**
  * Application state interface.
@@ -84,6 +85,12 @@ interface AppActions {
    */
   setSelection: (layerIds: string[]) => void;
 
+  /** Group the current selection into a group layer. */
+  groupSelection: () => void;
+
+  /** Ungroup a specific group layer back into its children. */
+  ungroupLayer: (groupId: string) => void;
+
   /**
    * Reorder layers by their z-order.
    */
@@ -137,6 +144,42 @@ function applyLayerUpdates(layer: Layer, updates: Partial<Layer>): Layer {
       return exhaustiveCheck;
     }
   }
+}
+
+interface Bounds {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
+function computeLayersBounds(layers: Layer[], scene: Scene): Bounds | null {
+  if (layers.length === 0) {
+    return null;
+  }
+
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+
+  for (const layer of layers) {
+    const size = getLayerBoundingSize(layer, scene);
+    const halfWidth = size.width / 2;
+    const halfHeight = size.height / 2;
+    const { x, y } = layer.transform.pos;
+
+    minX = Math.min(minX, x - halfWidth);
+    maxX = Math.max(maxX, x + halfWidth);
+    minY = Math.min(minY, y - halfHeight);
+    maxY = Math.max(maxY, y + halfHeight);
+  }
+
+  if (!Number.isFinite(minX) || !Number.isFinite(maxX) || !Number.isFinite(minY) || !Number.isFinite(maxY)) {
+    return null;
+  }
+
+  return { minX, maxX, minY, maxY };
 }
 
 function persistSceneImmediate(scene: Scene): void {
@@ -249,15 +292,58 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const scene = getCurrentScene();
     if (!scene) return;
 
+    const layerToRemove = scene.layers.find((layer) => layer.id === layerId);
+    if (!layerToRemove) return;
+
     const snapshot = snapshotScene(scene);
+    let updatedLayers: Layer[];
+
+    if (layerToRemove.type === 'group') {
+      const childSet = new Set(layerToRemove.children);
+      updatedLayers = scene.layers
+        .filter((layer) => layer.id !== layerId)
+        .map((layer) => {
+          if (childSet.has(layer.id)) {
+            return { ...layer, parentId: null } as Layer;
+          }
+          return layer;
+        });
+    } else {
+      const parentId = layerToRemove.parentId ?? null;
+      updatedLayers = scene.layers
+        .filter((layer) => layer.id !== layerId)
+        .map((layer) => {
+          if (layer.type === 'group' && layer.children.includes(layerId)) {
+            const filteredChildren = layer.children.filter((id) => id !== layerId);
+            const visibility = layer.childVisibility ? { ...layer.childVisibility } : undefined;
+            if (visibility && layerId in visibility) {
+              delete visibility[layerId];
+            }
+            return {
+              ...layer,
+              children: filteredChildren,
+              childVisibility: visibility,
+            } as GroupLayer;
+          }
+          if (parentId && layer.id === parentId) {
+            return layer;
+          }
+          return layer;
+        });
+    }
+
     const updatedScene: Scene = {
       ...scene,
-      layers: scene.layers.filter((layer) => layer.id !== layerId),
+      layers: updatedLayers,
     };
+
+    const removedIds = new Set<string>(
+      layerToRemove.type === 'group' ? [layerId, ...layerToRemove.children] : [layerId]
+    );
 
     set((state) => ({
       scenes: { ...state.scenes, [state.currentSceneId!]: updatedScene },
-      selection: state.selection.filter((id) => id !== layerId),
+      selection: state.selection.filter((id) => !removedIds.has(id)),
       history: snapshot ? [...state.history, snapshot] : state.history,
       future: [],
     }));
@@ -291,6 +377,131 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   setSelection: (layerIds: string[]) => {
     set({ selection: layerIds });
+  },
+
+  groupSelection: () => {
+    const { getCurrentScene } = get();
+    const scene = getCurrentScene();
+    if (!scene) return;
+
+    const selection = get().selection;
+    if (selection.length < 2) {
+      return;
+    }
+
+    const layerMap = new Map(scene.layers.map((layer) => [layer.id, layer] as const));
+    const selectedLayers: Layer[] = selection
+      .map((id) => layerMap.get(id))
+      .filter((layer): layer is Layer => !!layer);
+
+    const groupable = selectedLayers.filter(
+      (layer) => layer.type !== 'group' && !layer.locked && (layer.parentId === undefined || layer.parentId === null)
+    );
+
+    if (groupable.length < 2) {
+      return;
+    }
+
+    const bounds = computeLayersBounds(groupable, scene);
+    if (!bounds) {
+      return;
+    }
+
+    const groupId = generateId();
+    const groupCount = scene.layers.filter((layer) => layer.type === 'group').length;
+    const groupName = `Group ${groupCount + 1}`;
+    const centerX = (bounds.minX + bounds.maxX) / 2;
+    const centerY = (bounds.minY + bounds.maxY) / 2;
+    const maxZ = Math.max(...groupable.map((layer) => layer.z));
+    const childIds = groupable.map((layer) => layer.id);
+    const childVisibility: Record<string, boolean> = {};
+    for (const layer of groupable) {
+      childVisibility[layer.id] = layer.visible;
+    }
+
+    const groupLayer: GroupLayer = {
+      id: groupId,
+      type: 'group',
+      name: groupName,
+      visible: true,
+      locked: false,
+      parentId: null,
+      z: maxZ + 1,
+      transform: {
+        pos: { x: centerX, y: centerY },
+        scale: { x: 1, y: 1 },
+        rot: 0,
+        opacity: 1,
+      },
+      children: childIds,
+      childVisibility,
+    };
+
+    const snapshot = snapshotScene(scene);
+
+    const updatedLayers: Layer[] = [
+      ...scene.layers.map((layer) => {
+        if (childIds.includes(layer.id)) {
+          return { ...layer, parentId: groupId } as Layer;
+        }
+        return layer;
+      }),
+      groupLayer,
+    ];
+
+    const updatedScene: Scene = {
+      ...scene,
+      layers: updatedLayers,
+    };
+
+    set((state) => ({
+      scenes: { ...state.scenes, [state.currentSceneId!]: updatedScene },
+      selection: [groupId],
+      history: snapshot ? [...state.history, snapshot] : state.history,
+      future: [],
+    }));
+    persistSceneImmediate(updatedScene);
+  },
+
+  ungroupLayer: (groupId: string) => {
+    const { getCurrentScene } = get();
+    const scene = getCurrentScene();
+    if (!scene) return;
+
+    const targetGroup = scene.layers.find((layer) => layer.id === groupId);
+    if (!targetGroup || targetGroup.type !== 'group') {
+      return;
+    }
+
+    const childSet = new Set(targetGroup.children);
+    const snapshot = snapshotScene(scene);
+
+    const updatedLayers: Layer[] = scene.layers
+      .filter((layer) => layer.id !== groupId)
+      .map((layer) => {
+        if (childSet.has(layer.id)) {
+          const visibility = targetGroup.childVisibility?.[layer.id];
+          return {
+            ...layer,
+            parentId: null,
+            visible: visibility ?? layer.visible,
+          } as Layer;
+        }
+        return layer;
+      });
+
+    const updatedScene: Scene = {
+      ...scene,
+      layers: updatedLayers,
+    };
+
+    set((state) => ({
+      scenes: { ...state.scenes, [state.currentSceneId!]: updatedScene },
+      selection: targetGroup.children,
+      history: snapshot ? [...state.history, snapshot] : state.history,
+      future: [],
+    }));
+    persistSceneImmediate(updatedScene);
   },
 
   reorderLayers: (layerIds: string[]) => {

@@ -1,6 +1,15 @@
 export {};
 
 declare global {
+  interface VideoFrameCallbackMetadata {
+    presentationTime: number;
+    expectedDisplayTime: number;
+    width: number;
+    height: number;
+    captureTime?: number;
+    processingDuration?: number;
+  }
+
   interface MediaStreamTrackProcessorInit {
     track: MediaStreamTrack;
   }

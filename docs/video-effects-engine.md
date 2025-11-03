@@ -9,14 +9,15 @@ This document tracks the implementation status of the browser-side video effects
 - Pipeline interfaces for segmenters and compositors (`src/pipeline/*`) define the contract for forthcoming implementations, with an Insertable Streams pipeline already handling frame scheduling (currently returns the raw frame until shaders/segmentation are wired).
 - Demo harness (`packages/video-effects/demo`) boots the mock engine, routes the camera through the pass-through pipeline, and previews the processed track for manual testing.
 - MediaPipe adapter scaffold returns an all-foreground mask for now; real model integration is the next major milestone.
+- Smoothing/telemetry scaffolding is being prepared so the segmentation loop can reuse mask utilities and surface FPS metrics once implemented.
 
 ## Immediate next steps
 
-1. **MediaPipe adapter:** Stand up `src/adapters/mediapipe.ts` that loads the portrait segmentation model, normalises masks, and exposes the shared `ISegmenter` interface.
-2. **Pipeline loop:** Implement `src/pipeline/stream.ts` using Insertable Streams (`MediaStreamTrackProcessor`/`Generator`) with a basic compositor that blends the source frame + segmentation mask.
+1. **MediaPipe adapter:** Stand up `src/adapters/mediapipe.ts` that loads the portrait segmentation model, normalises masks, and exposes the shared `ISegmenter` interface. Draft API hooks are ready.
+2. **Smoothing utilities:** Finalise `src/pipeline/smoothing.ts` to host temporal EMA and morphological helpers used by adapters/pipeline.
 3. **Compositor implementation:** Replace the current pass-through compositor with WebGL/WebGPU shaders (blur, replacement, chroma) and CPU fallback.
-4. **Mock/UI integration:** Keep a trivial mock export for unit/UI tests once the real engine is live, and expose configuration hooks to the Presenter UI.
-5. **Testing:** Add unit tests for smoothing utilities and mask post-processing; extend the demo harness to surface frame timing telemetry.
+4. **Telemetry harness:** Extend the demo page with processing stats (frame time, inference cadence) so perf regressions are visible during development.
+5. **Mock/UI integration:** Keep a trivial mock export for unit/UI tests once the real engine is live, and expose configuration hooks to the Presenter UI.
 
 ## Longer-term considerations
 

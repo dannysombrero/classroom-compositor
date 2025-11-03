@@ -106,6 +106,7 @@ class InsertableStreamsPipeline implements BackgroundEffectPipeline {
             if (!this.lastMask || nowTs - this.lastInferenceTime >= this.inferenceIntervalMs) {
               this.lastMask = await this.segmenter.segment(frame);
               this.lastInferenceTime = nowTs;
+              // TODO: feed the mask through emaSmoothMask/refineMask once implemented.
             }
             currentMask = this.lastMask;
           }
