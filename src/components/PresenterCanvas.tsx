@@ -4,12 +4,13 @@
  * Handles canvas resize logic and renders layers from the store.
  */
 
-import { forwardRef, useCallback, useEffect, useRef, useImperativeHandle } from 'react';
+import { forwardRef, useCallback, useEffect, useRef, useImperativeHandle, useMemo } from 'react';
 import { useAppStore } from '../app/store';
 import { drawScene, getCanvasSize } from '../renderer/canvasRenderer';
 import { requestCurrentStreamFrame } from '../utils/viewerStream';
 import type { Layer, Scene } from '../types/scene';
 import { getLayerBaseSize } from '../utils/layerGeometry';
+import { hasActiveSource } from '../media/sourceManager';
 
 interface PresenterCanvasProps {
   /** Whether to fit canvas to container */
@@ -48,6 +49,16 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
     const currentScene = state.getCurrentScene();
     return currentScene;
   });
+
+  const hasLiveVideoSources = useMemo(() => {
+    if (!scene) return false;
+    return scene.layers.some((layer) => {
+      if (layer.type !== 'screen' && layer.type !== 'camera') {
+        return false;
+      }
+      return hasActiveSource(layer.id) || Boolean(layer.streamId);
+    });
+  }, [scene]);
 
   const emitLayoutChange = (scaleX: number, scaleY: number) => {
     if (!onLayoutChange) return;
@@ -94,9 +105,11 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
       const previousScene = previousSceneRef.current;
       const skipKey = (skipLayerIds ?? []).join('|');
       const skipChanged = previousSkipKeyRef.current !== skipKey;
-      const dirtyRect = skipChanged
+      const dirtyRect = hasLiveVideoSources
         ? fullCanvasRect(currentScene ?? previousScene)
-        : computeDirtyRect(previousScene, currentScene);
+        : skipChanged
+          ? fullCanvasRect(currentScene ?? previousScene)
+          : computeDirtyRect(previousScene, currentScene);
 
       if (!dirtyRect) {
         dirtyRef.current = false;
@@ -118,7 +131,7 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
     };
 
     animationFrameRef.current = requestAnimationFrame(renderFrame);
-  }, [skipLayerIds]);
+  }, [skipLayerIds, hasLiveVideoSources]);
 
   const markDirty = useCallback(() => {
     dirtyRef.current = true;
@@ -244,6 +257,42 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
   useEffect(() => {
     markDirty();
   }, [skipLayerIds, markDirty]);
+
+  useEffect(() => {
+    if (!hasLiveVideoSources) {
+      return;
+    }
+
+    let rafId: number | null = null;
+    let cancelled = false;
+    const frameInterval = 1000 / 30;
+    const getTimestamp = () =>
+      typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now();
+    let lastTimestamp = getTimestamp();
+
+    const pump = (timestamp: number) => {
+      if (cancelled) {
+        return;
+      }
+      if (timestamp - lastTimestamp >= frameInterval) {
+        markDirty();
+        lastTimestamp = timestamp;
+      }
+      rafId = requestAnimationFrame(pump);
+    };
+
+    markDirty();
+    rafId = requestAnimationFrame(pump);
+
+    return () => {
+      cancelled = true;
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+    };
+  }, [hasLiveVideoSources, markDirty]);
 
     // Expose canvas ref to parent
     useImperativeHandle(ref, () => canvasRef.current!, []);

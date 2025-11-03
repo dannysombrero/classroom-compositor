@@ -152,28 +152,29 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
           <div style={layersHeaderStyle}>
             <span>Objects & Layers</span>
             <div style={menuTriggerWrapperStyle}>
-            <button
-              type="button"
-              onClick={() => setMenuOpen((open) => !open)}
-              style={iconButtonStyle}
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-            >
-              +
-            </button>
-            <button
-              type="button"
-              onClick={handleDeleteSelection}
-              disabled={selection.length === 0}
-              style={{
-                ...iconButtonStyle,
-                opacity: selection.length === 0 ? 0.35 : 1,
-                cursor: selection.length === 0 ? 'not-allowed' : 'pointer',
-              }}
-              aria-label="Delete selected layers"
-            >
-              −
-            </button>
+              <button
+                type="button"
+                onClick={() => setMenuOpen((open) => !open)}
+                style={iconButtonStyle}
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+              >
+                +
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteSelection}
+                disabled={selection.length === 0}
+                style={{
+                  ...iconButtonStyle,
+                  opacity: selection.length === 0 ? 0.35 : 1,
+                  cursor: selection.length === 0 ? 'not-allowed' : 'pointer',
+                }}
+                aria-label="Delete selected layers"
+              >
+                −
+              </button>
+            </div>
             {menuOpen && (
               <div style={menuPopoverStyle}>
                 <button
@@ -229,7 +230,6 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                 </button>
               </div>
             )}
-          </div>
           </div>
           <div style={layersScrollStyle}>
           {orderedLayers.length === 0 ? (
@@ -474,6 +474,7 @@ const layersHeaderStyle: CSSProperties = {
   letterSpacing: '0.04em',
   textTransform: 'uppercase',
   borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+  position: 'relative',
 };
 
 const layersScrollStyle: CSSProperties = {
@@ -487,13 +488,13 @@ const layersScrollStyle: CSSProperties = {
 const menuTriggerWrapperStyle: CSSProperties = {
   display: 'flex',
   gap: '6px',
-  position: 'relative',
 };
 
 const menuPopoverStyle: CSSProperties = {
   position: 'absolute',
-  top: '32px',
-  left: '14px', // Align with "Objects & Layers" text (same as header padding)
+  top: 'calc(100% + 8px)',
+  left: '14px',
+  right: '14px',
   background: 'rgba(24, 24, 24, 0.95)',
   borderRadius: '8px',
   border: '1px solid rgba(255, 255, 255, 0.08)',
