@@ -6,8 +6,9 @@ This document tracks the implementation status of the browser-side video effects
 
 - `packages/video-effects` now builds via `tsc -p tsconfig.build.json`, and the demo harness runs through a local Vite config.
 - `createBgEffect()` delegates to a background-effect pipeline stub that will be replaced by the real Insertable Streams loop.
-- Pipeline interfaces for segmenters and compositors (`src/pipeline/*`) define the contract for forthcoming implementations, with an Insertable Streams pass-through pipeline already producing a derived track.
+- Pipeline interfaces for segmenters and compositors (`src/pipeline/*`) define the contract for forthcoming implementations, with an Insertable Streams pipeline already handling frame scheduling (currently returns the raw frame until shaders/segmentation are wired).
 - Demo harness (`packages/video-effects/demo`) boots the mock engine, routes the camera through the pass-through pipeline, and previews the processed track for manual testing.
+- MediaPipe adapter scaffold returns an all-foreground mask for now; real model integration is the next major milestone.
 
 ## Immediate next steps
 

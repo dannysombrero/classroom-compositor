@@ -7,9 +7,9 @@ export type Quality = 'fast' | 'balanced' | 'high';
 export interface BgEffectStartOptions {
   engine?: Engine;
   mode?: Mode;
-  background?: HTMLImageElement | HTMLVideoElement | OffscreenCanvas;
+  background?: HTMLImageElement | HTMLVideoElement | OffscreenCanvas | undefined;
   quality?: Quality;
-  inferenceFps?: number;
+  inferenceFps?: number | undefined;
 }
 
 export interface BgEffect {

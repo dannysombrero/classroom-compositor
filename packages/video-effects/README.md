@@ -6,7 +6,7 @@ This package hosts the browser-side background effects engine that produces proc
 
 - Stable public interfaces (`BgEffect`, `createBgEffect`) are defined and exported.
 - A pipeline scaffold (`src/pipeline/*`) captures the contracts for the segmenter, compositor, and Insertable Streams loop.
-- The current implementation uses an Insertable Streams pass-through pipeline while the real-time processing stack is built.
+- The current implementation uses an Insertable Streams pipeline with placeholder segmentation/compositing (outputs the raw frame for now).
 - A Vite-powered demo harness (`npm run --prefix packages/video-effects demo`) previews the processed track for manual testing.
 
 ## Local development

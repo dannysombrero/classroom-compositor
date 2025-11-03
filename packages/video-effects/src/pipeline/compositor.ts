@@ -8,7 +8,7 @@ export interface ChromaSettings {
 
 export interface CompositeOptions {
   mode: Mode;
-  background?: HTMLImageElement | HTMLVideoElement | OffscreenCanvas;
+  background?: HTMLImageElement | HTMLVideoElement | OffscreenCanvas | undefined;
   blurRadius?: number;
   chroma?: ChromaSettings;
 }

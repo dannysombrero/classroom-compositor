@@ -6,7 +6,7 @@ import type {
   Mode,
   Quality,
 } from './types';
-import type { BackgroundEffectPipeline } from './pipeline';
+import type { BackgroundEffectPipeline, BackgroundEffectPipelineOptions } from './pipeline';
 import { createBackgroundEffectPipeline } from './pipeline';
 
 const DEFAULT_MODE: Mode = 'off';
@@ -19,8 +19,8 @@ class MockBgEffect implements BgEffect {
   private processedTrack: MediaStreamTrack | null = null;
   private mode: Mode = DEFAULT_MODE;
   private quality: Quality = DEFAULT_QUALITY;
-  private background?: BgEffectStartOptions['background'];
-  private inferenceFps?: number;
+  private background: BgEffectStartOptions['background'] = undefined;
+  private inferenceFps: number | undefined = undefined;
   private pipeline: BackgroundEffectPipeline | null = null;
   private activeEngine: Engine = DEFAULT_ENGINE;
 
@@ -38,14 +38,16 @@ class MockBgEffect implements BgEffect {
     this.inferenceFps = opts.inferenceFps;
     this.activeEngine = opts.engine ?? this.engine ?? DEFAULT_ENGINE;
 
+    const pipelineOptions = {
+      engine: this.activeEngine,
+      mode: this.mode,
+      quality: this.quality,
+      ...(this.background !== undefined ? { background: this.background } : {}),
+      ...(typeof this.inferenceFps === 'number' ? { inferenceFps: this.inferenceFps } : {}),
+    } satisfies BackgroundEffectPipelineOptions;
+
     try {
-      this.pipeline = await createBackgroundEffectPipeline(track, {
-        engine: this.activeEngine,
-        mode: this.mode,
-        quality: this.quality,
-        background: this.background,
-        inferenceFps: this.inferenceFps,
-      });
+      this.pipeline = await createBackgroundEffectPipeline(track, pipelineOptions);
     } catch (error) {
       this.pipeline = null;
       this.processedTrack = null;
@@ -64,14 +66,23 @@ class MockBgEffect implements BgEffect {
   update(opts: Partial<Omit<BgEffectStartOptions, 'engine'>>): void {
     if (typeof opts.mode === 'string') this.mode = opts.mode;
     if (typeof opts.quality === 'string') this.quality = opts.quality;
-    if (opts.background !== undefined) this.background = opts.background;
-    if (typeof opts.inferenceFps === 'number') this.inferenceFps = opts.inferenceFps;
-    this.pipeline?.update({
+    if ('background' in opts) this.background = opts.background;
+    if ('inferenceFps' in opts) this.inferenceFps = opts.inferenceFps;
+
+    const updatePayload: Partial<Omit<BgEffectStartOptions, 'engine'>> = {
       mode: this.mode,
       quality: this.quality,
-      background: this.background,
-      inferenceFps: this.inferenceFps,
-    });
+    };
+
+    if ('background' in opts || this.background !== undefined) {
+      updatePayload.background = this.background;
+    }
+
+    if ('inferenceFps' in opts || typeof this.inferenceFps === 'number') {
+      updatePayload.inferenceFps = this.inferenceFps;
+    }
+
+    this.pipeline?.update(updatePayload);
   }
 
   stop(): void {

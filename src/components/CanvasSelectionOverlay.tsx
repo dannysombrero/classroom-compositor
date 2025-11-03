@@ -54,7 +54,18 @@ interface MoveSelectionState {
   historyApplied: boolean;
 }
 
-type OverlayInteractionState = InteractionState | MoveSelectionState;
+interface PendingMoveState {
+  type: 'pending-move';
+  pointerId: number;
+  origin: ScenePoint;
+  latest: ScenePoint;
+  moved: boolean;
+  targets: MoveTarget[];
+  historySnapshot?: Scene | null;
+  historyApplied: boolean;
+}
+
+type OverlayInteractionState = InteractionState | PendingMoveState | MoveSelectionState;
 
 const IDLE_STATE: OverlayInteractionState = { type: 'idle' };
 
@@ -231,7 +242,7 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
 
         if (targetLayers.length > 0) {
           interactionRef.current = {
-            type: 'move-selection',
+            type: 'pending-move',
             pointerId: event.pointerId,
             origin: pointerScene,
             latest: pointerScene,
@@ -267,20 +278,40 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
 
   const handlePointerMove = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
-      const state = interactionRef.current;
+      let state = interactionRef.current;
+      if (state.type === 'pending-move' && state.pointerId === event.pointerId) {
+        const pointerScene = pointerToScene(event.clientX, event.clientY);
+        if (!pointerScene) return;
+
+        const deltaX = pointerScene.x - state.origin.x;
+        const deltaY = pointerScene.y - state.origin.y;
+        state.latest = pointerScene;
+
+        const withinThreshold = Math.abs(deltaX) < MOVE_THRESHOLD && Math.abs(deltaY) < MOVE_THRESHOLD;
+        if (withinThreshold) {
+          return;
+        }
+
+        const promotedState: MoveSelectionState = {
+          type: 'move-selection',
+          pointerId: state.pointerId,
+          origin: state.origin,
+          latest: pointerScene,
+          moved: false,
+          targets: state.targets,
+          historySnapshot: state.historySnapshot,
+          historyApplied: state.historyApplied,
+        };
+        interactionRef.current = promotedState;
+        state = promotedState;
+      }
+
       if (state.type === 'move-selection' && state.pointerId === event.pointerId) {
         const pointerScene = pointerToScene(event.clientX, event.clientY);
         if (!pointerScene) return;
 
         const deltaX = pointerScene.x - state.origin.x;
         const deltaY = pointerScene.y - state.origin.y;
-
-        if (!state.moved) {
-          const withinThreshold = Math.abs(deltaX) < MOVE_THRESHOLD && Math.abs(deltaY) < MOVE_THRESHOLD;
-          if (withinThreshold) {
-            return;
-          }
-        }
 
         state.latest = pointerScene;
 
@@ -337,6 +368,15 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
     [normalizeRect, pointerToScene, updateLayer]
   );
 
+  const finishMove = useCallback((state: MoveSelectionState, options?: { cancel?: boolean }) => {
+    const shouldSave = state.historyApplied && !options?.cancel && state.moved;
+    interactionRef.current = IDLE_STATE;
+    setMarqueeRect(null);
+    if (shouldSave) {
+      void useAppStore.getState().saveScene();
+    }
+  }, [setMarqueeRect]);
+
   const finishMarquee = useCallback(() => {
     const state = interactionRef.current;
     if (state.type !== 'marquee' || !scene) {
@@ -381,34 +421,66 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
   const handlePointerUp = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       const state = interactionRef.current;
-      if (state.type !== 'layer-click' && state.type !== 'marquee') {
+      if (state.type === 'move-selection' && state.pointerId === event.pointerId) {
+        finishMove(state);
+        event.currentTarget.releasePointerCapture(event.pointerId);
+        event.preventDefault();
         return;
       }
-      if (state.pointerId !== event.pointerId) {
-        return;
-      }
-
-      if (state.type === 'marquee') {
-        finishMarquee();
-      } else {
+      if (state.type === 'pending-move' && state.pointerId === event.pointerId) {
         interactionRef.current = IDLE_STATE;
         setMarqueeRect(null);
+        event.currentTarget.releasePointerCapture(event.pointerId);
+        event.preventDefault();
+        return;
       }
-
-      event.currentTarget.releasePointerCapture(event.pointerId);
-      event.preventDefault();
+      if (state.type === 'marquee' && state.pointerId === event.pointerId) {
+        finishMarquee();
+        event.currentTarget.releasePointerCapture(event.pointerId);
+        event.preventDefault();
+        return;
+      }
+      if (state.type === 'layer-click' && state.pointerId === event.pointerId) {
+        interactionRef.current = IDLE_STATE;
+        setMarqueeRect(null);
+        event.currentTarget.releasePointerCapture(event.pointerId);
+        event.preventDefault();
+      }
     },
-    [finishMarquee]
+    [finishMarquee, finishMove]
   );
 
-  const handlePointerCancel = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const state = interactionRef.current;
-    if (state.type === 'marquee' && state.pointerId === event.pointerId) {
-      interactionRef.current = IDLE_STATE;
-      setMarqueeRect(null);
-    }
-    event.currentTarget.releasePointerCapture(event.pointerId);
-  }, []);
+  const handlePointerCancel = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const state = interactionRef.current;
+
+      if (state.type === 'move-selection' && state.pointerId === event.pointerId) {
+        finishMove(state, { cancel: true });
+        event.currentTarget.releasePointerCapture(event.pointerId);
+        return;
+      }
+
+      if (state.type === 'pending-move' && state.pointerId === event.pointerId) {
+        interactionRef.current = IDLE_STATE;
+        event.currentTarget.releasePointerCapture(event.pointerId);
+        return;
+      }
+
+      if (state.type === 'marquee' && state.pointerId === event.pointerId) {
+        interactionRef.current = IDLE_STATE;
+        setMarqueeRect(null);
+        event.currentTarget.releasePointerCapture(event.pointerId);
+        return;
+      }
+
+      if (state.type === 'layer-click' && state.pointerId === event.pointerId) {
+        interactionRef.current = IDLE_STATE;
+        setMarqueeRect(null);
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    },
+    [finishMove]
+  );
 
   if (!layout || !scene) {
     return null;
