@@ -211,16 +211,27 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
   const applyResize = useCallback(
     (state: Extract<GroupDragState, { type: 'resize' }>, pointerScene: { x: number; y: number }) => {
       const { startBounds, handle, opposite } = state;
+      const hasLockedMember = state.layers.some((layer) => layer.scaleLocked);
+
       const rawWidth = Math.abs(pointerScene.x - opposite.x);
       const rawHeight = Math.abs(pointerScene.y - opposite.y);
-      const halfWidth = Math.max(MIN_SIZE / 2, rawWidth / 2);
-      const halfHeight = Math.max(MIN_SIZE / 2, rawHeight / 2);
-      const targetWidth = halfWidth * 2;
-      const targetHeight = halfHeight * 2;
-      const newCenter = computeCenterFromHandle(handle, opposite, halfWidth, halfHeight);
+      let targetWidth = Math.max(MIN_SIZE, rawWidth * 2);
+      let targetHeight = Math.max(MIN_SIZE, rawHeight * 2);
 
-      const scaleX = startBounds.width === 0 ? 1 : targetWidth / startBounds.width;
-      const scaleY = startBounds.height === 0 ? 1 : targetHeight / startBounds.height;
+      let scaleX = startBounds.width === 0 ? 1 : targetWidth / startBounds.width;
+      let scaleY = startBounds.height === 0 ? 1 : targetHeight / startBounds.height;
+
+      if (hasLockedMember) {
+        const uniformScale = Math.min(scaleX, scaleY);
+        scaleX = uniformScale;
+        scaleY = uniformScale;
+        targetWidth = Math.max(MIN_SIZE, startBounds.width * uniformScale);
+        targetHeight = Math.max(MIN_SIZE, startBounds.height * uniformScale);
+      }
+
+      const halfWidth = Math.max(MIN_SIZE / 2, targetWidth / 2);
+      const halfHeight = Math.max(MIN_SIZE / 2, targetHeight / 2);
+      const newCenter = computeCenterFromHandle(handle, opposite, halfWidth, halfHeight);
 
       const currentScene = useAppStore.getState().getCurrentScene();
       if (!currentScene) return;
@@ -246,18 +257,13 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
           y: newCenter.y + offsetY * scaleY,
         };
 
-        let nextScale = {
-          x: target.startScale.x * scaleX,
-          y: target.startScale.y * scaleY,
+        const uniformScale = Math.min(scaleX, scaleY);
+        const baseScaleX = target.scaleLocked ? uniformScale : scaleX;
+        const baseScaleY = target.scaleLocked ? uniformScale : scaleY;
+        const nextScale = {
+          x: target.startScale.x * baseScaleX,
+          y: target.startScale.y * baseScaleY,
         };
-
-        if (target.scaleLocked) {
-          const uniform = Math.min(scaleX, scaleY);
-          nextScale = {
-            x: target.startScale.x * uniform,
-            y: target.startScale.y * uniform,
-          };
-        }
 
         updateLayer(
           target.id,
@@ -313,6 +319,7 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
     },
     [applyMove, applyResize, pointerToScene]
   );
+  pointerMoveRef.current = handlePointerMove;
 
   const handlePointerUp = useCallback(
     (event: PointerEvent) => {
@@ -323,6 +330,7 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
     },
     [finishTransform, cleanupPointerListeners]
   );
+  pointerUpRef.current = handlePointerUp;
 
   const startMove = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -340,7 +348,7 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
         historySnapshot: cloneSceneForHistory(useAppStore.getState().getCurrentScene()),
         historyApplied: false,
       };
-      event.currentTarget.setPointerCapture(event.pointerId);
+      cleanupPointerListeners();
       if (pointerMoveRef.current) {
         window.addEventListener('pointermove', pointerMoveRef.current, { passive: false });
       }
@@ -395,6 +403,7 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
         historyApplied: false,
       };
 
+      cleanupPointerListeners();
       if (pointerMoveRef.current) {
         window.addEventListener('pointermove', pointerMoveRef.current, { passive: false });
       }
@@ -404,7 +413,6 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
       if (pointerCancelRef.current) {
         window.addEventListener('pointercancel', pointerCancelRef.current);
       }
-      event.currentTarget.setPointerCapture(event.pointerId);
     },
     [bounds, buildLayerSnapshots]
   );
@@ -418,18 +426,7 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
     },
     [finishTransform, cleanupPointerListeners]
   );
-
-  useEffect(() => {
-    pointerMoveRef.current = handlePointerMove;
-  }, [handlePointerMove]);
-
-  useEffect(() => {
-    pointerUpRef.current = handlePointerUp;
-  }, [handlePointerUp]);
-
-  useEffect(() => {
-    pointerCancelRef.current = handlePointerCancel;
-  }, [handlePointerCancel]);
+  pointerCancelRef.current = handlePointerCancel;
 
   useEffect(
     () => () => {

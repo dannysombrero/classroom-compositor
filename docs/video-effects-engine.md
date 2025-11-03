@@ -4,16 +4,17 @@ This document tracks the implementation status of the browser-side video effects
 
 ## Current state (2025-02)
 
-- `packages/video-effects` scaffolding landed with TypeScript interfaces and a `createBgEffect()` mock implementation that currently passes the source track through untouched.
-- Demo harness (`packages/video-effects/demo`) obtains a camera stream and is ready to host the engine pipeline once Vite wiring is added.
-- Directory structure for adapters (`src/adapters`), pipeline primitives (`src/pipeline`), and UI bindings (`src/ui`) is in place so teams can work in parallel.
+- `packages/video-effects` now builds via `tsc -p tsconfig.build.json`, and the demo harness runs through a local Vite config.
+- `createBgEffect()` delegates to a background-effect pipeline stub that will be replaced by the real Insertable Streams loop.
+- Pipeline interfaces for segmenters and compositors (`src/pipeline/*`) define the contract for forthcoming implementations, with an Insertable Streams pass-through pipeline already producing a derived track.
+- Demo harness (`packages/video-effects/demo`) boots the mock engine, routes the camera through the pass-through pipeline, and previews the processed track for manual testing.
 
 ## Immediate next steps
 
-1. **Tooling:** Add a lightweight Vite config (or similar) under `packages/video-effects/demo` to bundle `demo/main.ts` during development. Decide if the package should build via `tsc` or a bundler (e.g., `tsup`) and update scripts accordingly.
-2. **MediaPipe adapter:** Stand up `src/adapters/mediapipe.ts` that loads the portrait segmentation model, normalises masks, and exposes the shared `ISegmenter` interface.
-3. **Pipeline loop:** Implement `src/pipeline/stream.ts` using Insertable Streams (`MediaStreamTrackProcessor`/`Generator`) with a basic compositor that blends the source frame + segmentation mask.
-4. **Mock/UI integration:** Replace the current pass-through mock once the pipeline hardens, but keep a trivial mock export for unit/UI tests.
+1. **MediaPipe adapter:** Stand up `src/adapters/mediapipe.ts` that loads the portrait segmentation model, normalises masks, and exposes the shared `ISegmenter` interface.
+2. **Pipeline loop:** Implement `src/pipeline/stream.ts` using Insertable Streams (`MediaStreamTrackProcessor`/`Generator`) with a basic compositor that blends the source frame + segmentation mask.
+3. **Compositor implementation:** Replace the current pass-through compositor with WebGL/WebGPU shaders (blur, replacement, chroma) and CPU fallback.
+4. **Mock/UI integration:** Keep a trivial mock export for unit/UI tests once the real engine is live, and expose configuration hooks to the Presenter UI.
 5. **Testing:** Add unit tests for smoothing utilities and mask post-processing; extend the demo harness to surface frame timing telemetry.
 
 ## Longer-term considerations

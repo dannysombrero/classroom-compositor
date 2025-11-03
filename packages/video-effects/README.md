@@ -4,13 +4,16 @@ This package hosts the browser-side background effects engine that produces proc
 
 ## Current status
 
-- Public interfaces (`BgEffect`, `createBgEffect`) are being defined.
-- A mock engine and MediaPipe-based implementation are planned.
-- A demo harness (`demo/index.html`) exercises the engine in isolation while UI work continues independently.
+- Stable public interfaces (`BgEffect`, `createBgEffect`) are defined and exported.
+- A pipeline scaffold (`src/pipeline/*`) captures the contracts for the segmenter, compositor, and Insertable Streams loop.
+- The current implementation uses an Insertable Streams pass-through pipeline while the real-time processing stack is built.
+- A Vite-powered demo harness (`npm run --prefix packages/video-effects demo`) previews the processed track for manual testing.
 
 ## Local development
 
 1. Install dependencies from the repository root: `npm install`.
-2. Run the demo harness (to be wired shortly) from this folder once the Vite config lands.
+2. Build the package: `npm run --prefix packages/video-effects build`.
+3. Run the demo harness: `npm run --prefix packages/video-effects demo`.
+   - The demo opens a camera stream, routes it through the pass-through pipeline, and previews the resulting track.
 
 The main app will consume the engine through the stable track-based API exposed by `src/index.ts`.

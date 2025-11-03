@@ -25,6 +25,8 @@ interface Bounds {
 
 interface MarqueeRect extends Bounds {}
 
+const MOVE_THRESHOLD = 2;
+
 type InteractionState =
   | { type: 'idle' }
   | { type: 'layer-click'; pointerId: number }
@@ -272,6 +274,14 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
 
         const deltaX = pointerScene.x - state.origin.x;
         const deltaY = pointerScene.y - state.origin.y;
+
+        if (!state.moved) {
+          const withinThreshold = Math.abs(deltaX) < MOVE_THRESHOLD && Math.abs(deltaY) < MOVE_THRESHOLD;
+          if (withinThreshold) {
+            return;
+          }
+        }
+
         state.latest = pointerScene;
 
         const appState = useAppStore.getState();

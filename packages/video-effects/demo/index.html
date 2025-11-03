@@ -48,18 +48,6 @@
     <main>
       <video id="preview" autoplay playsinline muted></video>
     </main>
-    <script type="module">
-      // Placeholder until the engine API is wired up.
-      (async () => {
-        const video = document.getElementById('preview');
-        if (!(video instanceof HTMLVideoElement)) return;
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-          video.srcObject = stream;
-        } catch (error) {
-          console.error('Failed to acquire camera:', error);
-        }
-      })();
-    </script>
+    <script type="module" src="/main.ts"></script>
   </body>
 </html>
