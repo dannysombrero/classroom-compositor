@@ -1,12 +1,13 @@
 # Roadmap
 
 ## MVP (now)
-- Canvas renderer, layers, groups, overlay panel, save/load (Dexie)
-- Presenter/Viewer windows, Presentation Mode, Confidence Preview, control strip
-- Image scaling UX polish (sane min/max + width/height % controls)
-- Direct canvas hit selection for any layer
+- Canvas renderer, layers, overlay panel, Dexie autosave, undo/redo (✅)
+- Presenter/Viewer windows, Presentation Mode, Confidence Preview, control strip (✅)
+- Image & shape scaling UX polish (✅)
+- **In progress:** multi-select (marquee & shift-click), grouping/collapse, panel layout redesign, clipboard image paste, camera auto-reactivate
 
 ## v1.1
+- Finish MVP interaction polish (above)
 - Timer widget, click ripple, background blur
 - Text pill presets, export/import bundles
 - Basic recording (auto-download)

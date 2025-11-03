@@ -16,3 +16,6 @@ npm run dev
 ```
 
 Run `npm run build` to type-check and generate production assets.
+
+### Known Issues
+- Browser camera tracks may suspend after refresh; toggling the camera layer reactivates the stream (auto-reactivate planned).
