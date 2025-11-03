@@ -40,6 +40,7 @@ import { TextEditOverlay } from '../components/TextEditOverlay';
 import { ControlStrip } from '../components/ControlStrip';
 import { ConfidencePreview } from '../components/ConfidencePreview';
 import { PresentationOverlay } from '../components/PresentationOverlay';
+import { CanvasSelectionOverlay } from '../components/CanvasSelectionOverlay';
 import { tinykeys } from 'tinykeys';
 import type { KeyBindingMap } from 'tinykeys';
 
@@ -892,6 +893,13 @@ export function PresenterPage() {
           onLayoutChange={handleCanvasLayoutChange}
           skipLayerIds={editingTextId ? [editingTextId] : undefined}
         />
+        {canvasLayout && (
+          <CanvasSelectionOverlay
+            layout={canvasLayout}
+            scene={currentScene}
+            skipLayerIds={editingTextId ? [editingTextId] : undefined}
+          />
+        )}
       </div>
       {isSceneLoading && (
         <div
