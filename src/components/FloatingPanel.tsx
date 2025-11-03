@@ -7,6 +7,9 @@ interface FloatingPanelProps {
   minSize?: { width: number; height: number };
   onPositionChange: (position: { x: number; y: number }) => void;
   onSizeChange?: (size: { width: number; height: number }) => void;
+  collapsible?: boolean;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
   children: ReactNode;
 }
 
@@ -21,6 +24,9 @@ export function FloatingPanel({
   minSize = { width: 240, height: 200 },
   onPositionChange,
   onSizeChange,
+  collapsible = false,
+  collapsed = false,
+  onToggleCollapse,
   children,
 }: FloatingPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -211,9 +217,10 @@ export function FloatingPanel({
         style={{
           display: 'flex',
           alignItems: 'center',
+          justifyContent: 'space-between',
           padding: '8px 12px',
           cursor: isDragging ? 'grabbing' : 'grab',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+          borderBottom: collapsed ? 'none' : '1px solid rgba(255, 255, 255, 0.06)',
           fontSize: '13px',
           letterSpacing: '0.02em',
           fontWeight: 600,
@@ -221,18 +228,47 @@ export function FloatingPanel({
         }}
         onPointerDown={startDrag}
       >
-        {title}
+        <span>{title}</span>
+        {collapsible && onToggleCollapse && (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleCollapse();
+            }}
+            aria-label={collapsed ? 'Expand panel' : 'Collapse panel'}
+            aria-expanded={!collapsed}
+            style={{
+              border: 'none',
+              background: 'rgba(255, 255, 255, 0.08)',
+              color: '#f5f5f5',
+              borderRadius: '6px',
+              width: '24px',
+              height: '24px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              fontSize: '14px',
+              lineHeight: 1,
+            }}
+          >
+            {collapsed ? '▾' : '▴'}
+          </button>
+        )}
       </div>
-      <div
-        style={{
-          flex: 1,
-          overflow: 'visible',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
-        {children}
-      </div>
+      {!collapsed && (
+        <div
+          style={{
+            flex: 1,
+            overflow: 'visible',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          {children}
+        </div>
+      )}
       {onSizeChange && (
         <button
           onPointerDown={startResize}

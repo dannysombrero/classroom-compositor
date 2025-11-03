@@ -44,7 +44,9 @@ import { tinykeys } from 'tinykeys';
 import type { KeyBindingMap } from 'tinykeys';
 
 const EMPTY_LAYERS: Layer[] = [];
-const LAYERS_PANEL_SIZE = { width: 280, height: 760 } as const;
+const LAYERS_PANEL_WIDTH = 280;
+const LAYERS_PANEL_EXPANDED_HEIGHT = 760;
+const LAYERS_PANEL_COLLAPSED_HEIGHT = 64;
 
 function readFileAsDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -78,6 +80,7 @@ export function PresenterPage() {
   const [isAddingCamera, setIsAddingCamera] = useState(false);
   const layerIdsRef = useRef<string[]>([]);
   const [panelPosition, setPanelPosition] = useState({ x: 24, y: 24 });
+  const [isLayersPanelCollapsed, setLayersPanelCollapsed] = useState(false);
   const [canvasLayout, setCanvasLayout] = useState<CanvasLayout | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [isPresentationMode, setIsPresentationMode] = useState(false);
@@ -913,8 +916,14 @@ export function PresenterPage() {
       <FloatingPanel
         title="Objects & Layers"
         position={panelPosition}
-        size={LAYERS_PANEL_SIZE}
+        size={{
+          width: LAYERS_PANEL_WIDTH,
+          height: isLayersPanelCollapsed ? LAYERS_PANEL_COLLAPSED_HEIGHT : LAYERS_PANEL_EXPANDED_HEIGHT,
+        }}
         onPositionChange={setPanelPosition}
+        collapsible
+        collapsed={isLayersPanelCollapsed}
+        onToggleCollapse={() => setLayersPanelCollapsed((prev) => !prev)}
       >
         <LayersPanel
           layers={sceneLayers}
