@@ -232,6 +232,9 @@ export function FloatingPanel({
         {collapsible && onToggleCollapse && (
           <button
             type="button"
+            onPointerDown={(event) => {
+              event.stopPropagation();
+            }}
             onClick={(event) => {
               event.stopPropagation();
               onToggleCollapse();
