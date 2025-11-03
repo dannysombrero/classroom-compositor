@@ -3,6 +3,7 @@ import type { CanvasLayout } from './PresenterCanvas';
 import type { Layer, Scene } from '../types/scene';
 import { useAppStore } from '../app/store';
 import { getLayerBoundingSize } from '../utils/layerGeometry';
+import { requestCurrentStreamFrame } from '../utils/viewerStream';
 
 interface CanvasSelectionOverlayProps {
   layout: CanvasLayout | null;
@@ -35,7 +36,30 @@ type InteractionState =
       shiftKey: boolean;
     };
 
-const IDLE_STATE: InteractionState = { type: 'idle' };
+interface MoveTarget {
+  id: string;
+  start: ScenePoint;
+}
+
+interface MoveSelectionState {
+  type: 'move-selection';
+  pointerId: number;
+  origin: ScenePoint;
+  latest: ScenePoint;
+  moved: boolean;
+  targets: MoveTarget[];
+  historySnapshot?: Scene | null;
+  historyApplied: boolean;
+}
+
+type OverlayInteractionState = InteractionState | MoveSelectionState;
+
+const IDLE_STATE: OverlayInteractionState = { type: 'idle' };
+
+const cloneSceneForHistory = (source: Scene | null): Scene | null => {
+  if (!source) return null;
+  return JSON.parse(JSON.stringify(source)) as Scene;
+};
 
 function computeBounds(layer: Layer, scene: Scene): Bounds {
   const size = getLayerBoundingSize(layer, scene);
@@ -72,6 +96,7 @@ function rectIntersects(layerBounds: Bounds, marquee: Bounds): boolean {
 export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSelectionOverlayProps) {
   const setSelection = useAppStore((state) => state.setSelection);
   const selection = useAppStore((state) => state.selection);
+  const updateLayer = useAppStore((state) => state.updateLayer);
   const selectionRef = useRef(selection);
   selectionRef.current = selection;
 
@@ -100,7 +125,7 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
   }, [scene, selectableLayers]);
 
   const [marqueeRect, setMarqueeRect] = useState<MarqueeRect | null>(null);
-  const interactionRef = useRef<InteractionState>(IDLE_STATE);
+  const interactionRef = useRef<OverlayInteractionState>(IDLE_STATE);
 
   const selectedLayers = useMemo(() => {
     if (!scene) return [] as Layer[];
@@ -167,19 +192,56 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
       const targetLayer = pickLayerAtPoint(pointerScene);
       if (targetLayer) {
         const isMulti = event.shiftKey || event.metaKey;
+        const currentSelection = selectionRef.current;
+
         if (isMulti) {
-          const alreadySelected = selectionRef.current.includes(targetLayer.id);
+          const alreadySelected = currentSelection.includes(targetLayer.id);
           const nextSelection = alreadySelected
-            ? selectionRef.current.filter((id) => id !== targetLayer.id)
-            : [...selectionRef.current, targetLayer.id];
+            ? currentSelection.filter((id) => id !== targetLayer.id)
+            : [...currentSelection, targetLayer.id];
+          selectionRef.current = nextSelection;
           setSelection(nextSelection);
-        } else {
-          if (selectionRef.current.length !== 1 || selectionRef.current[0] !== targetLayer.id) {
-            setSelection([targetLayer.id]);
-          }
+          interactionRef.current = { type: 'layer-click', pointerId: event.pointerId };
+          setMarqueeRect(null);
+          event.preventDefault();
+          return;
         }
-        interactionRef.current = { type: 'layer-click', pointerId: event.pointerId };
-        setMarqueeRect(null);
+
+        let nextSelection = currentSelection;
+        if (!currentSelection.includes(targetLayer.id)) {
+          nextSelection = [targetLayer.id];
+        } else if (currentSelection[0] !== targetLayer.id) {
+          nextSelection = [targetLayer.id, ...currentSelection.filter((id) => id !== targetLayer.id)];
+        }
+
+        if (nextSelection !== currentSelection) {
+          selectionRef.current = nextSelection;
+          setSelection(nextSelection);
+        }
+
+        const targetLayers = nextSelection
+          .map((id) => scene.layers.find((layer) => layer.id === id) ?? null)
+          .filter((layer): layer is Layer => !!layer && !layer.locked && layer.visible && !skipIds.has(layer.id))
+          .map((layer) => ({
+            id: layer.id,
+            start: { x: layer.transform.pos.x, y: layer.transform.pos.y },
+          }));
+
+        if (targetLayers.length > 0) {
+          interactionRef.current = {
+            type: 'move-selection',
+            pointerId: event.pointerId,
+            origin: pointerScene,
+            latest: pointerScene,
+            moved: false,
+            targets: targetLayers,
+            historySnapshot: cloneSceneForHistory(useAppStore.getState().getCurrentScene()),
+            historyApplied: false,
+          };
+          setMarqueeRect(null);
+        } else {
+          interactionRef.current = { type: 'layer-click', pointerId: event.pointerId };
+        }
       } else {
         interactionRef.current = {
           type: 'marquee',
@@ -198,12 +260,59 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
 
       event.preventDefault();
     },
-    [layout, pickLayerAtPoint, pointerToScene, scene, setSelection]
+    [layout, pickLayerAtPoint, pointerToScene, scene, setSelection, skipIds]
   );
 
   const handlePointerMove = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       const state = interactionRef.current;
+      if (state.type === 'move-selection' && state.pointerId === event.pointerId) {
+        const pointerScene = pointerToScene(event.clientX, event.clientY);
+        if (!pointerScene) return;
+
+        const deltaX = pointerScene.x - state.origin.x;
+        const deltaY = pointerScene.y - state.origin.y;
+        state.latest = pointerScene;
+
+        const appState = useAppStore.getState();
+        const currentSceneState = appState.getCurrentScene();
+        if (!currentSceneState) return;
+
+        const historyOptions = () => {
+          if (!state.historyApplied) {
+            state.historyApplied = true;
+            if (state.historySnapshot) {
+              return { recordHistory: false, persist: false, historySnapshot: state.historySnapshot };
+            }
+          }
+          return { recordHistory: false, persist: false } as const;
+        };
+
+        for (const target of state.targets) {
+          const layer = currentSceneState.layers.find((item) => item.id === target.id);
+          if (!layer) continue;
+
+          updateLayer(
+            target.id,
+            {
+              transform: {
+                ...layer.transform,
+                pos: {
+                  x: target.start.x + deltaX,
+                  y: target.start.y + deltaY,
+                },
+              },
+            },
+            historyOptions()
+          );
+        }
+
+        state.moved = true;
+        requestCurrentStreamFrame();
+        event.preventDefault();
+        return;
+      }
+
       if (state.type !== 'marquee' || state.pointerId !== event.pointerId) {
         return;
       }
@@ -215,7 +324,7 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
       setMarqueeRect(normalizeRect(state.origin, pointerScene));
       event.preventDefault();
     },
-    [normalizeRect, pointerToScene]
+    [normalizeRect, pointerToScene, updateLayer]
   );
 
   const finishMarquee = useCallback(() => {
@@ -259,9 +368,27 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
     setMarqueeRect(null);
   }, [layersSortedByZ, normalizeRect, scene, setSelection]);
 
+  const finishMove = useCallback((state: MoveSelectionState, options?: { cancel?: boolean }) => {
+    const shouldSave = state.historyApplied && !options?.cancel;
+    interactionRef.current = IDLE_STATE;
+    if (shouldSave) {
+      void useAppStore.getState().saveScene();
+    }
+  }, []);
+
   const handlePointerUp = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       const state = interactionRef.current;
+      if (state.type === 'move-selection') {
+        if (state.pointerId !== event.pointerId) {
+          return;
+        }
+        finishMove(state);
+        event.currentTarget.releasePointerCapture(event.pointerId);
+        event.preventDefault();
+        return;
+      }
+
       if (state.type !== 'layer-click' && state.type !== 'marquee') {
         return;
       }
@@ -279,17 +406,21 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
       event.currentTarget.releasePointerCapture(event.pointerId);
       event.preventDefault();
     },
-    [finishMarquee]
+    [finishMarquee, finishMove]
   );
 
   const handlePointerCancel = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const state = interactionRef.current;
-    if (state.type === 'marquee' && state.pointerId === event.pointerId) {
+    if (state.type === 'move-selection' && state.pointerId === event.pointerId) {
+      finishMove(state, { cancel: true });
+    } else if (state.type === 'marquee' && state.pointerId === event.pointerId) {
       interactionRef.current = IDLE_STATE;
       setMarqueeRect(null);
+    } else if (state.type === 'layer-click' && state.pointerId === event.pointerId) {
+      interactionRef.current = IDLE_STATE;
     }
     event.currentTarget.releasePointerCapture(event.pointerId);
-  }, []);
+  }, [finishMove]);
 
   if (!layout || !scene) {
     return null;

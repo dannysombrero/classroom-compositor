@@ -107,6 +107,7 @@ export function PresenterPage() {
     const id = state.selection[0];
     return scene.layers.find((layer) => layer.id === id) ?? null;
   }) as Layer | null;
+  const selectionLength = useAppStore((state) => state.selection.length);
   const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLayer, undo, redo } = useAppStore();
 
   const showControlStrip = useCallback(() => {
@@ -942,7 +943,14 @@ export function PresenterPage() {
           onAddShape={addShapeLayer}
         />
       </FloatingPanel>
-      {canvasLayout && currentScene && selectedLayer && !selectedLayer.locked && selectedLayer.type !== 'camera' && selectedLayer.type !== 'screen' && !isEditingSelectedText && (
+      {canvasLayout &&
+        currentScene &&
+        selectedLayer &&
+        selectionLength === 1 &&
+        !selectedLayer.locked &&
+        selectedLayer.type !== 'camera' &&
+        selectedLayer.type !== 'screen' &&
+        !isEditingSelectedText && (
         <TransformControls
           layout={canvasLayout}
           layer={selectedLayer}
@@ -950,7 +958,11 @@ export function PresenterPage() {
           onRequestEdit={selectedLayer.type === 'text' ? () => setEditingTextId(selectedLayer.id) : undefined}
         />
       )}
-      {canvasLayout && currentScene && selectedLayer?.type === 'camera' && !selectedLayer.locked && (
+      {canvasLayout &&
+        currentScene &&
+        selectedLayer?.type === 'camera' &&
+        selectionLength === 1 &&
+        !selectedLayer.locked && (
         <CameraOverlayControls
           layout={canvasLayout}
           layer={selectedLayer as CameraLayer}
@@ -958,7 +970,12 @@ export function PresenterPage() {
           sceneHeight={currentScene.height}
         />
       )}
-      {canvasLayout && currentScene && selectedLayer?.type === 'text' && !selectedLayer.locked && isEditingSelectedText && (
+      {canvasLayout &&
+        currentScene &&
+        selectedLayer?.type === 'text' &&
+        selectionLength === 1 &&
+        !selectedLayer.locked &&
+        isEditingSelectedText && (
         <TextEditOverlay
           layout={canvasLayout}
           layer={selectedLayer as TextLayer}
