@@ -7,11 +7,41 @@ interface LayerPropertiesPanelProps {
   layer: Layer | null;
 }
 
-const ALIGNMENT_OPTIONS: Array<{ value: 'left' | 'center' | 'right'; lines: number[] }> = [
-  { value: 'left', lines: [100, 80, 60] },
-  { value: 'center', lines: [60, 100, 60] },
-  { value: 'right', lines: [60, 80, 100] },
+const ALIGNMENT_OPTIONS: Array<{ value: 'left' | 'center' | 'right' }> = [
+  { value: 'left' },
+  { value: 'center' },
+  { value: 'right' },
 ];
+
+function renderAlignmentIcon(alignment: 'left' | 'center' | 'right') {
+  switch (alignment) {
+    case 'left':
+      return (
+        <>
+          <line x1="2" y1="3" x2="26" y2="3" />
+          <line x1="2" y1="9" x2="18" y2="9" />
+          <line x1="2" y1="15" x2="22" y2="15" />
+        </>
+      );
+    case 'center':
+      return (
+        <>
+          <line x1="4" y1="3" x2="24" y2="3" />
+          <line x1="2" y1="9" x2="26" y2="9" />
+          <line x1="6" y1="15" x2="22" y2="15" />
+        </>
+      );
+    case 'right':
+    default:
+      return (
+        <>
+          <line x1="2" y1="3" x2="26" y2="3" />
+          <line x1="10" y1="9" x2="26" y2="9" />
+          <line x1="6" y1="15" x2="26" y2="15" />
+        </>
+      );
+  }
+}
 
 const IMAGE_SCALE_MIN_PERCENT = 5;
 const IMAGE_SCALE_MAX_PERCENT = 400;
@@ -274,19 +304,17 @@ export function LayerPropertiesPanel({ layer }: LayerPropertiesPanelProps) {
                       : null),
                   }}
                 >
-                  <div style={panelStyle.alignmentIcon}>
-                    {option.lines.map((percent, index) => (
-                      <span
-                        key={index}
-                        style={{
-                          ...panelStyle.alignmentIconLine,
-                          width: `${percent}%`,
-                          marginLeft: option.value === 'left' ? 0 : 'auto',
-                          marginRight: option.value === 'right' ? 0 : 'auto',
-                        }}
-                      />
-                    ))}
-                  </div>
+                  <svg
+                    width="28"
+                    height="18"
+                    viewBox="0 0 28 18"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  >
+                    {renderAlignmentIcon(option.value)}
+                  </svg>
                 </button>
               ))}
             </div>
@@ -522,9 +550,6 @@ const panelStyle: Record<string, CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
     gap: '12px',
-    maxHeight: '100%',
-    overflowY: 'auto',
-    paddingRight: '4px',
   },
   sectionTitle: {
     fontSize: '12px',
@@ -570,21 +595,6 @@ const panelStyle: Record<string, CSSProperties> = {
   alignmentButtonActive: {
     background: 'rgba(0, 166, 255, 0.25)',
     borderColor: 'rgba(0, 166, 255, 0.8)',
-  },
-  alignmentIcon: {
-    display: 'flex',
-    flexDirection: 'column',
-    justifyContent: 'center',
-    alignItems: 'stretch',
-    gap: '3px',
-    width: '100%',
-    padding: '0 6px',
-  },
-  alignmentIconLine: {
-    display: 'block',
-    height: '2px',
-    borderRadius: '1px',
-    background: 'currentColor',
   },
   valueText: {
     fontSize: '12px',

@@ -177,7 +177,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                 style={{
                   position: 'absolute',
                   top: '32px',
-                  right: '0',
+                  left: '0',
                   background: 'rgba(24, 24, 24, 0.95)',
                   borderRadius: '8px',
                   border: '1px solid rgba(255, 255, 255, 0.08)',
@@ -432,7 +432,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
         )}
       </div>
       <div style={propertiesContainerStyle}>
-        <LayerPropertiesPanel layer={selectedLayer ?? null} />
+      <LayerPropertiesPanel layer={selectedLayer ?? null} />
       </div>
     </div>
   );

@@ -37,7 +37,7 @@ interface AppState {
 /**
  * Store actions interface.
  */
-interface UpdateLayerOptions {
+export interface UpdateLayerOptions {
   recordHistory?: boolean;
   persist?: boolean;
   historySnapshot?: Scene | null;

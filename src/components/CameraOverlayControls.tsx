@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react';
-import type { CameraLayer } from '../types/scene';
+import type { CameraLayer, Scene } from '../types/scene';
 import type { CanvasLayout } from './PresenterCanvas';
-import { useAppStore } from '../app/store';
+import { useAppStore, type UpdateLayerOptions } from '../app/store';
 import { requestCurrentStreamFrame } from '../utils/viewerStream';
 import { getVideoForLayer } from '../media/sourceManager';
 
@@ -18,22 +18,30 @@ type DragState =
       pointerId: number;
       offsetX: number;
       offsetY: number;
+      historySnapshot?: Scene | null;
+      historyApplied?: boolean;
     }
   | {
       type: 'resize';
       pointerId: number;
+      historySnapshot?: Scene | null;
+      historyApplied?: boolean;
     }
   | {
       type: 'offset';
       pointerId: number;
       startPointer: { x: number; y: number };
       initialOffset: { x: number; y: number };
+      historySnapshot?: Scene | null;
+      historyApplied?: boolean;
     }
   | {
       type: 'content-scale';
       pointerId: number;
       initialScale: number;
       startDistance: number;
+      historySnapshot?: Scene | null;
+      historyApplied?: boolean;
     };
 
 type ResizeHandle = 'top-left' | 'top-right' | 'bottom-right' | 'bottom-left';
@@ -70,6 +78,11 @@ export function CameraOverlayControls({
   const sceneSizeRef = useRef({ sceneWidth, sceneHeight });
   const dragStateRef = useRef<DragState | null>(null);
 
+  const cloneScene = useCallback((scene: Scene | null): Scene | null => {
+    if (!scene) return null;
+    return JSON.parse(JSON.stringify(scene)) as Scene;
+  }, []);
+
   useEffect(() => {
     layerRef.current = layer;
   }, [layer]);
@@ -97,6 +110,21 @@ export function CameraOverlayControls({
     return { x: clampedX, y: clampedY };
   };
 
+  const historyOptions = (dragState: DragState | null) => {
+    if (!dragState || !dragState.historySnapshot) {
+      return { recordHistory: false, persist: false } as UpdateLayerOptions;
+    }
+    if (!dragState.historyApplied) {
+      dragState.historyApplied = true;
+      return {
+        recordHistory: false,
+        persist: false,
+        historySnapshot: dragState.historySnapshot,
+      } as UpdateLayerOptions;
+    }
+    return { recordHistory: false, persist: false } as UpdateLayerOptions;
+  };
+
   const handlePointerMove = useCallback((event: PointerEvent) => {
     const dragState = dragStateRef.current;
     if (!dragState || dragState.pointerId !== event.pointerId) return;
@@ -112,12 +140,16 @@ export function CameraOverlayControls({
       const targetX = pointerScene.x - dragState.offsetX;
       const targetY = pointerScene.y - dragState.offsetY;
       const { x, y } = clampPosition(targetX, targetY, radius);
-      updateLayer(currentLayer.id, {
-        transform: {
-          ...currentLayer.transform,
-          pos: { x, y },
+      updateLayer(
+        currentLayer.id,
+        {
+          transform: {
+            ...currentLayer.transform,
+            pos: { x, y },
+          },
         },
-      });
+        historyOptions(dragState)
+      );
       requestCurrentStreamFrame();
     } else if (dragState.type === 'resize') {
       const center = currentLayer.transform.pos;
@@ -128,9 +160,7 @@ export function CameraOverlayControls({
       const maxRadius = Math.min(center.x, center.y, width - center.x, height - center.y);
       radius = Math.min(Math.max(radius, MIN_DIAMETER / 2), Math.max(maxRadius, MIN_DIAMETER / 2));
       const diameter = Math.round(radius * 2);
-      updateLayer(currentLayer.id, {
-        diameter,
-      });
+      updateLayer(currentLayer.id, { diameter }, historyOptions(dragState));
       requestCurrentStreamFrame();
     } else if (dragState.type === 'offset') {
       const delta = {
@@ -152,12 +182,16 @@ export function CameraOverlayControls({
       const clampX = Math.max(-maxOffsetX, Math.min(maxOffsetX, nextOffset.x));
       const clampY = Math.max(-maxOffsetY, Math.min(maxOffsetY, nextOffset.y));
 
-      updateLayer(currentLayer.id, {
-        videoOffset: {
-          x: clampX,
-          y: clampY,
+      updateLayer(
+        currentLayer.id,
+        {
+          videoOffset: {
+            x: clampX,
+            y: clampY,
+          },
         },
-      });
+        historyOptions(dragState)
+      );
       requestCurrentStreamFrame();
     } else if (dragState.type === 'content-scale') {
       const center = currentLayer.transform.pos;
@@ -176,13 +210,17 @@ export function CameraOverlayControls({
       const clampX = Math.max(-maxOffsetX, Math.min(maxOffsetX, currentOffset.x));
       const clampY = Math.max(-maxOffsetY, Math.min(maxOffsetY, currentOffset.y));
 
-      updateLayer(currentLayer.id, {
-        videoScale: nextScale,
-        videoOffset: {
-          x: clampX,
-          y: clampY,
+      updateLayer(
+        currentLayer.id,
+        {
+          videoScale: nextScale,
+          videoOffset: {
+            x: clampX,
+            y: clampY,
+          },
         },
-      });
+        historyOptions(dragState)
+      );
       requestCurrentStreamFrame();
     }
   }, [updateLayer]);
@@ -194,6 +232,9 @@ export function CameraOverlayControls({
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', endDrag);
       window.removeEventListener('pointercancel', endDrag);
+      if (dragState.historyApplied) {
+        void useAppStore.getState().saveScene();
+      }
     }
   }, [handlePointerMove]);
 
@@ -204,26 +245,33 @@ export function CameraOverlayControls({
     if (!currentLayer) return;
 
     const pointerScene = pointerToScene(event.clientX, event.clientY);
+    const snapshot = cloneScene(useAppStore.getState().getCurrentScene());
+    const baseState = {
+      pointerId: event.pointerId,
+      historySnapshot: snapshot,
+      historyApplied: false,
+    } as const;
+
     let dragState: DragState;
 
     if (type === 'move') {
       dragState = {
         type: 'move',
-        pointerId: event.pointerId,
         offsetX: pointerScene.x - currentLayer.transform.pos.x,
         offsetY: pointerScene.y - currentLayer.transform.pos.y,
+        ...baseState,
       };
     } else if (type === 'resize') {
       dragState = {
         type: 'resize',
-        pointerId: event.pointerId,
+        ...baseState,
       };
     } else if (type === 'offset') {
       dragState = {
         type: 'offset',
-        pointerId: event.pointerId,
         startPointer: pointerScene,
         initialOffset: currentLayer.videoOffset ?? { x: 0, y: 0 },
+        ...baseState,
       };
     } else {
       const center = currentLayer.transform.pos;
@@ -232,9 +280,9 @@ export function CameraOverlayControls({
       const distance = Math.max(1, Math.sqrt(dx * dx + dy * dy));
       dragState = {
         type: 'content-scale',
-        pointerId: event.pointerId,
         initialScale: currentLayer.videoScale ?? 1,
         startDistance: distance,
+        ...baseState,
       };
     }
 
