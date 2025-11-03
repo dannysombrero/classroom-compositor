@@ -41,6 +41,7 @@ import { ControlStrip } from '../components/ControlStrip';
 import { ConfidencePreview } from '../components/ConfidencePreview';
 import { PresentationOverlay } from '../components/PresentationOverlay';
 import { CanvasSelectionOverlay } from '../components/CanvasSelectionOverlay';
+import { GroupTransformControls } from '../components/GroupTransformControls';
 import { tinykeys } from 'tinykeys';
 import type { KeyBindingMap } from 'tinykeys';
 
@@ -100,6 +101,7 @@ export function PresenterPage() {
     if (!state.currentSceneId) return null;
     return state.scenes[state.currentSceneId] ?? null;
   }) as Scene | null;
+  const selectionIds = useAppStore((state) => state.selection);
   const selectedLayer = useAppStore((state) => {
     if (!state.currentSceneId || state.selection.length === 0) return null;
     const scene = state.scenes[state.currentSceneId];
@@ -107,7 +109,7 @@ export function PresenterPage() {
     const id = state.selection[0];
     return scene.layers.find((layer) => layer.id === id) ?? null;
   }) as Layer | null;
-  const selectionLength = useAppStore((state) => state.selection.length);
+  const selectionLength = selectionIds.length;
   const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLayer, undo, redo } = useAppStore();
 
   const showControlStrip = useCallback(() => {
@@ -899,6 +901,13 @@ export function PresenterPage() {
             layout={canvasLayout}
             scene={currentScene}
             skipLayerIds={editingTextId ? [editingTextId] : undefined}
+          />
+        )}
+        {canvasLayout && currentScene && selectionLength > 1 && (
+          <GroupTransformControls
+            layout={canvasLayout}
+            scene={currentScene}
+            layerIds={selectionIds}
           />
         )}
       </div>
