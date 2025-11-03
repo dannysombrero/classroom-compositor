@@ -42,6 +42,7 @@ import { ConfidencePreview } from '../components/ConfidencePreview';
 import { PresentationOverlay } from '../components/PresentationOverlay';
 import { tinykeys } from 'tinykeys';
 import type { KeyBindingMap } from 'tinykeys';
+import { CanvasSelectionOverlay } from '../components/CanvasSelectionOverlay';
 
 const EMPTY_LAYERS: Layer[] = [];
 
@@ -77,7 +78,7 @@ export function PresenterPage() {
   const [isAddingCamera, setIsAddingCamera] = useState(false);
   const layerIdsRef = useRef<string[]>([]);
   const [panelPosition, setPanelPosition] = useState({ x: 24, y: 24 });
-  const [panelSize, setPanelSize] = useState({ width: 280, height: 360 });
+  const [panelSize, setPanelSize] = useState({ width: 320, height: 420 });
   const [canvasLayout, setCanvasLayout] = useState<CanvasLayout | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [isPresentationMode, setIsPresentationMode] = useState(false);
@@ -194,10 +195,11 @@ export function PresenterPage() {
       const track = result.stream.getVideoTracks()[0];
       if (track) {
         updateLayer(layerId, { streamId: track.id });
-        track.addEventListener('ended', () => {
+        const handleEnded = () => {
           stopSource(layerId);
           useAppStore.getState().removeLayer(layerId);
-        });
+        };
+        track.addEventListener('ended', handleEnded, { once: true });
       }
 
       requestCurrentStreamFrame();
@@ -233,10 +235,11 @@ export function PresenterPage() {
       const track = result.stream.getVideoTracks()[0];
       if (track) {
         updateLayer(layerId, { streamId: track.id });
-        track.addEventListener('ended', () => {
+        const handleEnded = () => {
           stopSource(layerId);
           useAppStore.getState().removeLayer(layerId);
-        });
+        };
+        track.addEventListener('ended', handleEnded, { once: true });
       }
 
       requestCurrentStreamFrame();
@@ -381,18 +384,22 @@ export function PresenterPage() {
     }
 
     // Handle stream ended
-    stream.getVideoTracks()[0]?.addEventListener('ended', () => {
-      console.log('Presenter: Stream ended');
-      if (viewerWindowRef.current && !viewerWindowRef.current.closed) {
-        notifyStreamEnded(viewerWindowRef.current);
-      }
-      streamRef.current = null;
-      setCurrentStream(null);
-      setIsPresentationMode(false);
-      setIsConfidencePreviewVisible(false);
-      setControlStripVisible(true);
-      showControlStrip();
-    });
+    const streamTrack = stream.getVideoTracks()[0];
+    if (streamTrack) {
+      const handleStreamEnded = () => {
+        console.log('Presenter: Stream ended');
+        if (viewerWindowRef.current && !viewerWindowRef.current.closed) {
+          notifyStreamEnded(viewerWindowRef.current);
+        }
+        streamRef.current = null;
+        setCurrentStream(null);
+        setIsPresentationMode(false);
+        setIsConfidencePreviewVisible(false);
+        setControlStripVisible(true);
+        showControlStrip();
+      };
+      streamTrack.addEventListener('ended', handleStreamEnded, { once: true });
+    }
   }, [setIsConfidencePreviewVisible, setIsPresentationMode, showControlStrip]);
 
   const openViewer = () => {
@@ -889,6 +896,9 @@ export function PresenterPage() {
           onLayoutChange={handleCanvasLayoutChange}
           skipLayerIds={editingTextId ? [editingTextId] : undefined}
         />
+        {canvasLayout && currentScene && (
+          <CanvasSelectionOverlay canvasRef={canvasRef} layout={canvasLayout} scene={currentScene} />
+        )}
       </div>
       {isSceneLoading && (
         <div

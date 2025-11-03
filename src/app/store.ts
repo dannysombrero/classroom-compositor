@@ -78,6 +78,13 @@ interface AppActions {
    * Update a layer with a partial update.
    */
   updateLayer: (layerId: string, updates: Partial<Layer>, options?: UpdateLayerOptions) => void;
+  /**
+   * Update multiple layers in a single transaction.
+   */
+  updateLayers: (
+    updates: Array<{ id: string; changes: Partial<Layer> }>,
+    options?: UpdateLayerOptions
+  ) => void;
 
   /**
    * Set the selected layer IDs.
@@ -284,6 +291,36 @@ export const useAppStore = create<AppStore>((set, get) => ({
       history: snapshotClone ? [...state.history, snapshotClone] : state.history,
       future: snapshotClone ? [] : state.future,
     }));
+    if (persist) {
+      persistSceneImmediate(updatedScene);
+    }
+  },
+
+  updateLayers: (updates, options: UpdateLayerOptions = {}) => {
+    if (updates.length === 0) return;
+    const { recordHistory = true, persist = true, historySnapshot } = options;
+    const { getCurrentScene } = get();
+    const scene = getCurrentScene();
+    if (!scene) return;
+
+    const updateMap = new Map(updates.map((entry) => [entry.id, entry.changes]));
+    const snapshotSource = historySnapshot ?? (recordHistory ? snapshotScene(scene) : null);
+    const snapshotClone = snapshotSource ? snapshotScene(snapshotSource) : null;
+
+    const updatedScene: Scene = {
+      ...scene,
+      layers: scene.layers.map((layer) => {
+        const changes = updateMap.get(layer.id);
+        return changes ? applyLayerUpdates(layer, changes) : layer;
+      }),
+    };
+
+    set((state) => ({
+      scenes: { ...state.scenes, [state.currentSceneId!]: updatedScene },
+      history: snapshotClone ? [...state.history, snapshotClone] : state.history,
+      future: snapshotClone ? [] : state.future,
+    }));
+
     if (persist) {
       persistSceneImmediate(updatedScene);
     }

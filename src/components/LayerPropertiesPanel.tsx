@@ -545,8 +545,7 @@ function clampPercent(value: number): number {
 
 const panelStyle: Record<string, CSSProperties> = {
   container: {
-    borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-    paddingTop: '12px',
+    paddingTop: '0',
     display: 'flex',
     flexDirection: 'column',
     gap: '12px',
