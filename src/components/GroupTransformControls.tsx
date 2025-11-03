@@ -215,8 +215,8 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
 
       const rawWidth = Math.abs(pointerScene.x - opposite.x);
       const rawHeight = Math.abs(pointerScene.y - opposite.y);
-      let targetWidth = Math.max(MIN_SIZE, rawWidth * 2);
-      let targetHeight = Math.max(MIN_SIZE, rawHeight * 2);
+      let targetWidth = Math.max(MIN_SIZE, rawWidth);
+      let targetHeight = Math.max(MIN_SIZE, rawHeight);
 
       let scaleX = startBounds.width === 0 ? 1 : targetWidth / startBounds.width;
       let scaleY = startBounds.height === 0 ? 1 : targetHeight / startBounds.height;
