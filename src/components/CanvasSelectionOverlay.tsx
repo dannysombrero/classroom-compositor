@@ -27,6 +27,7 @@ interface MarqueeRect extends Bounds {}
 
 type InteractionState =
   | { type: 'idle' }
+  | { type: 'layer-down'; pointerId: number; origin: ScenePoint; latest: ScenePoint; targets: MoveTarget[]; historySnapshot?: Scene | null; historyApplied: boolean }
   | { type: 'layer-click'; pointerId: number }
   | {
       type: 'marquee';
@@ -55,6 +56,7 @@ interface MoveSelectionState {
 type OverlayInteractionState = InteractionState | MoveSelectionState;
 
 const IDLE_STATE: OverlayInteractionState = { type: 'idle' };
+const DRAG_THRESHOLD_PX = 6;
 
 const cloneSceneForHistory = (source: Scene | null): Scene | null => {
   if (!source) return null;
@@ -219,6 +221,7 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
           setSelection(nextSelection);
         }
 
+        // Prepare potential move targets, but DO NOT move yet (wait for threshold).
         const targetLayers = nextSelection
           .map((id) => scene.layers.find((layer) => layer.id === id) ?? null)
           .filter((layer): layer is Layer => !!layer && !layer.locked && layer.visible && !skipIds.has(layer.id))
@@ -229,11 +232,10 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
 
         if (targetLayers.length > 0) {
           interactionRef.current = {
-            type: 'move-selection',
+            type: 'layer-down',
             pointerId: event.pointerId,
             origin: pointerScene,
             latest: pointerScene,
-            moved: false,
             targets: targetLayers,
             historySnapshot: cloneSceneForHistory(useAppStore.getState().getCurrentScene()),
             historyApplied: false,
@@ -266,6 +268,33 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
   const handlePointerMove = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       const state = interactionRef.current;
+
+      // --- Promote 'layer-down' to 'move-selection' after threshold ---
+      if (state.type === 'layer-down' && state.pointerId === event.pointerId) {
+        const pointerScene = pointerToScene(event.clientX, event.clientY);
+        if (!pointerScene) return;
+
+        const dx = pointerScene.x - state.origin.x;
+        const dy = pointerScene.y - state.origin.y;
+        const distSq = dx * dx + dy * dy;
+        if (distSq >= DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) {
+          // Switch to move-selection, but don't apply delta this very tick.
+          interactionRef.current = {
+            type: 'move-selection',
+            pointerId: state.pointerId,
+            origin: state.origin,
+            latest: pointerScene,
+            moved: false,
+            targets: state.targets,
+            historySnapshot: state.historySnapshot,
+            historyApplied: state.historyApplied,
+          };
+          event.preventDefault();
+          return;
+        }
+      }
+
+      // --- Actual movement when dragging ---
       if (state.type === 'move-selection' && state.pointerId === event.pointerId) {
         const pointerScene = pointerToScene(event.clientX, event.clientY);
         if (!pointerScene) return;
@@ -313,6 +342,7 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
         return;
       }
 
+      // --- Marquee rectangle update ---
       if (state.type !== 'marquee' || state.pointerId !== event.pointerId) {
         return;
       }
@@ -371,16 +401,29 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
   const handlePointerUp = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       const state = interactionRef.current;
-      if (state.type !== 'layer-click' && state.type !== 'marquee') {
-        return;
-      }
       if (state.pointerId !== event.pointerId) {
         return;
       }
 
-      if (state.type === 'marquee') {
+      // If we were dragging, push ONE history snapshot now (no-op update with snapshot)
+      if (state.type === 'move-selection') {
+        if (state.moved) {
+          const store = useAppStore.getState();
+          const sceneNow = store.getCurrentScene();
+          if (sceneNow && store.selection.length > 0) {
+            store.updateLayer(
+              store.selection[0],
+              {},
+              { recordHistory: true, persist: false }
+            );
+          }
+        }
+        interactionRef.current = IDLE_STATE;
+        setMarqueeRect(null);
+      } else if (state.type === 'marquee') {
         finishMarquee();
       } else {
+        // layer-click or layer-down: just end without moving
         interactionRef.current = IDLE_STATE;
         setMarqueeRect(null);
       }
@@ -393,7 +436,7 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
 
   const handlePointerCancel = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const state = interactionRef.current;
-    if (state.type === 'marquee' && state.pointerId === event.pointerId) {
+    if (state.pointerId === event.pointerId) {
       interactionRef.current = IDLE_STATE;
       setMarqueeRect(null);
     }
@@ -475,5 +518,4 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
       {marqueeVisual}
       {selectionOutlines}
     </>
-  );
-}
+  );}
