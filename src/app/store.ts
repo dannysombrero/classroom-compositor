@@ -165,7 +165,6 @@ function applyLayerUpdates(layer: Layer, updates: Partial<Layer>): Layer {
   }
 }
 
-<<<<<<< HEAD
 interface Bounds {
   minX: number;
   maxX: number;
@@ -208,8 +207,6 @@ function persistSceneImmediate(scene: Scene): void {
   });
 }
 
-=======
->>>>>>> main
 function snapshotScene(scene: Scene | null): Scene | null {
   if (!scene) return null;
   if (typeof structuredClone === 'function') {

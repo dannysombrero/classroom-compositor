@@ -21,7 +21,7 @@ export function FloatingPanel({
   title,
   position,
   size,
-  minSize = { width: 280, height: 380 },
+  minSize = { width: 240, height: 200 },
   onPositionChange,
   onSizeChange,
   collapsible = false,
@@ -210,11 +210,7 @@ export function FloatingPanel({
         backdropFilter: 'blur(8px)',
         border: '1px solid rgba(255, 255, 255, 0.08)',
         zIndex: 20,
-<<<<<<< HEAD
         cursor: isDragging ? 'grabbing' : edgeHover ? 'grab' : 'default',
-=======
-        overflow: 'hidden',
->>>>>>> main
       }}
     >
       <div

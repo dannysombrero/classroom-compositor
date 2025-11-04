@@ -44,7 +44,6 @@ import { CanvasSelectionOverlay } from '../components/CanvasSelectionOverlay';
 import { GroupTransformControls } from '../components/GroupTransformControls';
 import { tinykeys } from 'tinykeys';
 import type { KeyBindingMap } from 'tinykeys';
-<<<<<<< HEAD
 import { useBackgroundEffectTrack } from "../hooks/useBackgroundEffectTrack";
 import { PresenterEffectsControls } from "../components/PresenterEffectsControls";
 import { useVideoEffectsStore } from "../stores/videoEffects";
@@ -54,17 +53,6 @@ const EMPTY_LAYERS: Layer[] = [];
 const LAYERS_PANEL_WIDTH = 280;
 const LAYERS_PANEL_EXPANDED_HEIGHT = 760;
 const LAYERS_PANEL_COLLAPSED_HEIGHT = 64;
-=======
-import { CanvasSelectionOverlay } from '../components/CanvasSelectionOverlay';
-
-const EMPTY_LAYERS: Layer[] = [];
-const IS_DEV = import.meta.env.DEV;
-const devLog = (...args: unknown[]): void => {
-  if (IS_DEV) {
-    console.log(...args);
-  }
-};
->>>>>>> main
 
 function readFileAsDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -98,11 +86,7 @@ export function PresenterPage() {
   const [isAddingCamera, setIsAddingCamera] = useState(false);
   const layerIdsRef = useRef<string[]>([]);
   const [panelPosition, setPanelPosition] = useState({ x: 24, y: 24 });
-<<<<<<< HEAD
   const [isLayersPanelCollapsed, setLayersPanelCollapsed] = useState(false);
-=======
-  const [panelSize, setPanelSize] = useState({ width: 320, height: 420 });
->>>>>>> main
   const [canvasLayout, setCanvasLayout] = useState<CanvasLayout | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [isPresentationMode, setIsPresentationMode] = useState(false);
@@ -126,7 +110,6 @@ export function PresenterPage() {
     if (!state.currentSceneId) return null;
     return state.scenes[state.currentSceneId] ?? null;
   }) as Scene | null;
-<<<<<<< HEAD
 const selectionIds = useAppStore((state) => state.selection);
 const selectedLayer = useAppStore((state) => {
   if (!state.currentSceneId || state.selection.length === 0) return null;
@@ -144,23 +127,6 @@ const groupTransformIds = selectedGroup && activeGroupChildIds.length > 0
     ? selectionIds
     : [];
 const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLayer, undo, redo } = useAppStore();
-=======
-  const selectedLayer = useAppStore((state) => {
-    if (!state.currentSceneId || state.selection.length === 0) return null;
-    const scene = state.scenes[state.currentSceneId];
-    if (!scene) return null;
-    const id = state.selection[0];
-    return scene.layers.find((layer) => layer.id === id) ?? null;
-  }) as Layer | null;
-  const getCurrentScene = useAppStore((state) => state.getCurrentScene);
-  const createScene = useAppStore((state) => state.createScene);
-  const saveScene = useAppStore((state) => state.saveScene);
-  const addLayer = useAppStore((state) => state.addLayer);
-  const removeLayer = useAppStore((state) => state.removeLayer);
-  const updateLayer = useAppStore((state) => state.updateLayer);
-  const undo = useAppStore((state) => state.undo);
-  const redo = useAppStore((state) => state.redo);
->>>>>>> main
 
   const showControlStrip = useCallback(() => {
     setControlStripVisible(true);
@@ -251,11 +217,10 @@ const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLa
       const track = result.stream.getVideoTracks()[0];
       if (track) {
         updateLayer(layerId, { streamId: track.id });
-        const handleEnded = () => {
+        track.addEventListener('ended', () => {
           stopSource(layerId);
           useAppStore.getState().removeLayer(layerId);
-        };
-        track.addEventListener('ended', handleEnded, { once: true });
+        });
       }
 
       requestCurrentStreamFrame();
@@ -292,10 +257,9 @@ const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLa
       if (track) {
         // Keep existing behavior (raw track for now)
         updateLayer(layerId, { streamId: track.id });
-        const handleEnded = () => {
+        track.addEventListener('ended', () => {
           stopSource(layerId);
           useAppStore.getState().removeLayer(layerId);
-<<<<<<< HEAD
           // clear effect states if this was the active camera layer
           setCameraTrackForEffects(null);
           setCameraLayerForEffects(null);
@@ -303,10 +267,6 @@ const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLa
         // Feed the background-effects hook (processed track will be available via processedCameraTrack)
         setCameraTrackForEffects(track);
         setCameraLayerForEffects(layerId);
-=======
-        };
-        track.addEventListener('ended', handleEnded, { once: true });
->>>>>>> main
       }
 
       requestCurrentStreamFrame();
@@ -468,12 +428,12 @@ const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLa
       return;
     }
 
-    devLog('Presenter: Captured stream with', stream.getVideoTracks().length, 'video tracks');
+    console.log('Presenter: Captured stream with', stream.getVideoTracks().length, 'video tracks');
     streamRef.current = stream;
 
     const track = stream.getVideoTracks()[0];
     if (track) {
-      devLog('Presenter: Stream track settings', {
+      console.log('Presenter: Stream track settings', {
         readyState: track.readyState,
         muted: track.muted,
         enabled: track.enabled,
@@ -486,27 +446,23 @@ const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLa
 
     // Send to viewer window if open
     if (viewerWindowRef.current && !viewerWindowRef.current.closed) {
-      devLog('Presenter: Sending stream to viewer window');
+      console.log('Presenter: Sending stream to viewer window');
       sendStreamToViewer(viewerWindowRef.current, stream);
     }
 
     // Handle stream ended
-    const streamTrack = stream.getVideoTracks()[0];
-    if (streamTrack) {
-      const handleStreamEnded = () => {
-        devLog('Presenter: Stream ended');
-        if (viewerWindowRef.current && !viewerWindowRef.current.closed) {
-          notifyStreamEnded(viewerWindowRef.current);
-        }
-        streamRef.current = null;
-        setCurrentStream(null);
-        setIsPresentationMode(false);
-        setIsConfidencePreviewVisible(false);
-        setControlStripVisible(true);
-        showControlStrip();
-      };
-      streamTrack.addEventListener('ended', handleStreamEnded, { once: true });
-    }
+    stream.getVideoTracks()[0]?.addEventListener('ended', () => {
+      console.log('Presenter: Stream ended');
+      if (viewerWindowRef.current && !viewerWindowRef.current.closed) {
+        notifyStreamEnded(viewerWindowRef.current);
+      }
+      streamRef.current = null;
+      setCurrentStream(null);
+      setIsPresentationMode(false);
+      setIsConfidencePreviewVisible(false);
+      setControlStripVisible(true);
+      showControlStrip();
+    });
   }, [setIsConfidencePreviewVisible, setIsPresentationMode, showControlStrip]);
 
   const openViewer = () => {
@@ -568,29 +524,29 @@ const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLa
       }
 
       if (event.data?.type === 'request-stream') {
-        devLog('Presenter: Viewer requested stream');
+        console.log('Presenter: Viewer requested stream');
         // Viewer is requesting the stream, notify that it's available
         // (we can't send MediaStream via postMessage, so viewer will get it from opener)
         if (streamRef.current) {
-          devLog('Presenter: Notifying viewer that stream is available');
+          console.log('Presenter: Notifying viewer that stream is available');
           // Just notify - viewer will get stream from opener.currentStream
           sendStreamToViewer(viewerWindowRef.current!, streamRef.current);
         } else if (canvasRef.current) {
-          devLog('Presenter: Starting new stream for viewer');
+          console.log('Presenter: Starting new stream for viewer');
           startStreaming(canvasRef.current);
         } else {
           console.warn('Presenter: No canvas available to create stream');
         }
       } else if (event.data?.type === 'viewer-ready') {
-        devLog('Presenter: Received viewer-ready message');
+        console.log('Presenter: Received viewer-ready message');
         // Viewer is ready, start streaming if we don't have a stream yet
         // If stream exists, viewer will get it from opener.currentStream automatically
         if (streamRef.current) {
-          devLog('Presenter: Stream already available, viewer will get it from opener');
+          console.log('Presenter: Stream already available, viewer will get it from opener');
           // Don't send notification - viewer already has access via opener.currentStream
         } else if (canvasRef.current) {
           // Start streaming to newly ready viewer
-          devLog('Presenter: Starting new stream for viewer');
+          console.log('Presenter: Starting new stream for viewer');
           startStreaming(canvasRef.current);
         } else {
           console.warn('Presenter: No canvas available to stream');
@@ -916,22 +872,22 @@ const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLa
     const initializeScene = async () => {
       const currentScene = getCurrentScene();
       if (currentScene) {
-        devLog('Scene already loaded:', currentScene.id);
+        console.log('Scene already loaded:', currentScene.id);
         setIsSceneLoading(false);
         return;
       }
 
-      devLog('Initializing scene...');
+      console.log('Initializing scene...');
       try {
         const mostRecent = await loadMostRecentScene();
         if (mostRecent && mostRecent.id) {
-          devLog('Loading most recent scene:', mostRecent.id);
+          console.log('Loading most recent scene:', mostRecent.id);
           useAppStore.setState((state) => ({
             scenes: { ...state.scenes, [mostRecent.id!]: mostRecent },
             currentSceneId: mostRecent.id,
           }));
         } else {
-          devLog('No saved scenes, creating new scene');
+          console.log('No saved scenes, creating new scene');
           createScene();
         }
       } catch (error) {
@@ -1003,7 +959,6 @@ const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLa
           onLayoutChange={handleCanvasLayoutChange}
           skipLayerIds={editingTextId ? [editingTextId] : undefined}
         />
-<<<<<<< HEAD
         {canvasLayout && (
           <CanvasSelectionOverlay
             layout={canvasLayout}
@@ -1013,10 +968,6 @@ const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLa
         )}
         {canvasLayout && currentScene && groupTransformIds.length > 0 && (
           <GroupTransformControls layout={canvasLayout} scene={currentScene} layerIds={groupTransformIds} />
-=======
-        {canvasLayout && currentScene && (
-          <CanvasSelectionOverlay canvasRef={canvasRef} layout={canvasLayout} scene={currentScene} />
->>>>>>> main
         )}
       </div>
       {isSceneLoading && (
