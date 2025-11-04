@@ -23,6 +23,8 @@ async function createVideoElement(stream: MediaStream): Promise<HTMLVideoElement
   video.autoplay = true;
   video.muted = true;
   video.playsInline = true;
+  video.setAttribute('playsinline', '');
+  video.setAttribute('muted', '');
   video.srcObject = stream;
 
   try {
@@ -130,6 +132,7 @@ export function stopSource(layerId: string): void {
   const existing = sources.get(layerId);
   if (!existing) return;
 
+<<<<<<< HEAD
   existing.stream.getTracks().forEach((track) => {
     try { track.stop(); } catch { /* ignore */ }
   });
@@ -137,6 +140,13 @@ export function stopSource(layerId: string): void {
     existing.video.srcObject = null;
   } catch { /* ignore */ }
 
+=======
+  existing.stream.getTracks().forEach((track) => track.stop());
+  existing.video.pause();
+  existing.video.srcObject = null;
+  existing.video.removeAttribute('src');
+  existing.video.remove();
+>>>>>>> main
   sources.delete(layerId);
 }
 
@@ -152,4 +162,8 @@ export function getVideoForLayer(layerId: string): HTMLVideoElement | null {
  */
 export function hasActiveSource(layerId: string): boolean {
   return sources.has(layerId);
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> main

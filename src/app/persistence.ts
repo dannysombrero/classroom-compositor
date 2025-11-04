@@ -14,6 +14,7 @@ import type { Scene } from '../types/scene';
  */
 const SCENES_KEY_PREFIX = 'classroom-compositor:scenes:';
 const SCENES_METADATA_KEY = 'classroom-compositor:scenes-metadata';
+const LEGACY_MIGRATION_FLAG = 'classroom-compositor:migrated-v1';
 
 /**
  * Metadata about saved scenes (for listing/loading most recent).
@@ -170,13 +171,38 @@ class DexieAdapter implements PersistenceAdapter {
   }
 
   private async migrateLegacyData(db: ClassroomCompositorDB): Promise<void> {
+    let migrationAlreadyRun = false;
+    try {
+      if (typeof localStorage !== 'undefined') {
+        migrationAlreadyRun = localStorage.getItem(LEGACY_MIGRATION_FLAG) === 'true';
+      }
+    } catch (error) {
+      console.warn('DexieAdapter: unable to read migration flag', error);
+    }
+
+    if (migrationAlreadyRun) {
+      return;
+    }
+
+    const markMigrated = () => {
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(LEGACY_MIGRATION_FLAG, 'true');
+        }
+      } catch (error) {
+        console.warn('DexieAdapter: unable to set migration flag', error);
+      }
+    };
+
     const existingCount = await db.scenes.count();
     if (existingCount > 0) {
+      markMigrated();
       return;
     }
 
     const metadata = await this.legacy.loadScenesMetadata();
     if (metadata.length === 0) {
+      markMigrated();
       return;
     }
 
@@ -195,6 +221,7 @@ class DexieAdapter implements PersistenceAdapter {
     if (records.length > 0) {
       await db.scenes.bulkPut(records);
     }
+    markMigrated();
   }
 
   async loadScenesMetadata(): Promise<SceneMetadata[]> {

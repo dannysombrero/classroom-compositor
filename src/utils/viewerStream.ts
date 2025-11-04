@@ -61,6 +61,14 @@ export type ViewerMessage =
  */
 let globalStreamRef: MediaStream | null = null;
 
+function isWindowAlive(target: Window | null | undefined): target is Window {
+  try {
+    return Boolean(target && !target.closed);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Get the current stream (for viewer window to access via opener).
  */
@@ -73,6 +81,9 @@ export function getCurrentStream(): MediaStream | null {
  */
 export function setCurrentStream(stream: MediaStream | null): void {
   globalStreamRef = stream;
+  if (stream) {
+    requestStreamFrame(stream);
+  }
 }
 
 /**
@@ -96,6 +107,11 @@ export function sendStreamToViewer(
   stream: MediaStream
 ): void {
   try {
+    if (!isWindowAlive(targetWindow)) {
+      console.warn('Attempted to send stream to a closed viewer window.');
+      return;
+    }
+
     const resolvedOrigin = resolveTargetOrigin(targetWindow);
 
     console.log('Sending stream to viewer:', {
@@ -106,17 +122,14 @@ export function sendStreamToViewer(
     
     // Store stream globally so viewer can access it
     setCurrentStream(stream);
-    requestStreamFrame(stream);
     
     // Notify viewer that stream is available
     // The viewer will retrieve it via window.opener
-    targetWindow.postMessage(
-      {
-        type: 'stream',
-        streamAvailable: true,
-      } as any,
-      resolvedOrigin
-    );
+    const message: ViewerMessage = {
+      type: 'stream',
+      streamAvailable: true,
+    };
+    targetWindow.postMessage(message, resolvedOrigin);
     
     console.log('Stream notification sent successfully');
   } catch (error) {
@@ -129,10 +142,12 @@ export function sendStreamToViewer(
  */
 export function notifyStreamEnded(window: Window): void {
   try {
-    window.postMessage(
-      { type: 'stream-ended' } as ViewerMessage,
-      window.location.origin
-    );
+    if (!isWindowAlive(window)) {
+      return;
+    }
+    const resolvedOrigin = resolveTargetOrigin(window);
+    const message: ViewerMessage = { type: 'stream-ended' };
+    window.postMessage(message, resolvedOrigin);
   } catch (error) {
     console.error('Failed to notify stream ended:', error);
   }
