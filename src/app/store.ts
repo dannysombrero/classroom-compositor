@@ -91,6 +91,12 @@ interface AppActions {
   /** Ungroup a specific group layer back into its children. */
   ungroupLayer: (groupId: string) => void;
 
+  /** Toggle visibility for a group and its children. */
+  toggleGroupVisibility: (groupId: string) => void;
+
+  /** Toggle lock state for a group and its children. */
+  toggleGroupLock: (groupId: string) => void;
+
   /**
    * Reorder layers by their z-order.
    */

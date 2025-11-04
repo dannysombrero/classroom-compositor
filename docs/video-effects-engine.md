@@ -13,11 +13,12 @@ This document tracks the implementation status of the browser-side video effects
 
 ## Immediate next steps
 
-1. **MediaPipe adapter:** Stand up `src/adapters/mediapipe.ts` that loads the portrait segmentation model, normalises masks, and exposes the shared `ISegmenter` interface. Draft API hooks are ready.
-2. **Smoothing utilities:** Finalise `src/pipeline/smoothing.ts` to host temporal EMA and morphological helpers used by adapters/pipeline.
-3. **Compositor implementation:** Replace the current pass-through compositor with WebGL/WebGPU shaders (blur, replacement, chroma) and CPU fallback.
+1. **MediaPipe adapter:** Stand up `src/adapters/mediapipe.ts` that loads the portrait segmentation model, normalises masks, and exposes the shared `ISegmenter` interface. Draft API hooks are ready; add lazy loader, model path config, and convert float masks to RGBA textures.
+2. **Smoothing utilities:** Finalise `src/pipeline/smoothing.ts` to host temporal EMA and morphological helpers used by adapters/pipeline. Define `emaSmoothMask`, `refineMask`, and unit-test the numerical stability.
+3. **Compositor implementation:** Replace the current pass-through compositor with WebGL/WebGPU shaders (blur, replacement, chroma) and CPU fallback. Stub shader modules and pipeline setup so the real implementation can slot in.
 4. **Telemetry harness:** Extend the demo page with processing stats (frame time, inference cadence) so perf regressions are visible during development.
-5. **Mock/UI integration:** Keep a trivial mock export for unit/UI tests once the real engine is live, and expose configuration hooks to the Presenter UI.
+5. **Testing strategy:** Document unit/integration test plan (mask smoothing, compositor shaders, pipeline frame loop) and add initial Vitest scaffolding.
+6. **Mock/UI integration:** Keep a trivial mock export for unit/UI tests once the real engine is live, and expose configuration hooks to the Presenter UI. Add feature flag toggle in `PresenterPage`.
 
 ## Longer-term considerations
 

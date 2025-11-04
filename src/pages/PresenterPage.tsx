@@ -101,16 +101,23 @@ export function PresenterPage() {
     if (!state.currentSceneId) return null;
     return state.scenes[state.currentSceneId] ?? null;
   }) as Scene | null;
-  const selectionIds = useAppStore((state) => state.selection);
-  const selectedLayer = useAppStore((state) => {
-    if (!state.currentSceneId || state.selection.length === 0) return null;
-    const scene = state.scenes[state.currentSceneId];
-    if (!scene) return null;
-    const id = state.selection[0];
-    return scene.layers.find((layer) => layer.id === id) ?? null;
-  }) as Layer | null;
-  const selectionLength = selectionIds.length;
-  const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLayer, undo, redo } = useAppStore();
+const selectionIds = useAppStore((state) => state.selection);
+const selectedLayer = useAppStore((state) => {
+  if (!state.currentSceneId || state.selection.length === 0) return null;
+  const scene = state.scenes[state.currentSceneId];
+  if (!scene) return null;
+  const id = state.selection[0];
+  return scene.layers.find((layer) => layer.id === id) ?? null;
+}) as Layer | null;
+const selectionLength = selectionIds.length;
+const selectedGroup = selectedLayer && selectedLayer.type === 'group' ? selectedLayer : null;
+const activeGroupChildIds = selectedGroup ? selectedGroup.children : [];
+const groupTransformIds = selectedGroup && activeGroupChildIds.length > 0
+  ? activeGroupChildIds
+  : selectionLength > 1
+    ? selectionIds
+    : [];
+const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLayer, undo, redo } = useAppStore();
 
   const showControlStrip = useCallback(() => {
     setControlStripVisible(true);
@@ -903,12 +910,8 @@ export function PresenterPage() {
             skipLayerIds={editingTextId ? [editingTextId] : undefined}
           />
         )}
-        {canvasLayout && currentScene && selectionLength > 1 && (
-          <GroupTransformControls
-            layout={canvasLayout}
-            scene={currentScene}
-            layerIds={selectionIds}
-          />
+        {canvasLayout && currentScene && groupTransformIds.length > 0 && (
+          <GroupTransformControls layout={canvasLayout} scene={currentScene} layerIds={groupTransformIds} />
         )}
       </div>
       {isSceneLoading && (
@@ -956,6 +959,7 @@ export function PresenterPage() {
         currentScene &&
         selectedLayer &&
         selectionLength === 1 &&
+        selectedLayer.type !== 'group' &&
         !selectedLayer.locked &&
         selectedLayer.type !== 'camera' &&
         selectedLayer.type !== 'screen' &&

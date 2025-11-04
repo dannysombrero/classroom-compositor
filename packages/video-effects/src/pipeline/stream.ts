@@ -3,6 +3,7 @@ import type { SegmentationResult, ISegmenter } from './segmenter';
 import type { Compositor } from './compositor';
 import { createSegmenter } from './segmenter';
 import { createCompositor } from './compositor';
+import { emaSmoothMask, refineMask } from './smoothing';
 
 const processorSupported =
   typeof MediaStreamTrackProcessor !== 'undefined' && typeof MediaStreamTrackGenerator !== 'undefined';
@@ -62,6 +63,7 @@ class InsertableStreamsPipeline implements BackgroundEffectPipeline {
   private options: PipelineState;
   private lastMask: SegmentationResult | null = null;
   private lastInferenceTime = 0;
+  private previousMaskData: Float32Array | null = null;
 
   constructor(
     sourceTrack: MediaStreamTrack,
@@ -104,9 +106,22 @@ class InsertableStreamsPipeline implements BackgroundEffectPipeline {
           if (shouldProcess()) {
             const nowTs = now();
             if (!this.lastMask || nowTs - this.lastInferenceTime >= this.inferenceIntervalMs) {
-              this.lastMask = await this.segmenter.segment(frame);
+              const rawMask = await this.segmenter.segment(frame);
+              const smoothed = emaSmoothMask(rawMask.mask, {
+                previous: this.previousMaskData,
+              });
+              const refined = refineMask(smoothed, {
+                width: rawMask.maskWidth,
+                height: rawMask.maskHeight,
+              });
+
+              this.previousMaskData = refined;
+              this.lastMask = {
+                mask: refined,
+                maskWidth: rawMask.maskWidth,
+                maskHeight: rawMask.maskHeight,
+              };
               this.lastInferenceTime = nowTs;
-              // TODO: feed the mask through emaSmoothMask/refineMask once implemented.
             }
             currentMask = this.lastMask;
           }
@@ -153,6 +168,7 @@ class InsertableStreamsPipeline implements BackgroundEffectPipeline {
 
     this.options = nextState;
     this.lastMask = null;
+    this.previousMaskData = null;
     this.compositor.update({
       mode: this.options.mode,
       background: this.options.background,
@@ -168,6 +184,7 @@ class InsertableStreamsPipeline implements BackgroundEffectPipeline {
     this.segmenter.dispose();
     this.compositor.dispose();
     this.derivedTrack?.stop();
+    this.previousMaskData = null;
   }
 }
 

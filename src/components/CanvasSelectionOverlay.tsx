@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import type { CanvasLayout } from './PresenterCanvas';
-import type { Layer, Scene } from '../types/scene';
+import type { Layer, Scene, GroupLayer } from '../types/scene';
 import { useAppStore } from '../app/store';
 import { getLayerBoundingSize } from '../utils/layerGeometry';
 import { requestCurrentStreamFrame } from '../utils/viewerStream';
@@ -115,13 +115,18 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
 
   const skipIds = useMemo(() => new Set(skipLayerIds ?? []), [skipLayerIds]);
 
+  const layerMap = useMemo(() => {
+    if (!scene) return new Map<string, Layer>();
+    return new Map(scene.layers.map((layer) => [layer.id, layer] as const));
+  }, [scene]);
+
   type LayerIndexEntry = { layer: Layer; index: number };
 
   const selectableLayers = useMemo<LayerIndexEntry[]>(() => {
     if (!scene) return [];
     return scene.layers
       .map((layer, index) => ({ layer, index }))
-      .filter(({ layer }) => layer.visible && !skipIds.has(layer.id));
+      .filter(({ layer }) => layer.visible && layer.type !== 'group' && !skipIds.has(layer.id));
   }, [scene, skipIds]);
 
   const layersSortedByZ = useMemo(() => {
@@ -142,11 +147,32 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
 
   const selectedLayers = useMemo(() => {
     if (!scene) return [] as Layer[];
-    const layerMap = new Map(scene.layers.map((layer) => [layer.id, layer]));
-    return selection
-      .map((id) => layerMap.get(id))
-      .filter((layer): layer is Layer => !!layer && !skipIds.has(layer.id));
-  }, [scene, selection, skipIds]);
+    const collected: Layer[] = [];
+    const seen = new Set<string>();
+
+    const addLayerById = (id: string) => {
+      const layer = layerMap.get(id);
+      if (!layer || skipIds.has(layer.id) || seen.has(layer.id)) {
+        return;
+      }
+      seen.add(layer.id);
+      collected.push(layer);
+    };
+
+    for (const id of selection) {
+      const layer = layerMap.get(id);
+      if (!layer) continue;
+      if (layer.type === 'group') {
+        for (const childId of layer.children) {
+          addLayerById(childId);
+        }
+      } else {
+        addLayerById(layer.id);
+      }
+    }
+
+    return collected;
+  }, [scene, selection, skipIds, layerMap]);
 
   const pointerToScene = useCallback(
     (clientX: number, clientY: number): ScenePoint | null => {
@@ -204,8 +230,37 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
 
       const targetLayer = pickLayerAtPoint(pointerScene);
       if (targetLayer) {
-        const isMulti = event.shiftKey || event.metaKey;
         const currentSelection = selectionRef.current;
+
+        const selectedGroups = currentSelection
+          .map((id) => layerMap.get(id))
+          .filter((layer): layer is GroupLayer => !!layer && layer.type === 'group');
+        const activeGroup = selectedGroups.find((group) => group.children.includes(targetLayer.id));
+
+        if (activeGroup) {
+          const targetLayers = activeGroup.children
+            .map((id) => layerMap.get(id) ?? null)
+            .filter((layer): layer is Layer => !!layer && !layer.locked && layer.visible && !skipIds.has(layer.id))
+            .map((layer) => ({ id: layer.id, start: { x: layer.transform.pos.x, y: layer.transform.pos.y } }));
+
+          if (targetLayers.length > 0) {
+            interactionRef.current = {
+              type: 'pending-move',
+              pointerId: event.pointerId,
+              origin: pointerScene,
+              latest: pointerScene,
+              moved: false,
+              targets: targetLayers,
+              historySnapshot: cloneSceneForHistory(useAppStore.getState().getCurrentScene()),
+              historyApplied: false,
+            };
+            setMarqueeRect(null);
+            event.preventDefault();
+            return;
+          }
+        }
+
+        const isMulti = event.shiftKey || event.metaKey;
 
         if (isMulti) {
           const alreadySelected = currentSelection.includes(targetLayer.id);
@@ -273,7 +328,7 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
 
       event.preventDefault();
     },
-    [layout, pickLayerAtPoint, pointerToScene, scene, setSelection, skipIds]
+    [layout, pickLayerAtPoint, pointerToScene, scene, setSelection, skipIds, layerMap]
   );
 
   const handlePointerMove = useCallback(
