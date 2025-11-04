@@ -114,7 +114,7 @@ type AppStore = AppState & AppActions;
  * Generate a unique ID for layers and scenes.
  */
 function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 }
 
 function ensureLayerId<T extends Layer>(layer: T): T {
@@ -383,6 +383,87 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   setSelection: (layerIds: string[]) => {
     set({ selection: layerIds });
+  },
+
+  toggleGroupVisibility: (groupId: string) => {
+    const { getCurrentScene } = get();
+    const scene = getCurrentScene();
+    if (!scene) return;
+
+    const targetGroup = scene.layers.find((l) => l.id === groupId);
+    if (!targetGroup || targetGroup.type !== 'group') return;
+
+    const snapshot = snapshotScene(scene);
+    const newVisible = !targetGroup.visible;
+    const childSet = new Set(targetGroup.children);
+
+    // Update child's visibility map on the group
+    const updatedChildVis: Record<string, boolean> = { ...(targetGroup.childVisibility ?? {}) };
+    for (const id of childSet) updatedChildVis[id] = newVisible;
+
+    const updatedLayers: Layer[] = scene.layers.map((layer) => {
+      if (layer.id === groupId && layer.type === 'group') {
+        return {
+          ...layer,
+          visible: newVisible,
+          childVisibility: updatedChildVis,
+        } as GroupLayer;
+      }
+      if (childSet.has(layer.id)) {
+        return {
+          ...layer,
+          visible: newVisible,
+        } as Layer;
+      }
+      return layer;
+    });
+
+    const updatedScene: Scene = { ...scene, layers: updatedLayers };
+
+    set((state) => ({
+      scenes: { ...state.scenes, [state.currentSceneId!]: updatedScene },
+      history: snapshot ? [...state.history, snapshot] : state.history,
+      future: [],
+    }));
+    persistSceneImmediate(updatedScene);
+  },
+
+  toggleGroupLock: (groupId: string) => {
+    const { getCurrentScene } = get();
+    const scene = getCurrentScene();
+    if (!scene) return;
+
+    const targetGroup = scene.layers.find((l) => l.id === groupId);
+    if (!targetGroup || targetGroup.type !== 'group') return;
+
+    const snapshot = snapshotScene(scene);
+    const newLocked = !targetGroup.locked;
+    const childSet = new Set(targetGroup.children);
+
+    const updatedLayers: Layer[] = scene.layers.map((layer) => {
+      if (layer.id === groupId && layer.type === 'group') {
+        return {
+          ...layer,
+          locked: newLocked,
+        } as GroupLayer;
+      }
+      if (childSet.has(layer.id)) {
+        return {
+          ...layer,
+          locked: newLocked,
+        } as Layer;
+      }
+      return layer;
+    });
+
+    const updatedScene: Scene = { ...scene, layers: updatedLayers };
+
+    set((state) => ({
+      scenes: { ...state.scenes, [state.currentSceneId!]: updatedScene },
+      history: snapshot ? [...state.history, snapshot] : state.history,
+      future: [],
+    }));
+    persistSceneImmediate(updatedScene);
   },
 
   groupSelection: () => {
