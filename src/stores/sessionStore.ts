@@ -1,5 +1,12 @@
 import { create } from "zustand";
 
+const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+// ... your helpers (rand/base32/checksum) if you still have them ...
+
+// 👇 TOP-LEVEL (outside the store)
+const API = "";
+console.log("API base is:", API);
+
 export type SessionInfo = { id: string; createdAt: number; hostId: string; code?: string };
 
 type State = {
@@ -15,20 +22,30 @@ export const useSessionStore = create<State>((set, get) => ({
   joinCode: null,
   isJoinCodeActive: false,
 
-  async goLive(hostId) {
-    const res = await fetch("/api/sessions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ hostId }),
-    });
-    if (!res.ok) throw new Error("Failed to create session");
-    const session = await res.json(); // { id, createdAt, hostId, code }
-    set({ session, joinCode: session.code, isJoinCodeActive: true });
+  async goLive(hostId: string) {
+    try {
+      const res = await fetch(`/api/sessions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hostId }),
+      });
+      const text = await res.text();
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${text}`);
+      const session = JSON.parse(text);
+      set({ session, joinCode: session.code, isJoinCodeActive: true });
+    } catch (e) {
+      console.error("goLive failed:", e);
+      alert("Couldn’t start a live session. Is the emulator running?");
+    }
   },
 
   async endLive() {
     const s = get().session;
-    if (s) await fetch(`/api/sessions/${s.id}`, { method: "DELETE" });
-    set({ session: null, joinCode: null, isJoinCodeActive: false });
+    if (!s) return;
+    try {
+      await fetch(`${API}/sessions/${s.id}`, { method: "DELETE" });
+    } finally {
+      set({ session: null, joinCode: null, isJoinCodeActive: false });
+    }
   },
 }));

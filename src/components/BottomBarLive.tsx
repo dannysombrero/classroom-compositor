@@ -4,6 +4,7 @@ import { useSessionStore } from "../stores/sessionStore";
 export default function BottomBarLiveLite({ hostId }: { hostId: string }) {
   const { session, goLive, endLive, joinCode, isJoinCodeActive } = useSessionStore();
 
+  // End session on tab close
   useEffect(() => {
     if (!session) return;
     const cleanup = () => { try { endLive(); } catch {} };
@@ -24,7 +25,7 @@ export default function BottomBarLiveLite({ hostId }: { hostId: string }) {
   return (
     <div className="flex items-center gap-3 px-2 py-1">
       {!session ? (
-        <button className="px-3 py-1 rounded-lg bg-red-600 text-white" onClick={() => goLive("host-123")}>
+        <button className="px-3 py-1 rounded-lg bg-red-600 text-white" onClick={() => goLive(hostId)}>
           ● Go Live
         </button>
       ) : (

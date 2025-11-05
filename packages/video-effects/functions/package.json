@@ -1,4 +1,7 @@
 {
+    "name": "functions",
+    "engines": { "node": "22" },
+    "main": "lib/index.js",
     "dependencies": {
       "express": "^4.19.2",
       "firebase-admin": "^12.6.0",
