@@ -48,6 +48,7 @@ import { useBackgroundEffectTrack } from "../hooks/useBackgroundEffectTrack";
 import { PresenterEffectsControls } from "../components/PresenterEffectsControls";
 import { useVideoEffectsStore } from "../stores/videoEffects";
 import { replaceVideoTrack } from "../media/sourceManager";
+import { useSessionStore } from "../stores/sessionStore";
 
 const EMPTY_LAYERS: Layer[] = [];
 const LAYERS_PANEL_WIDTH = 280;
@@ -96,6 +97,20 @@ export function PresenterPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const controlStripTimerRef = useRef<number | null>(null);
   const clipboardRef = useRef<Layer[] | null>(null);
+
+  // Live session (join code) controls
+  const HOST_ID = "host-123";
+  const { session, joinCode, isJoinCodeActive, goLive } = useSessionStore();
+
+  const copyJoinInfo = useCallback(async () => {
+    try {
+      const text = joinCode ? `Join at ${window.location.origin}/join?code=${joinCode}` : "No code yet";
+      await navigator.clipboard.writeText(text);
+      console.log("Copied:", text);
+    } catch (e) {
+      console.warn("Failed to copy join info", e);
+    }
+  }, [joinCode]);
 
   // Background Effects (mock/engine) wiring
   const [cameraTrackForEffects, setCameraTrackForEffects] = useState<MediaStreamTrack | null>(null);
@@ -1160,6 +1175,91 @@ const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLa
             </div>
           );
         })()}
+      </div>
+      {/* Live join-code controls (top-center floating) */}
+      <div
+        style={{
+          position: 'fixed',
+          top: 16,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 10001,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          background: 'rgba(20,20,20,0.85)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: 10,
+          padding: '6px 10px',
+          color: '#eaeaea',
+          fontSize: 12,
+          boxShadow: '0 6px 24px rgba(0,0,0,0.35)',
+          backdropFilter: 'blur(4px)',
+        }}
+      >
+        {!isJoinCodeActive ? (
+          <button
+            onClick={() => goLive(HOST_ID)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              background: '#e11d48',
+              color: 'white',
+              border: 'none',
+              borderRadius: 8,
+              padding: '6px 12px',
+              cursor: 'pointer',
+              fontWeight: 700
+            }}
+            title="Start a live session and generate a join code"
+          >
+            <span
+              style={{
+                display: 'inline-flex',
+                width: 8,
+                height: 8,
+                borderRadius: 999,
+                background: 'white',
+              }}
+            />
+            Go Live
+          </button>
+        ) : (
+          <>
+            <span
+              style={{
+                display: 'inline-flex',
+                width: 8,
+                height: 8,
+                borderRadius: 999,
+                background: '#ef4444',
+                boxShadow: '0 0 0 6px rgba(239,68,68,0.2)',
+                marginRight: 2,
+              }}
+              title="Live"
+            />
+            <span style={{ opacity: 0.85, marginRight: 6 }}>Live</span>
+            <code style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontWeight: 700 }}>
+              {joinCode ?? '— — —'}
+            </code>
+            <button
+              onClick={copyJoinInfo}
+              style={{
+                marginLeft: 8,
+                background: 'transparent',
+                color: '#eaeaea',
+                border: '1px solid rgba(255,255,255,0.2)',
+                borderRadius: 6,
+                padding: '4px 8px',
+                cursor: 'pointer',
+              }}
+              title="Copy /join link"
+            >
+              Copy link
+            </button>
+          </>
+        )}
       </div>
       <ControlStrip
         visible={controlStripShouldBeVisible}

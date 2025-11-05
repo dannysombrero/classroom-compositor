@@ -27,6 +27,8 @@ export default function JoinPage() {
       if (res.status === 410) return setError("That session isn’t live right now. Ask the presenter to go live.");
       if (!res.ok) return setError("Something went wrong resolving the code. Please try again.");
       const { sessionId } = await res.json();
+      console.log("[join] cleaned:", cleaned);
+      console.log("[join] resolved sessionId:", sessionId);
       nav(`/viewer/${sessionId}`);
     } finally {
       setLoading(false);

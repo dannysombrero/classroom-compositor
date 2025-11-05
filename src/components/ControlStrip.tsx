@@ -88,7 +88,7 @@ export function ControlStrip({
       >
         {viewerOpen ? 'Viewer Open' : 'Open Viewer'}
       </button>
+
     </div>
   );
 }
-
