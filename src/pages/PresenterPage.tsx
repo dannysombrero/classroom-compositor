@@ -5,8 +5,10 @@
  * visibility toggles and layer controls.
  */
 
+import { activateJoinCode } from "../utils/joinCodes";
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { startHost } from "../utils/webrtc";
+import { useState } from "react";
 import { PresenterCanvas, type CanvasLayout } from '../components/PresenterCanvas';
 import {
   captureCanvasStream,
@@ -1312,4 +1314,21 @@ const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLa
       />
     </div>
   );
+}
+const [joinCode, setJoinCode] = useState<string | null>(null);
+
+async function onGoLive() {
+  // you already create/know sessionId and have MediaStream `stream`
+  const { pc } = await startHost(sessionId, stream);
+
+  // NEW: write the join code doc
+  const { codePretty, codeId } = await activateJoinCode(sessionId);
+  console.log("[host] join code:", codePretty, "(doc id:", codeId, ")");
+  setJoinCode(codePretty);
+
+  // optional cleanup
+  window.addEventListener("beforeunload", () => {
+    try { pc.close(); } catch {}
+    // optional: deactivateJoinCode(codeId);
+  });
 }

@@ -1,59 +1,52 @@
-import { useEffect, useRef, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { db, doc, getDoc } from "../firebase";
+import { useEffect, useRef } from "react";
+import { useParams } from "react-router-dom";
 import { startViewer } from "../utils/webrtc";
 
 export default function ViewerPage() {
-  const { sessionId } = useParams();
-  const navigate = useNavigate();
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [status, setStatus] = useState<"connecting" | "ready" | "oops">("connecting");
+  const { sessionId } = useParams<{ sessionId: string }>();
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
-    if (!sessionId) { setStatus("oops"); return; }
-
     let stop: (() => void) | null = null;
 
     (async () => {
       try {
-        // Optional: bail if the session is explicitly inactive
-        const s = await getDoc(doc(db, "sessions", sessionId));
-        if (s.exists() && (s.data() as any)?.active === false) {
-          navigate("/join?error=inactive", { replace: true });
+        if (!sessionId) {
+          console.warn("[viewer] no sessionId in route");
           return;
         }
+        console.log("[viewer] starting for session:", sessionId);
 
-        // Start Firestore/WebRTC viewer
-        const v = await startViewer(sessionId);
-        stop = v.stop;
+        const { stream, stop: s } = await startViewer(sessionId);
+        stop = s;
 
         if (videoRef.current) {
-          // Ensure autoplay works by muting
-          videoRef.current.muted = true;
-          // Attach remote stream
-          videoRef.current.srcObject = v.stream;
-          // Try to play (ignore autoplay errors)
-          await videoRef.current.play().catch(() => {});
+          videoRef.current.muted = true;     // autoplay safety
+          // Assign MediaStream to <video>
+          (videoRef.current as HTMLVideoElement).srcObject = stream;
+          try {
+            await videoRef.current.play();
+          } catch {
+            // Some browsers require a click; ignore here.
+          }
         }
-
-        setStatus("ready");
-        console.log("[viewer] connected to session:", sessionId);
+        console.log("[viewer] awaiting tracks…");
       } catch (e) {
         console.error("[viewer] failed to connect:", e);
-        setStatus("oops");
       }
     })();
 
-    return () => { try { stop?.(); } catch {} };
-  }, [sessionId, navigate]);
-
-  if (status === "oops") {
-    return <div className="w-screen h-screen grid place-items-center text-red-500">Can’t connect to session.</div>;
-  }
+    return () => {
+      try { stop?.(); } catch { /* no-op */ }
+    };
+  }, [sessionId]);
 
   return (
-    <div className="w-screen h-screen bg-black grid place-items-center">
-      <video ref={videoRef} autoPlay playsInline className="max-w-full max-h-full" />
+    <div style={{ display: "grid", placeItems: "center", width: "100%", height: "100%", background: "#0b0b0b" }}>
+      <video ref={videoRef} playsInline autoPlay style={{ maxWidth: "100%", maxHeight: "100%" }} />
+      <div style={{ position: "fixed", top: 8, left: 8, color: "#bbb", fontSize: 12 }}>
+        viewer session: <code>{sessionId}</code>
+      </div>
     </div>
   );
 }
