@@ -7,8 +7,9 @@
     "jsx": "react-jsx",
     "strict": true,
     "skipLibCheck": true,
+    "esModuleInterop": true,
     "noEmit": true,
     "types": ["vite/client"]
   },
-  "include": ["src"]
+  "exclude": ["node_modules", "dist", "functions", "src/server"]
 }

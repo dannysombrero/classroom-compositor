@@ -6,6 +6,7 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { startHost } from "../utils/webrtc";
 import { PresenterCanvas, type CanvasLayout } from '../components/PresenterCanvas';
 import {
   captureCanvasStream,
@@ -82,6 +83,7 @@ export function PresenterPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewerWindowRef = useRef<Window | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const hostRef = useRef<{ stop: () => void } | null>(null);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
   const [isAddingScreen, setIsAddingScreen] = useState(false);
   const [isAddingCamera, setIsAddingCamera] = useState(false);
@@ -98,19 +100,44 @@ export function PresenterPage() {
   const controlStripTimerRef = useRef<number | null>(null);
   const clipboardRef = useRef<Layer[] | null>(null);
 
+  // Effects store for background effects panel
+  const effectsStore = useVideoEffectsStore();
+
   // Live session (join code) controls
   const HOST_ID = "host-123";
   const { session, joinCode, isJoinCodeActive, goLive } = useSessionStore();
 
+  // Copy link UX: copy clean URL + show temporary "Copied!" badge
+  const [copied, setCopied] = useState(false);
   const copyJoinInfo = useCallback(async () => {
     try {
-      const text = joinCode ? `Join at ${window.location.origin}/join?code=${joinCode}` : "No code yet";
-      await navigator.clipboard.writeText(text);
-      console.log("Copied:", text);
+      const url = joinCode ? `${window.location.origin}/join?code=${joinCode}` : "";
+      if (!url) return;
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
     } catch (e) {
       console.warn("Failed to copy join info", e);
     }
   }, [joinCode]);
+
+  // Start a real WebRTC host session immediately after creating a session
+  const handleGoLive = useCallback(async () => {
+    try {
+      await goLive(HOST_ID);
+      const s = useSessionStore.getState().session;
+      if (!s?.id) {
+        console.error("[host] session not available after goLive");
+        return;
+      }
+      // For first validation, share the screen (most reliable prompt)
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      hostRef.current = await startHost(s.id, stream);
+      console.log("[host] started with stream tracks:", stream.getTracks().map(t => t.kind));
+    } catch (e) {
+      console.error("[host] failed to start:", e);
+    }
+  }, [goLive]);
 
   // Background Effects (mock/engine) wiring
   const [cameraTrackForEffects, setCameraTrackForEffects] = useState<MediaStreamTrack | null>(null);
@@ -1096,85 +1123,70 @@ const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLa
         }}
       >
         <div style={{ marginBottom: 8, opacity: 0.9, fontWeight: 700 }}>Background Effects</div>
+        <div style={{ display: 'grid', rowGap: 10 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={effectsStore.enabled}
+              onChange={(e) => effectsStore.setEnabled(e.target.checked)}
+            />
+            Effects Enabled
+          </label>
 
-        {(() => {
-          // Subscribe to store values + setters
-          const {
-            enabled, setEnabled,
-            mode, setMode,
-            quality, setQuality,
-            engine, setEngine,
-            background, setBackground,
-            blurRadius, setBlurRadius,
-          } = useVideoEffectsStore();
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
+            <span style={{ opacity: 0.8 }}>Mode</span>
+            <select value={effectsStore.mode} onChange={(e) => effectsStore.setMode(e.target.value as any)}>
+              <option value="off">Off</option>
+              <option value="blur">Blur</option>
+              <option value="replace">Replace</option>
+              <option value="chroma">Chroma</option>
+            </select>
+          </label>
 
-          return (
-            <div style={{ display: 'grid', rowGap: 10 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input
-                  type="checkbox"
-                  checked={enabled}
-                  onChange={(e) => setEnabled(e.target.checked)}
-                />
-                Effects Enabled
-              </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
+            <span style={{ opacity: 0.8 }}>Quality</span>
+            <select value={effectsStore.quality} onChange={(e) => effectsStore.setQuality(e.target.value as any)}>
+              <option value="fast">Fast</option>
+              <option value="balanced">Balanced</option>
+              <option value="high">High</option>
+            </select>
+          </label>
 
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
-                <span style={{ opacity: 0.8 }}>Mode</span>
-                <select value={mode} onChange={(e) => setMode(e.target.value as any)}>
-                  <option value="off">Off</option>
-                  <option value="blur">Blur</option>
-                  <option value="replace">Replace</option>
-                  <option value="chroma">Chroma</option>
-                </select>
-              </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
+            <span style={{ opacity: 0.8 }}>Engine</span>
+            <select value={effectsStore.engine} onChange={(e) => effectsStore.setEngine(e.target.value as any)}>
+              <option value="mock">Mock</option>
+              <option value="mediapipe">MediaPipe</option>
+              <option value="onnx">ONNX</option>
+            </select>
+          </label>
 
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
-                <span style={{ opacity: 0.8 }}>Quality</span>
-                <select value={quality} onChange={(e) => setQuality(e.target.value as any)}>
-                  <option value="fast">Fast</option>
-                  <option value="balanced">Balanced</option>
-                  <option value="high">High</option>
-                </select>
-              </label>
+          <label style={{ display: 'grid', rowGap: 6 }}>
+            <span style={{ opacity: 0.8, display: 'flex', justifyContent: 'space-between' }}>
+              <span>Blur Strength</span>
+              <span style={{ fontVariantNumeric: 'tabular-nums' }}>{effectsStore.blurRadius}px</span>
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={48}
+              step={1}
+              value={effectsStore.blurRadius}
+              onChange={(e) => effectsStore.setBlurRadius(e.currentTarget.valueAsNumber)}
+            />
+          </label>
 
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
-                <span style={{ opacity: 0.8 }}>Engine</span>
-                <select value={engine} onChange={(e) => setEngine(e.target.value as any)}>
-                  <option value="mock">Mock</option>
-                  <option value="mediapipe">MediaPipe</option>
-                  <option value="onnx">ONNX</option>
-                </select>
-              </label>
-
-              <label style={{ display: 'grid', rowGap: 6 }}>
-                <span style={{ opacity: 0.8, display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Blur Strength</span>
-                  <span style={{ fontVariantNumeric: 'tabular-nums' }}>{blurRadius}px</span>
-                </span>
-                <input
-                  type="range"
-                  min={0}
-                  max={48}
-                  step={1}
-                  value={blurRadius}
-                  onChange={(e) => setBlurRadius(e.currentTarget.valueAsNumber)}
-                />
-              </label>
-
-              <label style={{ display: 'grid', rowGap: 6 }}>
-                <span style={{ opacity: 0.8 }}>Background (optional URL/data URI)</span>
-                <input
-                  type="text"
-                  value={background ?? ""}
-                  onChange={(e) => setBackground(e.target.value || null)}
-                  placeholder="https://… or data:image/png;base64,…"
-                  style={{ width: '100%' }}
-                />
-              </label>
-            </div>
-          );
-        })()}
+          <label style={{ display: 'grid', rowGap: 6 }}>
+            <span style={{ opacity: 0.8 }}>Background (optional URL/data URI)</span>
+            <input
+              type="text"
+              value={effectsStore.background ?? ""}
+              onChange={(e) => effectsStore.setBackground(e.target.value || null)}
+              placeholder="https://… or data:image/png;base64,…"
+              style={{ width: '100%' }}
+            />
+          </label>
+        </div>
       </div>
       {/* Live join-code controls (top-center floating) */}
       <div
@@ -1199,7 +1211,7 @@ const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLa
       >
         {!isJoinCodeActive ? (
           <button
-            onClick={() => goLive(HOST_ID)}
+            onClick={handleGoLive}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -1258,6 +1270,21 @@ const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLa
             >
               Copy link
             </button>
+            {copied && (
+              <span
+                style={{
+                  marginLeft: 8,
+                  padding: "2px 6px",
+                  borderRadius: 6,
+                  background: "rgba(34,197,94,0.15)",
+                  border: "1px solid rgba(34,197,94,0.35)",
+                  color: "#86efac",
+                  fontSize: 11,
+                }}
+              >
+                Copied!
+              </span>
+            )}
           </>
         )}
       </div>

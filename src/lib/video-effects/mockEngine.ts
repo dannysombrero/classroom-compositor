@@ -1,4 +1,4 @@
-import type { EffectMode, EffectQuality } from "@/stores/videoEffects";
+import type { EffectMode, EffectQuality } from "../../stores/videoEffects";
 
 export type BgEffect = {
   start: (track: MediaStreamTrack, opts: {

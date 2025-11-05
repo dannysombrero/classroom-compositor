@@ -401,7 +401,7 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
   const handlePointerUp = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       const state = interactionRef.current;
-      if (state.pointerId !== event.pointerId) {
+      if (!('pointerId' in state) || state.pointerId !== event.pointerId) {
         return;
       }
 

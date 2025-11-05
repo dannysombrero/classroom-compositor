@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-
-const API = import.meta.env.VITE_API_BASE ?? "";
+import { db, doc, getDoc } from "../firebase";
 
 export default function JoinPage() {
   const nav = useNavigate();
@@ -20,16 +19,28 @@ export default function JoinPage() {
     if (cleaned.length < 7) return setError("Please enter a valid join code (e.g., 7D9-K2F).");
     setLoading(true);
     try {
-      const url = `${API}/codes/${cleaned}`;
-      console.log("Resolving join code via:", url);
-      const res = await fetch(url);
-      if (res.status === 404) return setError("Hmm… we couldn't find that code. Double-check and try again.");
-      if (res.status === 410) return setError("That session isn’t live right now. Ask the presenter to go live.");
-      if (!res.ok) return setError("Something went wrong resolving the code. Please try again.");
-      const { sessionId } = await res.json();
+      const codeId = cleaned.replace(/-/g, "");
+      const snap = await getDoc(doc(db, "codes", codeId));
+      if (!snap.exists()) {
+        setError("Hmm… we couldn't find that code. Double-check and try again.");
+        return;
+      }
+      const data = snap.data() as any;
+      const { sessionId, active } = data ?? {};
+      if (!sessionId) {
+        setError("Invalid code mapping.");
+        return;
+      }
+      if (active === false) {
+        setError("That session isn’t live right now. Ask the presenter to go live.");
+        return;
+      }
       console.log("[join] cleaned:", cleaned);
       console.log("[join] resolved sessionId:", sessionId);
       nav(`/viewer/${sessionId}`);
+    } catch (err) {
+      console.error("[join] resolve error:", err);
+      setError("Something went wrong resolving the code. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -51,7 +62,7 @@ export default function JoinPage() {
           className="flex-1 border rounded px-3 py-2 font-mono"
           maxLength={9}
         />
-        <button className="px-4 py-2 rounded bg-black text-white disabled:opacity-50" disabled={loading}>
+        <button type="submit" className="px-4 py-2 rounded bg-black text-white disabled:opacity-50" disabled={loading}>
           {loading ? "Checking…" : "Join"}
         </button>
       </form>

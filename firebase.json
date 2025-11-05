@@ -1,15 +1,62 @@
+// File: src/firebase.ts
+import { initializeApp } from "firebase/app";
+import { getFirestore } from "firebase/firestore";
+
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+};
+
+if (!firebaseConfig?.apiKey || !firebaseConfig?.projectId) {
+  console.warn("[firebase] Missing VITE_FIREBASE_* env vars. Firestore/Auth may not work until configured.");
+} else {
+  console.log(`[firebase] Using project ${firebaseConfig.projectId}`);
+}
+
+export const app = initializeApp(firebaseConfig);
+export const db = getFirestore(app);
+
+// ---- Auth (anonymous) ----
+import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
+let _auth: ReturnType<typeof getAuth> | null = null;
+try {
+  _auth = getAuth(app);
+  onAuthStateChanged(_auth, (u) => {
+    if (!u) {
+      signInAnonymously(_auth!).catch(() => {});
+    }
+  });
+  signInAnonymously(_auth).catch(() => {});
+} catch (e) {
+  console.warn("[firebase] Auth not initialized (likely missing/invalid config). Set VITE_FIREBASE_* env vars.", e);
+}
+export const auth = _auth;
+
+
+// File: src/lib/video-effects/mockEngine.ts
+import type { EffectMode, EffectQuality } from "../../stores/videoEffects";
+
+
+// File: src/components/CanvasSelectionOverlay.tsx
+if (!('pointerId' in state) || state.pointerId !== event.pointerId) {
+
+if (('pointerId' in state) && state.pointerId === event.pointerId) {
+
+
+// File: tsconfig.json
 {
-  "functions": { "source": "functions", "runtime": "nodejs22" },
-  "hosting": {
-    "public": "dist",
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
-    "rewrites": [
-      { "source": "/api/**", "function": "appApi" },
-      { "source": "**", "destination": "/index.html" }
-    ]
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "esnext",
+    "moduleResolution": "node",
+    "jsx": "preserve",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true
   },
-  "emulators": {
-    "functions": { "port": 5001 },
-    "hosting": { "port": 5002 }
-  }
+  "exclude": ["node_modules", "dist", "functions", "src/server"]
 }
