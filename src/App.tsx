@@ -1,16 +1,19 @@
-import { PresenterPage } from "./pages/PresenterPage";
-import { ViewerHostPage } from "./pages/ViewerHostPage";
+// src/App.tsx
+import PresenterPage from "./pages/PresenterPage"; // ⬅️ default import (fix)
+import { ViewerHostPage } from "./pages/ViewerHostPage"; // keep as-is if ViewerHostPage is a named export
 import { useEffect } from "react";
 import { useSessionStore } from "./stores/sessionStore";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 
-/** Inline BottomBarLiveLite (no import needed) */
+/** Inline BottomBarLiveLite (unchanged) */
 function BottomBarLiveLite({ hostId }: { hostId: string }) {
   const { session, goLive, endLive, joinCode, isJoinCodeActive } = useSessionStore();
 
-  // End session on tab close
   useEffect(() => {
     if (!session) return;
-    const cleanup = () => { try { endLive(); } catch {} };
+    const cleanup = () => {
+      try { endLive(); } catch {}
+    };
     window.addEventListener("pagehide", cleanup);
     window.addEventListener("beforeunload", cleanup);
     return () => {
@@ -22,13 +25,20 @@ function BottomBarLiveLite({ hostId }: { hostId: string }) {
   const copyLink = async () => {
     if (!joinCode || !session) return;
     const link = `${location.origin}/join?code=${joinCode}`;
-    try { await navigator.clipboard.writeText(link); } catch { window.prompt("Copy link:", link); }
+    try {
+      await navigator.clipboard.writeText(link);
+    } catch {
+      window.prompt("Copy link:", link);
+    }
   };
 
   return (
     <div className="flex items-center gap-3 px-2 py-1">
       {!session ? (
-        <button className="px-3 py-1 rounded-lg bg-red-600 text-white" onClick={() => goLive("host-123")}>
+        <button
+          className="px-3 py-1 rounded-lg bg-red-600 text-white"
+          onClick={() => goLive(hostId)}
+        >
           ● Go Live
         </button>
       ) : (
@@ -39,8 +49,13 @@ function BottomBarLiveLite({ hostId }: { hostId: string }) {
           </div>
           {isJoinCodeActive && (
             <div className="flex items-center gap-2">
-              <span className="px-2 py-1 rounded bg-neutral-900 text-white font-mono text-sm">{joinCode}</span>
-              <button className="px-2 py-1 text-xs rounded border hover:bg-neutral-50" onClick={copyLink}>
+              <span className="px-2 py-1 rounded bg-neutral-900 text-white font-mono text-sm">
+                {joinCode}
+              </span>
+              <button
+                className="px-2 py-1 text-xs rounded border hover:bg-neutral-50"
+                onClick={copyLink}
+              >
                 Copy Link
               </button>
             </div>
@@ -60,17 +75,23 @@ export default function App() {
   const pathname = window.location.pathname;
 
   if (pathname === "/viewer") {
-    return <ViewerHostPage />;
+    return (
+      <ErrorBoundary>
+        <ViewerHostPage />
+      </ErrorBoundary>
+    );
   }
 
   return (
-    <div className="h-full flex flex-col">
-      <PresenterPage />
-      <div className="mt-auto border-t">
-        <div className="flex items-center justify-between px-3 py-2">
-          <BottomBarLiveLite hostId="host-123" />
+    <ErrorBoundary>
+      <div className="h-full flex flex-col">
+        <PresenterPage />
+        <div className="mt-auto border-t">
+          <div className="flex items-center justify-between px-3 py-2">
+            <BottomBarLiveLite hostId="host-123" />
+          </div>
         </div>
       </div>
-    </div>
+    </ErrorBoundary>
   );
 }

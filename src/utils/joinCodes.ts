@@ -1,7 +1,7 @@
 // src/utils/joinCodes.ts
 import { db, doc, setDoc, deleteDoc } from "../firebase";
 
-const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no I, O, 1, 0
+const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no I/O/1/0
 const TTL_MS = 5 * 60 * 1000;
 
 const rand = () => ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
@@ -9,7 +9,6 @@ const base32 = (n: number) => ALPHABET[n & 31];
 const checksum = (raw: string) =>
   base32([...raw].reduce((a, ch) => a + ALPHABET.indexOf(ch), 0) % 32);
 
-/** Returns { pretty: "7D9-K2FQ", id: "7D9K2FQ" } */
 export function generateJoinCode() {
   const raw = Array.from({ length: 6 }, rand).join("");
   const pretty = `${raw.slice(0, 3)}-${raw.slice(3)}${checksum(raw)}`;

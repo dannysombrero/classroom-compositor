@@ -65,44 +65,75 @@ async function buildPeer(role: PeerRole, forceRelay: boolean): Promise<RTCPeerCo
   return pc;
 }
 
-/* ---------------- Host side ---------------- */
 export async function startHost(sessionId: string, stream: MediaStream) {
-  let pc = await buildPeer("host", FORCE_RELAY);
-  stream.getTracks().forEach(t => pc.addTrack(t, stream));
-
-  const offersDoc = doc(db, "sessions", sessionId, "offers", "latest");
-  const answersCol = collection(db, "sessions", sessionId, "answers");
-  const candHostCol = collection(db, "sessions", sessionId, "candidates_host");
-  const candViewerCol = collection(db, "sessions", sessionId, "candidates_viewer");
-
-  pc.onicecandidate = async (e) => {
-    if (e.candidate) await addDoc(candHostCol, { candidate: e.candidate.toJSON(), at: Date.now() });
-  };
-
-  const offer = await pc.createOffer({ offerToReceiveVideo: false, offerToReceiveAudio: false });
-  await pc.setLocalDescription(offer);
-  await setDoc(offersDoc, { type: "offer", sdp: offer.sdp, at: Date.now() });
-
-  const unsubAns = onSnapshot(answersCol, async (snap) => {
-    for (const ch of snap.docChanges()) {
-      if (ch.type !== "added") continue;
-      const data = ch.doc.data() as any;
-      if (data?.type === "answer" && data?.sdp && !pc.currentRemoteDescription) {
-        try {
-          await pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: data.sdp }));
-          console.log("[host] set remote answer");
-        } catch (err) {
-          console.warn("[host] setRemoteDescription(answer) failed", err);
+    // (re)build with configured policy (may fallback later if you keep that path)
+    let pc = await buildPeer("host", FORCE_RELAY);
+  
+    // Add tracks before creating the offer
+    stream.getTracks().forEach(t => pc.addTrack(t, stream));
+  
+    // Firestore refs
+    const offersDoc = doc(db, "sessions", sessionId, "offers", "latest");
+    const answersCol = collection(db, "sessions", sessionId, "answers");
+    const candHostCol = collection(db, "sessions", sessionId, "candidates_host");
+    const candViewerCol = collection(db, "sessions", sessionId, "candidates_viewer");
+  
+    // Tag this negotiation so we can ignore old ICE
+    const tag = Date.now();
+  
+    // Create offer
+    const offer = await pc.createOffer({ offerToReceiveVideo: false, offerToReceiveAudio: false });
+    await pc.setLocalDescription(offer);
+    const localUfrag = getUfrag(pc.localDescription);
+  
+    await setDoc(offersDoc, { type: "offer", sdp: offer.sdp, at: tag, tag, forcedRelay: FORCE_RELAY === true });
+  
+    // Publish host ICE with tag + ufrag
+    pc.onicecandidate = async (e) => {
+      if (e.candidate) {
+        await addDoc(candHostCol, {
+          candidate: e.candidate.toJSON(),
+          at: Date.now(),
+          from: "host",
+          tag,
+          ufrag: localUfrag,
+        });
+      }
+    };
+  
+    // Consume answers (only newest — once remote set, ignore others)
+    const unsubAns = onSnapshot(answersCol, async (snap) => {
+      for (const ch of snap.docChanges()) {
+        if (ch.type !== "added") continue;
+        const data = ch.doc.data() as any;
+        if (data?.type !== "answer" || !data?.sdp) continue;
+        if (data?.tag !== tag) {
+          // stale answer from a prior offer — ignore
+          continue;
+        }
+        if (!pc.currentRemoteDescription) {
+          try {
+            await pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: data.sdp }));
+            console.log("[host] set remote answer");
+          } catch (err) {
+            console.warn("[host] setRemoteDescription(answer) failed", err);
+          }
         }
       }
-    }
-  });
-
-  const unsubViewerCand = onSnapshot(candViewerCol, async (snap) => {
-    for (const ch of snap.docChanges()) {
-      if (ch.type !== "added") continue;
-      const data = ch.doc.data() as any;
-      if (data?.candidate) {
+    });
+  
+    // Consume viewer ICE for this tag and matching ufrag
+    const unsubViewerCand = onSnapshot(candViewerCol, async (snap) => {
+      const expectedUfrag = getUfrag(pc.remoteDescription);
+      for (const ch of snap.docChanges()) {
+        if (ch.type !== "added") continue;
+        const data = ch.doc.data() as any;
+        if (!data?.candidate) continue;
+        if (data?.tag !== tag) continue; // stale for a previous offer
+        if (expectedUfrag && data?.ufrag && data.ufrag !== expectedUfrag) {
+          // "Unknown ufrag" prevention: ignore mismatched ICE
+          continue;
+        }
         try {
           await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
           console.log("[host] added viewer ICE");
@@ -110,131 +141,88 @@ export async function startHost(sessionId: string, stream: MediaStream) {
           console.warn("[host] addIceCandidate(viewer) failed", err);
         }
       }
-    }
-  });
-
-  if (!FORCE_RELAY) {
-    const ok = await waitForConnected(pc, FALLBACK_MS);
-    if (!ok) {
-      try {
-        pc.getSenders().forEach(s => s.track?.stop());
-        pc.close();
-      } catch {}
-      pc = await buildPeer("host", true);
-      stream.getTracks().forEach(t => pc.addTrack(t, stream));
-      pc.onicecandidate = async (e) => {
-        if (e.candidate) await addDoc(candHostCol, { candidate: e.candidate.toJSON(), at: Date.now() });
-      };
-      const off2 = await pc.createOffer({ offerToReceiveVideo: false, offerToReceiveAudio: false });
-      await pc.setLocalDescription(off2);
-      await setDoc(offersDoc, { type: "offer", sdp: off2.sdp, at: Date.now(), forcedRelay: true });
-
-      onSnapshot(candViewerCol, async (snap) => {
-        for (const ch of snap.docChanges()) {
-          if (ch.type !== "added") continue;
-          const data = ch.doc.data() as any;
-          if (data?.candidate) {
-            try {
-              await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-              console.log("[host] added viewer ICE (fallback)");
-            } catch (err) {
-              console.warn("[host] addIceCandidate(viewer,fallback) failed", err);
-            }
-          }
-        }
-      });
-    }
+    });
+  
+    return {
+      pc,
+      stop() {
+        unsubAns();
+        unsubViewerCand();
+        try { pc.getSenders().forEach(s => s.track?.stop()); } catch {}
+        try { pc.close(); } catch {}
+      },
+    };
   }
-
-  return {
-    pc,
-    stop() {
-      unsubAns();
-      unsubViewerCand();
-      try { pc.getSenders().forEach(s => s.track?.stop()); } catch {}
-      try { pc.close(); } catch {}
-    },
-  };
-}
-
-/* ---------------- Viewer side ---------------- */
-export async function startViewer(sessionId: string) {
-  const offerSnap = await getDoc(doc(db, "sessions", sessionId, "offers", "latest"));
-  const offData = offerSnap.data() as any;
-  if (!offData?.sdp) throw new Error("No offer from host yet.");
-
-  let pc = await buildPeer("viewer", FORCE_RELAY);
-  const remoteStream = new MediaStream();
-
-  pc.ontrack = (e) => {
-    const [stream] = e.streams;
-    if (stream) stream.getTracks().forEach(t => remoteStream.addTrack(t));
-  };
-
-  const answersCol = collection(db, "sessions", sessionId, "answers");
-  const candHostCol = collection(db, "sessions", sessionId, "candidates_host");
-  const candViewerCol = collection(db, "sessions", sessionId, "candidates_viewer");
-
-  pc.onicecandidate = async (e) => {
-    if (e.candidate) await addDoc(candViewerCol, { candidate: e.candidate.toJSON(), at: Date.now(), from: "viewer" });
-  };
-
-  await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: offData.sdp }));
-  const answer = await pc.createAnswer();
-  await pc.setLocalDescription(answer);
-  await addDoc(answersCol, { type: "answer", sdp: answer.sdp, at: Date.now() });
-
-  const unsubHostCand = onSnapshot(candHostCol, async (snap) => {
-    for (const ch of snap.docChanges()) {
-      if (ch.type !== "added") continue;
-    const data = ch.doc.data() as any;
-      if (data?.candidate) {
-        try { await pc.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch {}
+  
+  /* ---------------- Viewer side ---------------- */
+  
+  export async function startViewer(sessionId: string) {
+    const offersRef = doc(db, "sessions", sessionId, "offers", "latest");
+    const offSnap = await getDoc(offersRef);
+    const offerData = offSnap.data() as any;
+  
+    if (!offerData?.sdp) throw new Error("No offer from host yet.");
+  
+    const tag = offerData.tag ?? offerData.at ?? Date.now();
+  
+    let pc = await buildPeer("viewer", FORCE_RELAY);
+    const remoteStream = new MediaStream();
+  
+    pc.ontrack = (e) => {
+      const [s] = e.streams;
+      if (s) s.getTracks().forEach(t => remoteStream.addTrack(t));
+    };
+  
+    const answersCol = collection(db, "sessions", sessionId, "answers");
+    const candHostCol = collection(db, "sessions", sessionId, "candidates_host");
+    const candViewerCol = collection(db, "sessions", sessionId, "candidates_viewer");
+  
+    await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: offerData.sdp }));
+    const remoteUfrag = getUfrag(pc.remoteDescription);
+  
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+  
+    await addDoc(answersCol, { type: "answer", sdp: answer.sdp, at: Date.now(), tag });
+  
+    // Publish viewer ICE with tag + ufrag
+    pc.onicecandidate = async (e) => {
+      if (e.candidate) {
+        const myUfrag = getUfrag(pc.localDescription);
+        await addDoc(candViewerCol, {
+          candidate: e.candidate.toJSON(),
+          at: Date.now(),
+          from: "viewer",
+          tag,
+          ufrag: myUfrag,
+        });
       }
-    }
-  });
-
-  if (!FORCE_RELAY) {
-    const ok = await waitForConnected(pc, FALLBACK_MS);
-    if (!ok) {
-      unsubHostCand();
-      try { pc.close(); } catch {}
-      const latest = await getDoc(doc(db, "sessions", sessionId, "offers", "latest"));
-      const od = latest.data() as any;
-      if (!od?.sdp) throw new Error("No offer available.");
-      pc = await buildPeer("viewer", true);
-      const remote2 = new MediaStream();
-      pc.ontrack = (e) => {
-        const [stream] = e.streams;
-        if (stream) stream.getTracks().forEach(t => remote2.addTrack(t));
-      };
-      pc.onicecandidate = async (e) => {
-        if (e.candidate) await addDoc(candViewerCol, { candidate: e.candidate.toJSON(), at: Date.now(), from: "viewer" });
-      };
-      await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: od.sdp }));
-      const ans2 = await pc.createAnswer();
-      await pc.setLocalDescription(ans2);
-      await addDoc(answersCol, { type: "answer", sdp: ans2.sdp, at: Date.now(), relay: true });
-      onSnapshot(candHostCol, async (snap) => {
-        for (const ch of snap.docChanges()) {
-          if (ch.type !== "added") continue;
-          const data = ch.doc.data() as any;
-          if (data?.candidate) {
-            try { await pc.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch {}
-          }
+    };
+  
+    // Consume host ICE for this tag and matching ufrag
+    const unsubHostCand = onSnapshot(candHostCol, async (snap) => {
+      for (const ch of snap.docChanges()) {
+        if (ch.type !== "added") continue;
+        const data = ch.doc.data() as any;
+        if (!data?.candidate) continue;
+        if (data?.tag !== tag) continue;
+        if (remoteUfrag && data?.ufrag && data.ufrag !== remoteUfrag) {
+          continue; // prevent "Unknown ufrag" on viewer
         }
-      });
-      return {
-        pc,
-        stream: remote2,
-        stop() { try { pc.close(); } catch {} },
-      };
-    }
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+        } catch (err) {
+          console.warn("[viewer] addIceCandidate(host) failed", err);
+        }
+      }
+    });
+  
+    return {
+      pc,
+      stream: remoteStream,
+      stop() {
+        unsubHostCand();
+        try { pc.close(); } catch {}
+      },
+    };
   }
-
-  return {
-    pc,
-    stream: remoteStream,
-    stop() { try { pc.close(); } catch {} },
-  };
-}

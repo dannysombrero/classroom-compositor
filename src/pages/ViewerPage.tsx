@@ -7,46 +7,62 @@ export default function ViewerPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => {
-    let stop: (() => void) | null = null;
+    if (!sessionId) return;
+    let stopFn: (() => void) | null = null;
 
     (async () => {
-      try {
-        if (!sessionId) {
-          console.warn("[viewer] no sessionId in route");
-          return;
-        }
-        console.log("[viewer] starting for session:", sessionId);
+      console.log("[viewer] starting for session:", sessionId);
+      const { stream, pc, stop } = await startViewer(sessionId);
+      stopFn = stop;
 
-        const { stream, stop: s } = await startViewer(sessionId);
-        stop = s;
-
-        if (videoRef.current) {
-          videoRef.current.muted = true;     // autoplay safety
-          // Assign MediaStream to <video>
-          (videoRef.current as HTMLVideoElement).srcObject = stream;
-          try {
-            await videoRef.current.play();
-          } catch {
-            // Some browsers require a click; ignore here.
-          }
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        const p = videoRef.current.play();
+        if (p && typeof p.then === "function") {
+          p.catch((e: any) => console.warn("[viewer] autoplay blocked", e));
         }
-        console.log("[viewer] awaiting tracks…");
-      } catch (e) {
-        console.error("[viewer] failed to connect:", e);
       }
+
+      // Debug: log tracks as they appear
+      if (stream) {
+        const logTracks = () => {
+          const kinds = stream.getTracks().map(t => t.kind);
+          console.log("[viewer] stream tracks now:", kinds);
+        };
+        stream.addEventListener?.("addtrack", logTracks as any);
+        logTracks();
+      }
+
+      // Clean up on unload
+      window.addEventListener(
+        "beforeunload",
+        () => {
+          try { pc.close(); } catch {}
+        },
+        { once: true }
+      );
     })();
 
     return () => {
-      try { stop?.(); } catch { /* no-op */ }
+      try { stopFn?.(); } catch {}
+      const v = videoRef.current;
+      if (v && v.srcObject) {
+        (v.srcObject as MediaStream).getTracks().forEach(t => t.stop());
+        v.srcObject = null;
+      }
     };
   }, [sessionId]);
 
   return (
-    <div style={{ display: "grid", placeItems: "center", width: "100%", height: "100%", background: "#0b0b0b" }}>
-      <video ref={videoRef} playsInline autoPlay style={{ maxWidth: "100%", maxHeight: "100%" }} />
-      <div style={{ position: "fixed", top: 8, left: 8, color: "#bbb", fontSize: 12 }}>
-        viewer session: <code>{sessionId}</code>
-      </div>
+    <div className="w-screen h-screen bg-black flex items-center justify-center">
+      <video
+        ref={videoRef}
+        className="max-w-[100vw] max-h-[100vh]"
+        autoPlay
+        playsInline
+        muted
+        controls={false}
+      />
     </div>
   );
 }
