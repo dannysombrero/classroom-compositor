@@ -1,22 +1,36 @@
+// Firestore Rules (minimal working)
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /codes/{codeId} {
-      allow read: if true;         // allow anyone to resolve a join code
-      allow write: if request.auth != null; // hosts only (or relax during dev)
-    }
-    // Session documents and their signaling subcollections
-    match /sessions/{sessionId} {
-      allow read, write: if true;
-      match /offers/{doc} { allow read, write: if true; }
-      match /answers/{doc} { allow read, write: if true; }
-      match /candidates_host/{doc} { allow read, write: if true; }
-      match /candidates_viewer/{doc} { allow read, write: if true; }
+
+    // 1) Allow anyone to read an active join code to get a sessionId
+    match /joinCodes/{codeId} {
+      allow get: if resource.data.active == true;
+      // No write from clients by default
     }
 
-    // Join codes mapping (code -> sessionId)
-    match /codes/{codeId} {
-      allow read, write: if true;
+    // 2) Sessions + signaling (public read for joining; write to signaling collections)
+    match /sessions/{sessionId} {
+      // Viewers must be able to read the session doc to know it's valid
+      allow get, list: if true;
+
+      // Host usually creates/updates the session; you can open for dev,
+      // or restrict to authenticated host in production.
+      allow create, update: if true; // <-- relax for now; tighten later
+
+      // Signaling subcollections used by host/viewer
+      match /offers/{doc} {
+        allow read, write: if true;
+      }
+      match /answers/{doc} {
+        allow read, write: if true;
+      }
+      match /hostCandidates/{doc} {
+        allow read, write: if true;
+      }
+      match /viewerCandidates/{doc} {
+        allow read, write: if true;
+      }
     }
   }
 }

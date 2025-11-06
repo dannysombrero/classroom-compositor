@@ -77,7 +77,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 /**
  * Main presenter page component.
  */
-export function PresenterPage() {
+function PresenterPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewerWindowRef = useRef<Window | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -948,21 +948,6 @@ export function PresenterPage() {
         )}
 
         {/* 👇 New: inline error feedback */}
-        {liveError && (
-          <span
-            style={{
-              marginLeft: 8,
-              padding: "2px 6px",
-              borderRadius: 6,
-              background: "rgba(239,68,68,0.15)",
-              border: "1px solid rgba(239,68,68,0.35)",
-              color: "#fecaca",
-              fontSize: 11,
-            }}
-          >
-            {liveError}
-          </span>
-        )}
       </div>
 
       {/* Main canvas area */}
@@ -1196,3 +1181,6 @@ export function PresenterPage() {
     </div>
   );
 }
+
+export default PresenterPage;
+export { PresenterPage };

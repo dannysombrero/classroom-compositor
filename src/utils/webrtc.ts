@@ -1,6 +1,48 @@
 // src/utils/webrtc.ts
 import { db, collection, addDoc, onSnapshot, doc, setDoc, getDoc } from "../firebase";
 
+/**
+ * Extract ICE ufrag from either an SDP blob or a candidate line/init.
+ * Accepts string SDP, RTCSessionDescriptionInit, RTCIceCandidateInit, or null/undefined.
+ * Returns the ufrag string when found, otherwise null.
+ */
+
+// src/utils/webrtc.ts
+import type {
+  QuerySnapshot,
+  DocumentData,
+} from "firebase/firestore";
+
+function getUfrag(
+    value: string | RTCSessionDescriptionInit | RTCIceCandidateInit | null | undefined
+  ): string | null {
+    if (!value) return null;
+  
+    // Normalize to a string we can regex against
+    let text = "";
+    if (typeof value === "string") {
+      text = value;
+    } else if ((value as RTCSessionDescriptionInit).sdp) {
+      text = (value as RTCSessionDescriptionInit).sdp ?? "";
+    } else if ((value as RTCIceCandidateInit).candidate) {
+      text = (value as RTCIceCandidateInit).candidate ?? "";
+    }
+  
+    // SDP form: a=ice-ufrag:XXXX
+    const sdpMatch = text.match(/^a=ice-ufrag:(.+)$/m);
+    if (sdpMatch) {
+      return sdpMatch[1].trim();
+    }
+  
+    // Candidate form (some stacks include `ufrag XXXX`)
+    const candMatch = text.match(/(?:\s|^)ufrag\s+([^\s]+)/);
+    if (candMatch) {
+      return candMatch[1];
+    }
+  
+    return null;
+  }
+
 const ICE_URLS = (() => {
   try {
     return JSON.parse(import.meta.env.VITE_TURN_URLS || "[]");
@@ -81,6 +123,9 @@ export async function startHost(sessionId: string, stream: MediaStream) {
     // Tag this negotiation so we can ignore old ICE
     const tag = Date.now();
   
+    // ✅ BEFORE createOffer
+    stream.getTracks().forEach(t => pc.addTrack(t, stream));
+
     // Create offer
     const offer = await pc.createOffer({ offerToReceiveVideo: false, offerToReceiveAudio: false });
     await pc.setLocalDescription(offer);
@@ -102,7 +147,7 @@ export async function startHost(sessionId: string, stream: MediaStream) {
     };
   
     // Consume answers (only newest — once remote set, ignore others)
-    const unsubAns = onSnapshot(answersCol, async (snap) => {
+    const unsubAns = onSnapshot(answersCol, async (snap: QuerySnapshot<DocumentData>) => {
       for (const ch of snap.docChanges()) {
         if (ch.type !== "added") continue;
         const data = ch.doc.data() as any;
@@ -123,7 +168,7 @@ export async function startHost(sessionId: string, stream: MediaStream) {
     });
   
     // Consume viewer ICE for this tag and matching ufrag
-    const unsubViewerCand = onSnapshot(candViewerCol, async (snap) => {
+    const unsubViewerCand = onSnapshot(candViewerCol, async (snap: QuerySnapshot<DocumentData>) => {
       const expectedUfrag = getUfrag(pc.remoteDescription);
       for (const ch of snap.docChanges()) {
         if (ch.type !== "added") continue;
@@ -156,21 +201,23 @@ export async function startHost(sessionId: string, stream: MediaStream) {
   
   /* ---------------- Viewer side ---------------- */
   
-  export async function startViewer(sessionId: string) {
+  export async function startViewer(
+    sessionId: string,
+    onStream: (stream: MediaStream) => void
+  ) {
     const offersRef = doc(db, "sessions", sessionId, "offers", "latest");
     const offSnap = await getDoc(offersRef);
     const offerData = offSnap.data() as any;
-  
     if (!offerData?.sdp) throw new Error("No offer from host yet.");
   
     const tag = offerData.tag ?? offerData.at ?? Date.now();
   
-    let pc = await buildPeer("viewer", FORCE_RELAY);
-    const remoteStream = new MediaStream();
+    const pc = await buildPeer("viewer", FORCE_RELAY);
   
-    pc.ontrack = (e) => {
-      const [s] = e.streams;
-      if (s) s.getTracks().forEach(t => remoteStream.addTrack(t));
+    pc.ontrack = (ev) => {
+      // Prefer unified stream if provided, otherwise wrap the track
+      const stream = ev.streams?.[0] ?? new MediaStream([ev.track]);
+      onStream(stream);
     };
   
     const answersCol = collection(db, "sessions", sessionId, "answers");
@@ -185,7 +232,6 @@ export async function startHost(sessionId: string, stream: MediaStream) {
   
     await addDoc(answersCol, { type: "answer", sdp: answer.sdp, at: Date.now(), tag });
   
-    // Publish viewer ICE with tag + ufrag
     pc.onicecandidate = async (e) => {
       if (e.candidate) {
         const myUfrag = getUfrag(pc.localDescription);
@@ -198,17 +244,24 @@ export async function startHost(sessionId: string, stream: MediaStream) {
         });
       }
     };
+
+    // 👇 ensure the viewer is ready to receive
+    pc.addTransceiver("video", { direction: "recvonly" });
+    pc.addTransceiver("audio", { direction: "recvonly" });
   
-    // Consume host ICE for this tag and matching ufrag
+    pc.ontrack = (ev) => {
+      const stream = ev.streams?.[0] ?? new MediaStream([ev.track]);
+      onStream(stream);
+      console.log("[viewer] ontrack fired; stream tracks:", stream.getTracks().map(t => t.kind));
+    };
+
     const unsubHostCand = onSnapshot(candHostCol, async (snap) => {
       for (const ch of snap.docChanges()) {
         if (ch.type !== "added") continue;
         const data = ch.doc.data() as any;
         if (!data?.candidate) continue;
         if (data?.tag !== tag) continue;
-        if (remoteUfrag && data?.ufrag && data.ufrag !== remoteUfrag) {
-          continue; // prevent "Unknown ufrag" on viewer
-        }
+        if (remoteUfrag && data?.ufrag && data.ufrag !== remoteUfrag) continue;
         try {
           await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
         } catch (err) {
@@ -219,7 +272,6 @@ export async function startHost(sessionId: string, stream: MediaStream) {
   
     return {
       pc,
-      stream: remoteStream,
       stop() {
         unsubHostCand();
         try { pc.close(); } catch {}

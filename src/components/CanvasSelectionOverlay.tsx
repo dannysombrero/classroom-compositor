@@ -436,7 +436,7 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
 
   const handlePointerCancel = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const state = interactionRef.current;
-    if (state.pointerId === event.pointerId) {
+    if ("pointerId" in state && state.pointerId === event.pointerId) {
       interactionRef.current = IDLE_STATE;
       setMarqueeRect(null);
     }

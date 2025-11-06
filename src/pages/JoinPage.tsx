@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { db, doc, getDoc } from "../firebase";
+import { db } from "../firebase";                 // ← this resolves to src/firebase.ts
+import { doc, getDoc } from "firebase/firestore";
 
 export default function JoinPage() {
   const nav = useNavigate();
@@ -31,7 +32,7 @@ export default function JoinPage() {
       console.log("[join] submit with code:", cleaned);
       console.log("[join] looking up code doc:", codeId);
 
-      const snap = await getDoc(doc(db, "sessions_join_codes", codeId));
+      const snap = await getDoc(doc(db, "codes", codeId)); // ✅ match joinCodes.ts
       if (!snap.exists()) {
         console.warn("[join] code not found");
         setError("Hmm… we couldn't find that code. Double-check and try again.");
