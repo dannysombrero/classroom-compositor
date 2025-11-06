@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import {
-  getFirestore,
+  initializeFirestore,
   // connectFirestoreEmulator,
   doc,
   setDoc,
@@ -29,8 +29,11 @@ if (!firebaseConfig?.apiKey || !firebaseConfig?.projectId) {
 
 const app = initializeApp(firebaseConfig);
 
-// ---- Firestore ----
-export const db = getFirestore(app);
+// ---- Firestore (resilient transports) ----
+export const db = initializeFirestore(app, {
+  experimentalAutoDetectLongPolling: true,
+  // experimentalForceLongPolling: true, // <- optional: uncomment if you want to force it
+});
 // For local emulator testing, if needed:
 // connectFirestoreEmulator(db, "127.0.0.1", 8080);
 

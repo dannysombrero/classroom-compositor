@@ -5,9 +5,10 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { startHost } from "../utils/webrtc";
 import { useSessionStore } from "../stores/sessionStore";
 import { activateJoinCode } from "../utils/joinCodes";
+import { startHost, type HostHandle } from "../utils/webrtc";
+
 
 import { PresenterCanvas, type CanvasLayout } from "../components/PresenterCanvas";
 import {
@@ -790,7 +791,7 @@ function PresenterPage() {
 
       // 3) Start WebRTC host with that stream
       hostingRef.current = true;
-      hostRef.current = await startHost(s.id, stream);
+      hostRef.current = await startHost(s.id, { displayStream: stream });
       lastDisplayStreamRef.current = stream;
       console.log("[host] started with stream tracks:", stream.getTracks().map(t => t.kind));
 

@@ -1,5 +1,9 @@
 import { createBgEffect } from '../src';
 
+// Derive the engine start options type from the factory to avoid direct type import
+type BgEngine = ReturnType<typeof createBgEffect>;
+type StartOptions = NonNullable<Parameters<BgEngine['start']>[1]>;
+
 type StatKey = 'mode' | 'engine' | 'inference' | 'fps';
 
 const statNodes = new Map<StatKey, HTMLElement>();
@@ -102,7 +106,14 @@ async function bootstrap() {
 
     const enginePreference: Parameters<typeof createBgEffect>[0] = 'mediapipe';
     const engine = createBgEffect(enginePreference);
-    const engineStartOptions = { mode: 'off', quality: 'balanced', inferenceFps: undefined as number | undefined };
+
+    // Build options using the non-undefined StartOptions type so unions are respected
+    const engineStartOptions = {
+      mode: 'off',
+      quality: 'balanced',
+      inferenceFps: undefined,
+    } satisfies StartOptions;
+
     const processedTrack = await engine.start(track, engineStartOptions);
 
     const processedStream = new MediaStream([processedTrack]);
