@@ -10,7 +10,7 @@ export default function ViewerPage() {
   const userTapRef = useRef(false);
 
   const [needsTap, setNeedsTap] = useState(false);
-  const [connecting, setConnecting] = useState(true);   // show overlay until ready
+  const [connecting, setConnecting] = useState(true);
   const [iceState, setIceState] = useState<string>("new");
 
   const tryPlay = () => {
@@ -28,7 +28,6 @@ export default function ViewerPage() {
     v.muted = true;
     v.playsInline = true;
 
-    // As soon as we have tracks, we can drop "connecting"
     if (stream.getTracks().length > 0) setConnecting(false);
 
     if (userTapRef.current) {
@@ -50,7 +49,6 @@ export default function ViewerPage() {
       const { pc, stop } = await startViewer(sessionId, attachStreamAndAutoplay);
       stopFn = stop;
 
-      // Track ICE state to drive overlay UX
       const onIce = () => {
         setIceState(pc.iceConnectionState);
         if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
@@ -60,7 +58,6 @@ export default function ViewerPage() {
       pc.addEventListener("iceconnectionstatechange", onIce);
       onIce();
 
-      // If metadata comes late, retry play
       const v = videoRef.current;
       if (v) v.onloadedmetadata = () => tryPlay();
 
@@ -91,51 +88,133 @@ export default function ViewerPage() {
   const showOverlay = connecting || needsTap;
 
   return (
-    <div className="page">
-      <div className="card" style={{ width: "100%", maxWidth: 980 }}>
-        <div className="card-header">
-          <div className="row">
-            <div className="card-title">Viewer</div>
-            <div className="card-subtle">Session: {sessionId}</div>
+    <div style={styles.page}>
+      <div style={{ ...styles.card, width: "100%", maxWidth: 980 }}>
+        <div style={styles.cardHeader}>
+          <div>
+            <div style={styles.cardTitle}>Viewer</div>
+            <div style={styles.cardSubtle}>Session: {sessionId}</div>
           </div>
-          <div className="help">ICE: {iceState}</div>
+          <div style={styles.help}>ICE: {iceState}</div>
         </div>
-        <div className="card-body">
-          <div className="video-wrap">
+
+        <div style={styles.cardBody}>
+          <div style={styles.videoWrap}>
             <video
               ref={videoRef}
-              className="video-el"
+              style={styles.videoEl}
               autoPlay
               playsInline
               muted
               controls={false}
             />
             {showOverlay && (
-              <div className="overlay-center">
-                <div className="overlay-chip">
-                  {connecting && <span className="spinner" />}
-                  <span>
-                    {needsTap ? "Tap to Play" : "Loading stream…"}
-                  </span>
+              <div style={styles.overlayCenter}>
+                <div style={styles.overlayChip}>
+                  {connecting && <span style={styles.spinner} />}
+                  <span>{needsTap ? "Tap to Play" : "Loading stream…"}</span>
                 </div>
                 {needsTap && (
-                  <button
-                    onClick={handleTapToPlay}
-                    className="btn"
-                    style={{ marginTop: 12 }}
-                  >
+                  <button onClick={handleTapToPlay} style={styles.btn}>
                     Play
                   </button>
                 )}
               </div>
             )}
           </div>
-          <div style={{ marginTop: 10 }} className="help">
-            If nothing appears after a few seconds, the connection may be blocked by your network or a TURN server
-            may be required.
+
+          <div style={{ marginTop: 10, ...styles.help }}>
+            If nothing appears after a few seconds, your network may be blocking P2P and a TURN server is required.
           </div>
         </div>
       </div>
     </div>
   );
 }
+
+const styles: Record<string, React.CSSProperties> = {
+  page: {
+    minHeight: "100vh",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "#0b0b0b",
+    padding: 16,
+  },
+  card: {
+    background: "#151515",
+    border: "1px solid #2a2a2a",
+    borderRadius: 12,
+    boxShadow: "0 10px 30px rgba(0,0,0,.35)",
+    color: "#eee",
+    width: "100%",
+  },
+  cardHeader: {
+    display: "flex",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    padding: "14px 16px",
+    borderBottom: "1px solid #242424",
+  },
+  cardTitle: { fontSize: 20, fontWeight: 600, lineHeight: 1.1 },
+  cardSubtle: { fontSize: 12, opacity: 0.7, marginTop: 4 },
+  cardBody: { padding: 16 },
+  videoWrap: {
+    position: "relative",
+    background: "#000",
+    width: "100%",
+    aspectRatio: "16 / 9",
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  videoEl: {
+    position: "absolute",
+    inset: 0,
+    width: "100%",
+    height: "100%",
+    objectFit: "contain",
+    background: "#000",
+  },
+  overlayCenter: {
+    position: "absolute",
+    inset: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "column",
+    pointerEvents: "none",
+    gap: 8,
+  },
+  overlayChip: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "10px 14px",
+    borderRadius: 999,
+    background: "rgba(0,0,0,.6)",
+    border: "1px solid rgba(255,255,255,.2)",
+    backdropFilter: "blur(6px)",
+    color: "#fff",
+    pointerEvents: "auto",
+  },
+  spinner: {
+    width: 14,
+    height: 14,
+    borderRadius: "50%",
+    border: "2px solid rgba(255,255,255,.3)",
+    borderTopColor: "#fff",
+    display: "inline-block",
+    animation: "spin 0.9s linear infinite",
+  },
+  btn: {
+    marginTop: 12,
+    padding: "8px 14px",
+    borderRadius: 8,
+    border: "1px solid rgba(255,255,255,.25)",
+    background: "rgba(255,255,255,.08)",
+    color: "#fff",
+    pointerEvents: "auto",
+    cursor: "pointer",
+  },
+  help: { fontSize: 12, opacity: 0.7 },
+};

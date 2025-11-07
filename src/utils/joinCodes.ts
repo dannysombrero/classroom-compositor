@@ -11,10 +11,10 @@ const checksum = (raw: string) =>
   base32([...raw].reduce((a, ch) => a + ALPHABET.indexOf(ch), 0) % 32);
 
 export function generateJoinCode() {
-  const raw = Array.from({ length: 6 }, rand).join("");
-  const pretty = `${raw.slice(0, 3)}-${raw.slice(3)}${checksum(raw)}`;
-  return { pretty, id: pretty.replace(/-/g, "") };
-}
+    const raw = Array.from({ length: 6 }, rand).join(""); // 6 chars total
+    const pretty = `${raw.slice(0, 3)}-${raw.slice(3, 6)}`; // ABC-123
+    return { pretty, id: pretty.replace(/-/g, "") };       // ABC123
+  }
 
 export async function activateJoinCode(sessionId: string) {
   const { pretty, id } = generateJoinCode();

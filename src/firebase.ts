@@ -40,3 +40,4 @@ export const db = initializeFirestore(app, {
 
 // ---- Re-exports for convenience ----
 export { doc, setDoc, getDoc, onSnapshot, collection, addDoc, deleteDoc };
+

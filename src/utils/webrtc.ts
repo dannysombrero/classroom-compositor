@@ -2,8 +2,10 @@
 import { db, collection, addDoc, onSnapshot, doc, setDoc, getDoc } from "../firebase";
 import { getDocs, query, where } from "firebase/firestore";
 
+
 // Track which sessions have already published an answer from this tab
 const publishedAnswersFor = new Set<string>();
+
 
 // Helper to log selected ICE candidate pair (must be in scope before buildPeer)
 async function logSelectedPair(pc: RTCPeerConnection, label: string) {
@@ -134,17 +136,21 @@ function getUfrag(
     return null;
   }
 
-const ICE_URLS = (() => {
-  try {
-    return JSON.parse(import.meta.env.VITE_TURN_URLS || "[]");
-  } catch { return []; }
+// ---- TURN config helpers ----
+const ICE_URLS: string[] = (() => {
+    try { return JSON.parse(import.meta.env.VITE_TURN_URLS || "[]"); }
+    catch { return []; }
 })();
+const HAS_TURN = ICE_URLS.some(u => u.includes("turn:") || u.includes("turns:"));
 const TURN_AUTH = {
-  username: import.meta.env.VITE_TURN_USERNAME,
-  credential: import.meta.env.VITE_TURN_CREDENTIAL,
+    username: import.meta.env.VITE_TURN_USERNAME,
+    credential: import.meta.env.VITE_TURN_CREDENTIAL,
 };
 const FORCE_RELAY = import.meta.env.VITE_ICE_FORCE_RELAY === "true";
 const FALLBACK_MS = Number(import.meta.env.VITE_ICE_FALLBACK_MS || 8000);
+
+// ✅ Put the log *after* the declarations
+console.log("[webrtc] TURN urls=", ICE_URLS, "HAS_TURN=", HAS_TURN);
 
 function rtcConfig(forceRelay = false): RTCConfiguration {
   const servers: RTCIceServer[] = [];
@@ -379,24 +385,29 @@ export async function startHost(
   if (!pc) pc = await buildPeer("host", opts?.forceRelay ?? FORCE_RELAY);
   if (!pc) throw new Error("Failed to create RTCPeerConnection");
   
-  // Host-side one-shot retry hook: when ICE fails, flip relay policy and reset PC.
-  // We DO NOT auto-recall startHost to avoid recursion; trigger from UI if desired.
-  let retried = false;
-  const hostPc = getPc();
-  const prior = hostPc.oniceconnectionstatechange as ((this: RTCPeerConnection, ev: Event) => any) | null;
-  hostPc.oniceconnectionstatechange = async (ev?: Event) => {
-    // preserve diagnostics from buildPeer with correct `this`
-    try {
-      prior?.call(hostPc, ev ?? new Event("iceconnectionstatechange"));
-    } catch {}
+    // Host-side one-shot retry hook: on ICE failure, re-start with relay if TURN is configured
+    let retried = false;
+    const hostPc = getPc();
+    const prior = hostPc.oniceconnectionstatechange as ((this: RTCPeerConnection, ev: Event) => any) | null;
+    hostPc.oniceconnectionstatechange = async (ev?: Event) => {
+    try { prior?.call(hostPc, ev ?? new Event("iceconnectionstatechange")); } catch {}
     if (hostPc.iceConnectionState === "failed" && !retried) {
-      retried = true;
-      await logSelectedPair(hostPc, "host (failed)");
-      await restartIceWithPolicy((opts?.forceRelay ?? FORCE_RELAY) ? "relay" : "all", "host");
-      // Hint: now you can manually restart with flipped policy:
-      // startHost(sessionId, { ...opts, forceRelay: !(opts?.forceRelay ?? FORCE_RELAY) })
+        retried = true;
+        await logSelectedPair(hostPc, "host (failed)");
+        if (HAS_TURN) {
+        await restartIceWithPolicy(
+            "relay",
+            "host",
+            async () => {
+            // re-launch host with relay forced
+            await startHost(sessionId, { ...(opts || {}), forceRelay: true });
+            }
+        );
+        } else {
+        console.warn("[webrtc] skipping relay restart: no TURN configured");
+        }
     }
-  };
+    };
   
   startingHost = true;
   const tag = Date.now();
@@ -477,14 +488,6 @@ export async function startHost(
     await hostPc2.setLocalDescription(offer);
     await setDoc(offersDoc, { type: "offer", sdp: offer.sdp, at: tag, tag });
 
-    // SRD watchdog (diagnose blocked listeners) + fallback one-shot fetch
-    setTimeout(async () => {
-      if (!hostPc2.remoteDescription) {
-        console.warn("[host] SRD still not set ~4s after offer. Trying fallback fetch of answers…");
-        const ok = await tryFetchAnswerOnce(answersCol, tag, hostPc2);
-        if (!ok) console.warn("[host] Fallback fetch did not find a matching answer yet.");
-      }
-    }, 8000);
 
     console.log("[host] mids:", hostPc2.getTransceivers().map((t) => t.mid));
     console.log("[host] SRD set?", !!hostPc2.remoteDescription);
@@ -699,22 +702,28 @@ export async function startViewer(
 }
 
 
-// Replace restartIceWithPolicy with new module-scope version
-async function restartIceWithPolicy(current: "all" | "relay", role: "host" | "viewer"): Promise<void> {
-  // Do not tear down while startHost is still executing; that would null `pc`
-  if (startingHost) {
-    console.warn("[webrtc] restart requested during start; deferring/ignoring to avoid PC=null races");
-    return;
+// Replace restartIceWithPolicy with a version that actually restarts the host/viewer
+async function restartIceWithPolicy(
+    nextPolicy: "all" | "relay",
+    role: "host" | "viewer",
+    relaunch?: () => Promise<void>
+  ): Promise<void> {
+    if (startingHost) {
+      console.warn("[webrtc] restart requested during start; ignoring to avoid races");
+      return;
+    }
+    if (!pc) {
+      console.warn("[webrtc] restart requested but no active RTCPeerConnection");
+      if (relaunch) await relaunch();
+      return;
+    }
+    try { pc.close(); } catch {}
+    pc = null;
+    videoSender = null;
+    audioSender = null;
+  
+    console.warn(`[webrtc] restarting with iceTransportPolicy='${nextPolicy}' for ${role}`);
+    if (relaunch) {
+      await relaunch(); // caller provides how to relaunch (e.g., startHost with forceRelay)
+    }
   }
-  if (!pc) {
-    console.warn("[webrtc] restart requested but no active RTCPeerConnection");
-    return;
-  }
-  try { pc.close(); } catch {}
-  pc = null;
-  videoSender = null;
-  audioSender = null;
-
-  const forceRelay = current === "all";
-  console.warn(`[webrtc] restarting with iceTransportPolicy='${forceRelay ? "relay" : "all"}' for ${role}`);
-}
