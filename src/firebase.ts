@@ -1,17 +1,6 @@
 import { initializeApp } from "firebase/app";
-import {
-  initializeFirestore,
-  // connectFirestoreEmulator,
-  doc,
-  setDoc,
-  getDoc,
-  onSnapshot,
-  collection,
-  addDoc,
-  deleteDoc,
-} from "firebase/firestore";
+import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
 
-// ---- Firebase Config (Vite env) ----
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -21,23 +10,32 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-if (!firebaseConfig?.apiKey || !firebaseConfig?.projectId) {
-  console.warn("[firebase] Missing VITE_FIREBASE_* env vars. Firestore may not work until configured.");
-} else {
-  console.log(`[firebase] Using project ${firebaseConfig.projectId}`);
+console.log("[firebase] Using project", firebaseConfig.projectId);
+
+export const app = initializeApp(firebaseConfig);
+export const db = getFirestore(app);
+
+// Connect to emulator in dev mode
+if (import.meta.env.DEV) {
+  try {
+    connectFirestoreEmulator(db, "127.0.0.1", 8080);
+    console.log("🔧 [firebase] Connected to Firestore Emulator at localhost:8080");
+  } catch (err: any) {
+    if (err.code === 'failed-precondition') {
+      console.log("ℹ️ [firebase] Emulator already connected");
+    } else {
+      console.warn("⚠️ [firebase] Could not connect to emulator:", err);
+    }
+  }
 }
 
-const app = initializeApp(firebaseConfig);
-
-// ---- Firestore (force long-polling to avoid QUIC/WebChannel issues) ----
-export const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true,         // <— force
-  experimentalAutoDetectLongPolling: false,   // <— don’t auto; we force it
-});
-
-// For local emulator testing, if needed:
-// connectFirestoreEmulator(db, "127.0.0.1", 8080);
-
-// ---- Re-exports for convenience ----
-export { doc, setDoc, getDoc, onSnapshot, collection, addDoc, deleteDoc };
-
+// Re-export Firestore functions
+export {
+  doc,
+  setDoc,
+  getDoc,
+  onSnapshot,
+  collection,
+  addDoc,
+  deleteDoc,
+} from "firebase/firestore";
