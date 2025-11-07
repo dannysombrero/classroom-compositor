@@ -1,6 +1,6 @@
 // src/utils/joinCodes.ts
-import { doc, setDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../firebase";
+import { serverTimestamp } from "firebase/firestore";
+import { db, doc, setDoc, deleteDoc } from "../firebase";
 
 const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no I/O/1/0
 const TTL_MS = 5 * 60 * 1000;
@@ -12,25 +12,19 @@ const checksum = (raw: string) =>
 
 export function generateJoinCode() {
   const raw = Array.from({ length: 6 }, rand).join("");
-  const pretty = `${raw.slice(0, 3)}-${raw.slice(3)}${checksum(raw)}`; // e.g., H6J-4J6G
-  return { pretty, id: pretty.replace(/-/g, "") }; // H6J4J6G
+  const pretty = `${raw.slice(0, 3)}-${raw.slice(3)}${checksum(raw)}`;
+  return { pretty, id: pretty.replace(/-/g, "") };
 }
 
-/**
- * Create/activate a code document the viewer can resolve.
- * Caller must pass a valid `sessionId`.
- */
 export async function activateJoinCode(sessionId: string) {
   const { pretty, id } = generateJoinCode();
   const expiresAt = Date.now() + TTL_MS;
-
   await setDoc(doc(db, "codes", id), {
     sessionId,
     active: true,
-    createdAt: serverTimestamp(),
-    expiresAt, // ms epoch (client) is fine for dev; you can switch to Firestore Timestamp later
+    createdAt: Date.now(),
+    expiresAt,
   });
-
   return { codePretty: pretty, codeId: id, expiresAt };
 }
 

@@ -4,6 +4,7 @@ import { ViewerHostPage } from "./pages/ViewerHostPage"; // keep as-is if Viewer
 import { useEffect } from "react";
 import { useSessionStore } from "./stores/sessionStore";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { Outlet } from "react-router-dom";
 
 /** Inline BottomBarLiveLite (unchanged) */
 function BottomBarLiveLite({ hostId }: { hostId: string }) {

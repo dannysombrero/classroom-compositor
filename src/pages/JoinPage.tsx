@@ -1,84 +1,86 @@
-import { useState } from "react";
+// src/pages/JoinPage.tsx
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { db } from "../firebase";                 // ← this resolves to src/firebase.ts
-import { doc, getDoc } from "firebase/firestore";
+import { db, doc, getDoc } from "../firebase";
 
 export default function JoinPage() {
-  const nav = useNavigate();
-  const [params] = useSearchParams();
+  const navigate = useNavigate();
+  const [search] = useSearchParams();
+  const [code, setCode] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
-  const [code, setCode] = useState((params.get("code") ?? "").toUpperCase());
-  const inboundError = params.get("error");
-  const [error, setError] = useState<string | null>(
-    inboundError === "inactive" ? "Oops! It doesn't look like that session is live right now." : null
-  );
-  const [loading, setLoading] = useState(false);
+  // If you share links like /join?code=ABC-123, prefill:
+  useEffect(() => {
+    const q = (search.get("code") || "").toUpperCase().replace(/\W/g, "");
+    if (q) setCode(pretty(q));
+    inputRef.current?.focus();
+  }, [search]);
 
-  async function onSubmit(e: React.FormEvent) {
+  function pretty(raw: string) {
+    const clean = raw.replace(/[^A-Z0-9]/g, "").slice(0, 6);
+    if (clean.length <= 3) return clean;
+    return `${clean.slice(0, 3)}-${clean.slice(3)}`;
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
 
-    const cleaned = code.replace(/[^A-Z2-9]/g, "").toUpperCase();
-    if (cleaned.length < 7) {
-      setError("Please enter a valid join code (e.g., 7D9-K2F).");
-      return;
-    }
+    const id = code.toUpperCase().replace(/-/g, "");
+    console.log("[join] submit with code:", code);
+    console.log("[join] looking up code doc:", id);
 
-    setLoading(true);
     try {
-      // Codes live at: sessions_join_codes/{CODEID}
-      // Pretty code "H6J-4J6G" => id "H6J4J6G"
-      const codeId = cleaned.replace(/-/g, "");
-      console.log("[join] submit with code:", cleaned);
-      console.log("[join] looking up code doc:", codeId);
-
-      const snap = await getDoc(doc(db, "codes", codeId)); // ✅ match joinCodes.ts
+      const ref = doc(db, "codes", id);
+      const snap = await getDoc(ref);
       if (!snap.exists()) {
         console.warn("[join] code not found");
-        setError("Hmm… we couldn't find that code. Double-check and try again.");
+        setError("Code not found. Double-check and try again.");
         return;
       }
-
       const data = snap.data() as any;
       const sessionId = data?.sessionId;
+      console.log("[join] resolved sessionId:", sessionId);
       if (!sessionId) {
-        console.warn("[join] code doc missing sessionId");
-        setError("Code is invalid. Ask the presenter to start a new session.");
+        setError("This code is not active.");
         return;
       }
-
-      console.log("[join] resolved sessionId:", sessionId);
-      nav(`/viewer/${sessionId}`);
+      navigate(`/view/${sessionId}`);
     } catch (err) {
-      console.error("[join] lookup failed", err);
-      setError("Something went wrong resolving the code. Please try again.");
-    } finally {
-      setLoading(false);
+      console.error(err);
+      setError("Couldn’t look up that code right now.");
     }
   }
 
   return (
-    <div className="flex flex-col items-center gap-3 p-6">
-      <h1 className="text-xl font-semibold">Join a Presentation</h1>
-
-      {error && (
-        <div className="w-full max-w-md rounded-md border border-red-200 bg-red-50 text-red-700 px-3 py-2 text-sm">
-          {error}
+    <div className="page">
+      <div className="card" style={{ maxWidth: 640, width: "100%" }}>
+        <div className="card-header">
+          <div className="card-title">Join a Stream</div>
+          <div className="card-subtle">Enter the 6-character code</div>
         </div>
-      )}
-
-      <form onSubmit={onSubmit} className="flex items-center gap-2 w-full max-w-md">
-        <input
-          value={code}
-          onChange={(e) => setCode(e.target.value.toUpperCase())}
-          placeholder="7D9-K2F"
-          className="flex-1 border rounded px-3 py-2 font-mono"
-          maxLength={9}
-        />
-        <button className="px-4 py-2 rounded bg-black text-white disabled:opacity-50" disabled={loading}>
-          {loading ? "Checking…" : "Join"}
-        </button>
-      </form>
+        <div className="card-body">
+          <form onSubmit={handleSubmit} className="row" style={{ gap: 10 }}>
+            <input
+              ref={inputRef}
+              className="input"
+              value={code}
+              onChange={(e) => setCode(pretty(e.target.value.toUpperCase()))}
+              placeholder="ABC-123"
+              inputMode="text"
+              autoCapitalize="characters"
+              maxLength={7}
+              style={{ textTransform: "uppercase", letterSpacing: "0.08em" }}
+            />
+            <button type="submit" className="btn">Join</button>
+          </form>
+          {error && <div style={{ marginTop: 10, color: "#fca5a5" }}>{error}</div>}
+          <div style={{ marginTop: 12 }} className="help">
+            Example format: <code>ABC-123</code>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

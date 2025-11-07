@@ -484,7 +484,7 @@ export async function startHost(
         const ok = await tryFetchAnswerOnce(answersCol, tag, hostPc2);
         if (!ok) console.warn("[host] Fallback fetch did not find a matching answer yet.");
       }
-    }, 4000);
+    }, 8000);
 
     console.log("[host] mids:", hostPc2.getTransceivers().map((t) => t.mid));
     console.log("[host] SRD set?", !!hostPc2.remoteDescription);

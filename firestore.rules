@@ -1,39 +1,28 @@
+// Firestore Rules (dev-safe; tighten later)
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Viewer resolves a code to sessionId
+    // Join codes published by the host:
+    // Allow anonymous GET if the code is active.
     match /codes/{codeId} {
-      // allow anyone to read the code document (so join page works)
-      allow get: if true;
-      // (write restricted in prod; dev-only:)
-      allow create, update, delete: if true;
+      allow get: if resource.data.active == true;
     }
 
+    // Session + signaling docs (open for development)
     match /sessions/{sessionId} {
-      // Allow reads so viewers can validate session existence
-      allow get, list: if true;
+      allow get, list, create, update: if true;
 
-      // Host/session mutation (relaxed for dev)
-      allow create, update, delete: if true;
-
-      // Offer doc the host publishes
-      match /offers/{docId} {
+      match /offers/{doc} {
         allow read, write: if true;
       }
-
-      // Answers (viewer writes to a deterministic doc: answers/latest)
-      match /answers/{docId} {
+      match /answers/{doc} {
         allow read, write: if true;
       }
-
-      // Host ICE candidates (viewer reads)
-      match /candidates_host/{candId} {
+      match /candidates_host/{doc} {
         allow read, write: if true;
       }
-
-      // Viewer ICE candidates (host reads)
-      match /candidates_viewer/{candId} {
+      match /candidates_viewer/{doc} {
         allow read, write: if true;
       }
     }
