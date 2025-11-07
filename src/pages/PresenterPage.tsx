@@ -743,7 +743,6 @@ function PresenterPage() {
   // === Go Live ===
   const HOST_ID = "host-123";
 
-  const lastDisplayStreamRef = useRef<MediaStream | null>(null);
   const hostingRef = useRef(false);
   const [liveError, setLiveError] = useState<string | null>(null);
 
@@ -763,37 +762,14 @@ function PresenterPage() {
         return;
       }
 
-      // 2) Get or reuse a screen share stream
-      let stream: MediaStream | null = null;
-      try {
-        stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
-      } catch (err: any) {
-        // If the browser is ALREADY sharing (you see the “Stop sharing” chip),
-        // a fresh getDisplayMedia can throw. Reuse the active one if we have it.
-        if (
-          lastDisplayStreamRef.current &&
-          lastDisplayStreamRef.current.getVideoTracks().some(t => t.readyState === "live")
-        ) {
-          stream = lastDisplayStreamRef.current;
-        } else {
-          if (err?.name === "NotAllowedError") {
-            setLiveError('Go Live was blocked by the browser. Click again and press "Allow".');
-            return;
-          }
-          throw err;
-        }
-      }
-
-      if (!stream) {
-        setLiveError("No screen stream available.");
-        return;
-      }
-
-      // 3) Start WebRTC host with that stream
+      // 3) Start WebRTC host without forcing capture (publish loading slate)
       hostingRef.current = true;
-      hostRef.current = await startHost(s.id, { displayStream: stream });
-      lastDisplayStreamRef.current = stream;
-      console.log("[host] started with stream tracks:", stream.getTracks().map(t => t.kind));
+      hostRef.current = await startHost(s.id, {
+        requireDisplay: false,   // do NOT prompt; we’ll capture only from the ScreenShare control
+        sendAudio: false,        // optional: change to true if you want mic on at Go Live
+        loadingText: "Waiting for presenter…",
+      });
+      console.log("[host] started (no capture)");
 
       // 4) Activate join code and reflect it in UI
       const { codePretty } = await activateJoinCode(s.id);

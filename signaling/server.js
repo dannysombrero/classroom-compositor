@@ -1,14 +1,27 @@
 import express from "express";
 import cors from "cors";
-import { WebSocketServer } from "ws";
+import { WebSocketServer, WebSocket } from "ws";
 import http from "http";
+
+// --- env + deploy-friendly defaults ---
+const HOST = process.env.HOST || "0.0.0.0"; // bind all interfaces in prod
+const PORT = process.env.PORT || 8787;      // Heroku/CloudRun/etc. will inject PORT
+const ORIGINS = (process.env.ALLOWED_ORIGINS || "*")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 // --- simple in-memory join codes -> room mapping (optional)
 const sessions = new Map();          // sessionId -> { hostId, active }
 const codeToSession = new Map();     // "ABCDEFZ" -> sessionId
 
 const app = express();
-app.use(cors());
+app.use(
+  cors({
+    origin: ORIGINS.includes("*") ? true : ORIGINS,
+    credentials: true,
+  })
+);
 app.use(express.json());
 
 // Create a session and a human join code (sticky for this run)
@@ -82,11 +95,15 @@ function broadcast(sessionId, msg, except) {
   if (!set) return;
   const payload = JSON.stringify(msg);
   for (const s of set) {
-    if (s !== except && s.readyState === 1) s.send(payload);
+    if (s !== except && s.readyState === WebSocket.OPEN) s.send(payload);
   }
 }
 
 wss.on("connection", (ws) => {
+  // keepalive (helps behind proxies/load balancers)
+  ws.isAlive = true;
+  ws.on("pong", () => (ws.isAlive = true));
+
   ws.on("message", (data) => {
     let msg;
     try { msg = JSON.parse(data.toString()); } catch { return; }
@@ -112,7 +129,18 @@ wss.on("connection", (ws) => {
   ws.on("close", () => leaveRoom(ws));
 });
 
-const PORT = process.env.PORT || 8787;
-server.listen(PORT, () => {
-  console.log(`Signaling server on http://localhost:${PORT}  (WS: /ws)`);
+const interval = setInterval(() => {
+  wss.clients.forEach((client) => {
+    if (client.isAlive === false) return client.terminate();
+    client.isAlive = false;
+    try { client.ping(); } catch {}
+  });
+}, 30000);
+
+wss.on("close", () => clearInterval(interval));
+
+server.listen(PORT, HOST, () => {
+  const addr = server.address();
+  const hostShown = typeof addr === "object" && addr ? `${addr.address}:${addr.port}` : `${HOST}:${PORT}`;
+  console.log(`Signaling server listening on http://${hostShown}  (WS path: /ws)`);
 });

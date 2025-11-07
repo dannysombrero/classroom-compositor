@@ -29,11 +29,12 @@ if (!firebaseConfig?.apiKey || !firebaseConfig?.projectId) {
 
 const app = initializeApp(firebaseConfig);
 
-// ---- Firestore (resilient transports) ----
+// ---- Firestore (force long-polling to avoid QUIC/WebChannel issues) ----
 export const db = initializeFirestore(app, {
-  experimentalAutoDetectLongPolling: true,
-  // experimentalForceLongPolling: true, // <- optional: uncomment if you want to force it
+  experimentalForceLongPolling: true,         // <— force
+  experimentalAutoDetectLongPolling: false,   // <— don’t auto; we force it
 });
+
 // For local emulator testing, if needed:
 // connectFirestoreEmulator(db, "127.0.0.1", 8080);
 
