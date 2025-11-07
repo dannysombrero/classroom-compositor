@@ -167,11 +167,17 @@ function rtcConfig(forceRelay = false): RTCConfiguration {
       servers.push({ urls: ICE_URLS });
     }
   }
+  
+  // CRITICAL: Never use relay mode without TURN configured
+  const shouldUseRelay = forceRelay && HAS_TURN;
+  if (forceRelay && !HAS_TURN) {
+    console.warn("[webrtc] Relay mode requested but no TURN configured - using 'all' policy instead");
+  }
+  
   return {
     iceServers: servers,
-    iceTransportPolicy: forceRelay ? "relay" : "all",
+    iceTransportPolicy: shouldUseRelay ? "relay" : "all",
     bundlePolicy: "max-bundle",
-    // Optional: small pool to speed first candidate pair (Chrome only)
     iceCandidatePoolSize: 1,
   };
 }
@@ -197,21 +203,45 @@ function waitForConnected(pc: RTCPeerConnection, timeoutMs: number): Promise<boo
 }
 
 async function buildPeer(role: PeerRole, forceRelay: boolean): Promise<RTCPeerConnection> {
-    const pc = new RTCPeerConnection(rtcConfig(forceRelay));
-    pc.onicegatheringstatechange = () => console.log(`[webrtc] ${role} gathering:`, pc.iceGatheringState);
-    pc.oniceconnectionstatechange = () => {
-        const s = pc.iceConnectionState;
-        console.log(`[webrtc] ${role} ice:`, s);
-        if (s === "connected" || s === "completed") {
-          void logSelectedPair(pc, role);
-        } else if (s === "failed") {
-          void logSelectedPair(pc, `${role} (failed)`);
-        }
-    };
-    pc.onconnectionstatechange = () => console.log(`[webrtc] ${role} conn:`, pc.connectionState);
-    pc.onicecandidate = (e) => {
-      if (e.candidate) console.log(`[webrtc] ${role} local cand:`, e.candidate.candidate);
+  const config = rtcConfig(forceRelay);
+  console.log(`🔧 [${role}] Creating PeerConnection with config:`, JSON.stringify(config, null, 2));
+  
+  const pc = new RTCPeerConnection(config);
+  
+  console.log(`✅ [${role}] PeerConnection created, iceGatheringState:`, pc.iceGatheringState);
+  
+  pc.onicegatheringstatechange = () => {
+      console.log(`🔄 [webrtc] ${role} gathering:`, pc.iceGatheringState);
   };
+  
+  pc.oniceconnectionstatechange = () => {
+      const s = pc.iceConnectionState;
+      console.log(`🔌 [webrtc] ${role} ice:`, s);
+      if (s === "connected" || s === "completed") {
+        void logSelectedPair(pc, role);
+      } else if (s === "failed") {
+        void logSelectedPair(pc, `${role} (failed)`);
+      }
+  };
+  
+  pc.onconnectionstatechange = () => {
+      console.log(`⚡ [webrtc] ${role} conn:`, pc.connectionState);
+  };
+  
+  pc.onicecandidate = (e) => {
+      if (e.candidate) {
+          console.log(`🧊 [${role}] ICE candidate generated:`, {
+              type: e.candidate.type,
+              protocol: e.candidate.protocol,
+              address: e.candidate.address,
+              port: e.candidate.port,
+              candidate: e.candidate.candidate.substring(0, 80)
+          });
+      } else {
+          console.log(`✅ [${role}] ICE gathering complete (null candidate)`);
+      }
+  };
+  
   return pc;
 }
 
@@ -385,33 +415,10 @@ export async function startHost(
   if (!pc) pc = await buildPeer("host", opts?.forceRelay ?? FORCE_RELAY);
   if (!pc) throw new Error("Failed to create RTCPeerConnection");
   
-    // Host-side one-shot retry hook: on ICE failure, re-start with relay if TURN is configured
-    let retried = false;
-    const hostPc = getPc();
-    const prior = hostPc.oniceconnectionstatechange as ((this: RTCPeerConnection, ev: Event) => any) | null;
-    hostPc.oniceconnectionstatechange = async (ev?: Event) => {
-    try { prior?.call(hostPc, ev ?? new Event("iceconnectionstatechange")); } catch {}
-    if (hostPc.iceConnectionState === "failed" && !retried) {
-        retried = true;
-        await logSelectedPair(hostPc, "host (failed)");
-        if (HAS_TURN) {
-        await restartIceWithPolicy(
-            "relay",
-            "host",
-            async () => {
-            // re-launch host with relay forced
-            await startHost(sessionId, { ...(opts || {}), forceRelay: true });
-            }
-        );
-        } else {
-        console.warn("[webrtc] skipping relay restart: no TURN configured");
-        }
-    }
-    };
-  
   startingHost = true;
   const tag = Date.now();
-  const hostPc2 = getPc();
+  const hostPc = getPc();
+  
   try {
     // --- Decide initial video: screen if provided/required, else loading slate ---
     let screenTrack: MediaStreamTrack | null = null;
@@ -426,7 +433,7 @@ export async function startHost(
       }
     }
 
-    const vSender = (videoSender = ensureVideoSender(hostPc2, videoSender));
+    const vSender = (videoSender = ensureVideoSender(hostPc, videoSender));
     if (screenTrack) {
       try { (screenTrack as any).contentHint = "detail"; } catch {}
       await vSender.replaceTrack(screenTrack);
@@ -457,21 +464,30 @@ export async function startHost(
         micStream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
         throw new Error("No audio track from microphone");
       }
-      const aSender = (audioSender = ensureAudioSender(hostPc2, audioSender));
+      const aSender = (audioSender = ensureAudioSender(hostPc, audioSender));
       await aSender.replaceTrack(micTrack);
     }
     
-
     // ---- Firestore signaling ----
     const offersDoc = doc(db, "sessions", sessionId, "offers", "latest");
-    const answersCol = collection(db, "sessions", sessionId, "answers");
     const candHostCol = collection(db, "sessions", sessionId, "candidates_host");
     const candViewerCol = collection(db, "sessions", sessionId, "candidates_viewer");
 
-    hostPc2.onicecandidate = async (e) => {
-      if (!e.candidate) return;
+    hostPc.onicecandidate = async (e) => {
+      console.log("🧊 [HOST] ICE candidate event fired, candidate:", e.candidate ? "YES" : "null (gathering complete)");
+      
+      if (!e.candidate) {
+        console.log("✅ [HOST] ICE gathering complete");
+        return;
+      }
+      
       try {
-        const myUfrag = getUfrag(hostPc2.localDescription);
+        const myUfrag = getUfrag(hostPc.localDescription);
+        console.log("📤 [HOST] Writing ICE candidate to Firestore...", { 
+          candidate: e.candidate.candidate.substring(0, 50),
+          type: e.candidate.type 
+        });
+        
         await addDoc(candHostCol, {
           candidate: e.candidate.toJSON(),
           at: Date.now(),
@@ -479,18 +495,19 @@ export async function startHost(
           tag,
           ufrag: myUfrag,
         });
+        
+        console.log("✅ [HOST] ICE candidate written successfully");
       } catch (err) {
-        console.error("[host] FAILED to write ICE candidate", err);
+        console.error("💥 [HOST] FAILED to write ICE candidate:", err);
       }
     };
 
-    const offer = await hostPc2.createOffer();
-    await hostPc2.setLocalDescription(offer);
+    const offer = await hostPc.createOffer();
+    await hostPc.setLocalDescription(offer);
     await setDoc(offersDoc, { type: "offer", sdp: offer.sdp, at: tag, tag });
 
-
-    console.log("[host] mids:", hostPc2.getTransceivers().map((t) => t.mid));
-    console.log("[host] SRD set?", !!hostPc2.remoteDescription);
+    console.log("[host] mids:", hostPc.getTransceivers().map((t) => t.mid));
+    console.log("[host] SRD set?", !!hostPc.remoteDescription);
 
     // Buffer viewer ICE until SRD applied
     pendingViewerCandidates = [];
@@ -501,25 +518,23 @@ export async function startHost(
         for (const ch of snap.docChanges()) {
           if (ch.type !== "added") continue;
           const data = ch.doc.data() as any;
-          const dbg = data.candidate as RTCIceCandidateInit;
-          console.log("[host] incoming viewer cand:", { mid: dbg?.sdpMid, idx: dbg?.sdpMLineIndex });
           if (data?.tag !== tag || !data?.candidate) continue;
 
           const cand: RTCIceCandidateInit = data.candidate;
-          if (!hostPc2.remoteDescription) {
+          if (!hostPc.remoteDescription) {
             const c: any = { ...cand };
             (c as any).ufrag = (data && typeof data.ufrag === "string") ? data.ufrag : undefined;
             pendingViewerCandidates.push(c);
             continue;
           }
-          const expectedUfrag = getUfrag(hostPc2.remoteDescription ?? null);
+          const expectedUfrag = getUfrag(hostPc.remoteDescription ?? null);
           const candUfrag = (data && typeof data.ufrag === "string") ? data.ufrag : undefined;
           if (expectedUfrag && candUfrag && candUfrag !== expectedUfrag) {
             console.warn("[host] skipping viewer cand due to ufrag mismatch", { candUfrag, expectedUfrag });
             continue;
           }
           try {
-            await safeAddIceCandidate(hostPc2, cand);
+            await safeAddIceCandidate(hostPc, cand);
           } catch (err) {
             console.warn("[host] addIceCandidate(viewer) failed", err);
           }
@@ -531,54 +546,81 @@ export async function startHost(
     const answersDoc = doc(db, "sessions", sessionId, "answers", "latest");
 
     if (unsubViewerAnswers) { unsubViewerAnswers(); unsubViewerAnswers = null; }
+    console.log("🎯 [HOST] Setting up answer listener at:", `sessions/${sessionId}/answers/latest`);
+
     unsubViewerAnswers = onSnapshot(
       answersDoc,
       async (snap) => {
+        console.log("📨 [HOST] Answer snapshot triggered, exists:", snap.exists());
+        
+        if (!snap.exists()) {
+          console.log("⚠️ [HOST] Answer doc doesn't exist yet");
+          return;
+        }
+        
         const data = snap.data() as any;
-        if (!data?.sdp) return;
+        console.log("📦 [HOST] Answer data received:", data ? JSON.stringify(data).substring(0, 200) : "null");
+        
+        if (!data?.sdp) {
+          console.log("❌ [HOST] No SDP field in answer document");
+          return;
+        }
+
+        if (hostPc.signalingState !== "have-local-offer") {
+          console.log(`⚠️ [HOST] Wrong signaling state: ${hostPc.signalingState}, expected 'have-local-offer'`);
+          return;
+        }
 
         try {
-          if (hostPc2.signalingState === "have-local-offer") {
-            await hostPc2.setRemoteDescription(
-              new RTCSessionDescription({ type: "answer", sdp: data.sdp })
-            );
+          console.log("✅ [HOST] Calling setRemoteDescription with answer...");
+          await hostPc.setRemoteDescription(
+            new RTCSessionDescription({ type: "answer", sdp: data.sdp })
+          );
+          console.log("🎉 [HOST] SRD SUCCESS! Remote description is set!");
+          console.log("🔌 [HOST] ICE connection state:", hostPc.iceConnectionState);
 
-            // Drain any queued ICE we buffered pre-SRD
-            const expectedUfrag = getUfrag(hostPc2.remoteDescription ?? null);
-            for (const queued of pendingViewerCandidates) {
-              const queuedUfrag = (queued as any).ufrag as string | undefined;
-              if (expectedUfrag && queuedUfrag && queuedUfrag !== expectedUfrag) {
-                console.warn("[host] skipping queued viewer cand due to ufrag mismatch", { queuedUfrag, expectedUfrag });
-                continue;
-              }
-              try { await safeAddIceCandidate(hostPc2, queued); }
-              catch (err) { console.warn("[host] safeAddIceCandidate(queued) failed", err, queued); }
+          // Drain any queued ICE we buffered pre-SRD
+          const expectedUfrag = getUfrag(hostPc.remoteDescription ?? null);
+          for (const queued of pendingViewerCandidates) {
+            const queuedUfrag = (queued as any).ufrag as string | undefined;
+            if (expectedUfrag && queuedUfrag && queuedUfrag !== expectedUfrag) {
+              console.warn("[host] skipping queued viewer cand due to ufrag mismatch", { queuedUfrag, expectedUfrag });
+              continue;
             }
-            pendingViewerCandidates = [];
+            try { await safeAddIceCandidate(hostPc, queued); }
+            catch (err) { console.warn("[host] safeAddIceCandidate(queued) failed", err, queued); }
           }
+          pendingViewerCandidates = [];
         } catch (err) {
-          console.warn("[host] setRemoteDescription(answer) failed", err);
+          console.error("💥 [HOST] setRemoteDescription(answer) failed:", err);
         }
       },
-      (err) => console.warn("[host] answers onSnapshot error:", err)
+      (err) => {
+        console.error("🔥 [HOST] Answer listener error:", err);
+      }
     );
 
-    // (Optional) keep your 4s fallback, but read the single doc:
+    // Fallback fetch if snapshot listener hasn't fired
     setTimeout(async () => {
-      if (!hostPc2.remoteDescription) {
-        console.warn("[host] SRD still not set ~4s after offer. Trying fallback fetch of answers/latest…");
+      if (!hostPc.remoteDescription) {
+        console.warn("⏰ [HOST] SRD still not set ~4s after offer. Trying fallback fetch...");
         try {
           const snap = await getDoc(answersDoc);
+          console.log("📋 [HOST] Fallback fetch result, exists:", snap.exists());
+          
           const data = snap.data() as any;
-          if (data?.sdp && hostPc2.signalingState === "have-local-offer") {
-            await hostPc2.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: data.sdp }));
-            console.log("[host] SRD set via fallback fetch answers/latest");
+          if (data?.sdp && hostPc.signalingState === "have-local-offer") {
+            console.log("✅ [HOST] Fallback found answer, applying...");
+            await hostPc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: data.sdp }));
+            console.log("🎉 [HOST] SRD set via fallback fetch!");
           } else {
-            console.warn("[host] Fallback fetch found no answer yet.");
+            console.warn("❌ [HOST] Fallback fetch found no valid answer");
           }
         } catch (err) {
-          console.warn("[host] Fallback getDoc(answers/latest) error", err);
+          console.error("💥 [HOST] Fallback fetch error:", err);
         }
+      } else {
+        console.log("✅ [HOST] SRD already set, fallback not needed");
       }
     }, 4000);
 
@@ -591,7 +633,6 @@ export async function startHost(
 
 /* ---------------- Viewer side ---------------- */
 
-  
 export async function startViewer(
   sessionId: string,
   onStream: (stream: MediaStream) => void
@@ -618,15 +659,30 @@ export async function startViewer(
   if (hasAudio) viewerPc.addTransceiver("audio", { direction: "recvonly" });
 
   viewerPc.onicecandidate = async (e) => {
-    if (!e.candidate) return;
+    console.log("🧊 [VIEWER] ICE candidate event fired, candidate:", e.candidate ? "YES" : "null (gathering complete)");
+    
+    if (!e.candidate) {
+      console.log("✅ [VIEWER] ICE gathering complete");
+      return;
+    }
+    
     const myUfrag = getUfrag(viewerPc.localDescription ?? null);
+    console.log("📤 [VIEWER] Writing ICE candidate to Firestore...", {
+      candidate: e.candidate.candidate.substring(0, 50),
+      type: e.candidate.type
+    });
+    
     await addDoc(candViewerCol, {
       candidate: e.candidate.toJSON(),
       at: Date.now(),
       from: "viewer",
       tag,
       ufrag: myUfrag,
-    }).catch((err) => console.error("[viewer] FAILED to write ICE candidate", err));
+    }).catch((err) => {
+      console.error("💥 [VIEWER] FAILED to write ICE candidate:", err);
+    });
+    
+    console.log("✅ [VIEWER] ICE candidate written successfully");
   };
 
   const viewerStream = new MediaStream();
@@ -654,38 +710,81 @@ export async function startViewer(
     console.log("[viewer] ontrack fired; stream tracks:", viewerStream.getTracks().map((t) => t.kind));
   };
 
+  console.log("🎬 [VIEWER] Creating answer...");
   const answer = await viewerPc.createAnswer();
+  console.log("✅ [VIEWER] Answer created, setting as local description...");
+  
   await viewerPc.setLocalDescription(answer);
+  console.log("✅ [VIEWER] setLocalDescription complete");
+  console.log("🔍 [VIEWER] ICE gathering state:", viewerPc.iceGatheringState);
+  console.log("🔍 [VIEWER] Signaling state:", viewerPc.signalingState);
+
+  // Wait for ICE gathering to start (Firefox sometimes delays)
+  if (viewerPc.iceGatheringState === "new") {
+    console.log("⏳ [VIEWER] ICE gathering hasn't started yet, waiting up to 2s...");
+    
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => {
+        console.warn("⚠️ [VIEWER] ICE gathering still 'new' after 2s");
+        resolve();
+      }, 2000);
+      
+      const checkState = () => {
+        console.log("🔄 [VIEWER] ICE gathering state changed to:", viewerPc.iceGatheringState);
+        if (viewerPc.iceGatheringState !== "new") {
+          clearTimeout(timeout);
+          viewerPc.removeEventListener("icegatheringstatechange", checkState);
+          resolve();
+        }
+      };
+      
+      viewerPc.addEventListener("icegatheringstatechange", checkState);
+      
+      // Check immediately in case it already changed
+      if (viewerPc.iceGatheringState !== "new") {
+        clearTimeout(timeout);
+        resolve();
+      }
+    });
+  }
+
+  console.log("🔍 [VIEWER] Final ICE gathering state:", viewerPc.iceGatheringState);
 
   try {
-    // publish deterministic doc so host listener is trivial/reliable
     const answersDoc = doc(db, "sessions", sessionId, "answers", "latest");
+    console.log("📤 [VIEWER] About to publish answer to:", `sessions/${sessionId}/answers/latest`);
+    console.log("📤 [VIEWER] Answer SDP preview:", answer.sdp?.substring(0, 100));
+    
     const answerKey = sessionId;
     if (!publishedAnswersFor.has(answerKey)) {
       await setDoc(answersDoc, { type: "answer", sdp: answer.sdp, at: Date.now(), tag }, { merge: true });
       publishedAnswersFor.add(answerKey);
-      console.log("[viewer] published answer at answers/latest", { sessionId, tag });
+      console.log("✅ [VIEWER] Answer published successfully!", { sessionId, tag });
     } else {
-      console.log("[viewer] skipped duplicate answer publish", { sessionId });
+      console.log("⚠️ [VIEWER] Skipped duplicate answer publish", { sessionId });
     }
   } catch (e) {
-    console.error("[viewer] FAILED to publish answer doc", e, { path: `sessions/${sessionId}/answers`, tag });
+    console.error("💥 [VIEWER] FAILED to publish answer doc:", e);
   }
 
   let unsubHostCand: (() => void) | undefined;
   unsubHostCand = onSnapshot(
     candHostCol,
     async (snap) => {
+      console.log("📥 [VIEWER] Received host candidates snapshot, docChanges:", snap.docChanges().length);
       for (const ch of snap.docChanges()) {
         if (ch.type !== "added") continue;
         const data = ch.doc.data() as any;
         if (!data?.candidate) continue;
         if (data?.tag !== tag) continue;
         if (remoteUfrag && data?.ufrag && data.ufrag !== remoteUfrag) continue;
+        
+        console.log("🧊 [VIEWER] Adding host candidate:", data.candidate.candidate?.substring(0, 60));
         try {
           await viewerPc.addIceCandidate(new RTCIceCandidate(data.candidate));
+          console.log("✅ [VIEWER] Host candidate added successfully");
         } catch (err) {
-          console.warn("[viewer] addIceCandidate(host) failed", err);
+          console.warn("❌ [VIEWER] addIceCandidate(host) failed", err);
         }
       }
     },
@@ -700,30 +799,3 @@ export async function startViewer(
     },
   };
 }
-
-
-// Replace restartIceWithPolicy with a version that actually restarts the host/viewer
-async function restartIceWithPolicy(
-    nextPolicy: "all" | "relay",
-    role: "host" | "viewer",
-    relaunch?: () => Promise<void>
-  ): Promise<void> {
-    if (startingHost) {
-      console.warn("[webrtc] restart requested during start; ignoring to avoid races");
-      return;
-    }
-    if (!pc) {
-      console.warn("[webrtc] restart requested but no active RTCPeerConnection");
-      if (relaunch) await relaunch();
-      return;
-    }
-    try { pc.close(); } catch {}
-    pc = null;
-    videoSender = null;
-    audioSender = null;
-  
-    console.warn(`[webrtc] restarting with iceTransportPolicy='${nextPolicy}' for ${role}`);
-    if (relaunch) {
-      await relaunch(); // caller provides how to relaunch (e.g., startHost with forceRelay)
-    }
-  }

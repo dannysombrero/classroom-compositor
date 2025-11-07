@@ -6,10 +6,11 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:5001/classcast-app/us-central1",
+        target: "http://127.0.0.1:5001/classcast-app/us-central1/appApi",
         changeOrigin: true,
-        rewrite: p => p.replace(/^\/api/, "/appApi"),
+        rewrite: (path) => path.replace(/^\/api/, ''),
       },
     },
   },
 });
+
