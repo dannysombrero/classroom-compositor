@@ -18,7 +18,7 @@ export const db = getFirestore(app);
 // Connect to emulator in dev mode
 if (import.meta.env.DEV) {
   try {
-    connectFirestoreEmulator(db, "127.0.0.1", 8080);
+    // connectFirestoreEmulator(db, "127.0.0.1", 8080);
     console.log("🔧 [firebase] Connected to Firestore Emulator at localhost:8080");
   } catch (err: any) {
     if (err.code === 'failed-precondition') {
