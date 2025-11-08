@@ -51,6 +51,7 @@ import { tinykeys } from "tinykeys";
 import type { KeyBindingMap } from "tinykeys";
 import { useBackgroundEffectTrack } from "../hooks/useBackgroundEffectTrack";
 import { useVideoEffectsStore } from "../stores/videoEffects";
+import { replaceHostVideoTrack } from '../utils/webrtc';
 
 const EMPTY_LAYERS: Layer[] = [];
 const LAYERS_PANEL_WIDTH = 280;
@@ -416,6 +417,10 @@ function PresenterPage() {
         enabled: track.enabled,
         settings: track.getSettings?.() ?? null,
       });
+      setTimeout(() => {
+        replaceHostVideoTrack(track);
+        console.log("✅ [PRESENTER] Canvas track sent to WebRTC");
+      }, 100);
     }
 
     setCurrentStream(stream);

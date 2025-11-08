@@ -77,20 +77,33 @@ function ensureVideoSender(pc: RTCPeerConnection, sender: RTCRtpSender | null): 
  * Or use the fire-and-forget helper:
  *   setHostVideoTrack(track)
  */
-export async function replaceHostVideoTrack(track: MediaStreamTrack | null): Promise<void> {
-  if (!pc) throw new Error("PeerConnection not initialized");
-  const p = pc as RTCPeerConnection;
-  const sender = (videoSender = ensureVideoSender(p, videoSender));
-  await sender.replaceTrack(track);
+export async function replaceHostVideoTrack(newTrack: MediaStreamTrack | null) {
+  if (!pc) {
+    console.warn("[replaceHostVideoTrack] PeerConnection not initialized; skipping video swap until Go Live.");
+    return;
+  }
+  
+  const hostPc = pc;
+  const vSender = (videoSender = ensureVideoSender(hostPc, videoSender));
+  
+  try {
+    console.log("🎥 [HOST] Replacing video track with:", newTrack ? "canvas track" : "null");
+    await vSender.replaceTrack(newTrack);
+    console.log("✅ [HOST] Video track replaced successfully");
+  } catch (err) {
+    console.error("💥 [HOST] Failed to replace video track:", err);
+  }
 }
 
 /**
  * Swap the host AUDIO track without renegotiation. Accepts `null` to detach.
  */
 export async function replaceHostAudioTrack(track: MediaStreamTrack | null): Promise<void> {
-  if (!pc) throw new Error("PeerConnection not initialized");
-  const p = pc as RTCPeerConnection;
-  const sender = (audioSender = ensureAudioSender(p, audioSender));
+  if (!pc) {
+    console.warn("[replaceHostAudioTrack] PeerConnection not initialized; skipping audio swap until Go Live.");
+    return;
+  }
+  const sender = (audioSender = ensureAudioSender(pc, audioSender));
   await sender.replaceTrack(track);
 }
 

@@ -9,6 +9,8 @@ import "./global.css";
 import PresenterPage from "./pages/PresenterPage";
 import JoinPage from "./pages/JoinPage";
 import ViewerPage from "./pages/ViewerPage";
+import { ViewerHostPage } from "./pages/ViewerHostPage";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 
 function RouteError() {
   return (
@@ -23,10 +25,19 @@ const router = createBrowserRouter([
   { path: "/", element: <PresenterPage />, errorElement: <RouteError /> },
   { path: "/join", element: <JoinPage />, errorElement: <RouteError /> },
   { path: "/view/:sessionId", element: <ViewerPage />, errorElement: <RouteError /> },
+  { path: "/viewer", element: <ViewerHostPage />, errorElement: <RouteError /> },
 ]);
+
+const isStandaloneViewer = window.location.pathname === "/viewer";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <RouterProvider router={router} />
+    {isStandaloneViewer ? (
+      <ErrorBoundary>
+        <ViewerHostPage />
+      </ErrorBoundary>
+    ) : (
+      <RouterProvider router={router} />
+    )}
   </React.StrictMode>
 );
