@@ -36,7 +36,7 @@ app.post("/sessions", (req, res) => {
 });
 
 // Resolve: GET /codes/:code  ← this is the “codes” route
-app.get("/codes/:code", (req, res) => {
+app.get("/joinCodes/:code", (req, res) => {
   const key = req.params.code.replace(/-/g, "");
   const sessionId = codeToSession.get(key);
   if (!sessionId) return res.status(404).json({ error: "invalid_code" });

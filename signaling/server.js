@@ -43,7 +43,7 @@ app.post("/sessions", (req, res) => {
   res.json({ id, hostId, createdAt: Date.now(), active: true, code });
 });
 
-app.get("/codes/:code", (req, res) => {
+app.get("/joinCodes/:code", (req, res) => {
   const key = req.params.code.toUpperCase().replace(/-/g, "");
   const sessionId = codeToSession.get(key);
   if (!sessionId) return res.status(404).json({ error: "invalid_code" });

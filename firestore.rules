@@ -1,8 +1,35 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
+    
+    // Join codes collection (note: "joinCodes" to match your code)
+    match /joinCodes/{codeId} {
       allow read, write: if true;
+    }
+    
+    // Sessions
+    match /sessions/{sessionId} {
+      allow read, write: if true;
+      
+      // Offers
+      match /offers/{offerId} {
+        allow read, write: if true;
+      }
+      
+      // Answers
+      match /answers/{answerId} {
+        allow read, write: if true;
+      }
+      
+      // Host ICE candidates
+      match /candidates_host/{candidateId} {
+        allow read, write: if true;
+      }
+      
+      // Viewer ICE candidates
+      match /candidates_viewer/{candidateId} {
+        allow read, write: if true;
+      }
     }
   }
 }

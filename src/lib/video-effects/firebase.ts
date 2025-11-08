@@ -1,15 +1,19 @@
 import { initializeApp } from "firebase/app";
 import {
   getFirestore,
-  // connectFirestoreEmulator,
+  connectFirestoreEmulator,
   doc,
   setDoc,
   getDoc,
+  getDocs, 
+  query,
+  where,
   onSnapshot,
   collection,
   addDoc,
   deleteDoc,
 } from "firebase/firestore";
+
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
 
 // ---- Firebase Config (Vite env) ----
@@ -33,9 +37,13 @@ const app = initializeApp(firebaseConfig);
 // ---- Firestore ----
 export const db = getFirestore(app);
 
-// For local emulator testing, if needed:
-// connectFirestoreEmulator(db, "127.0.0.1", 8080);
 
+if (location.hostname === "localhost") {
+  console.info("🔧 [firebase] Connecting to Firestore Emulator at localhost:8080");
+  connectFirestoreEmulator(db, "localhost", 8080);
+} else {
+  console.info("[firebase] Using production Firestore");
+}
 // ---- Auth (anonymous) ----
 // Guarded so missing/invalid API keys don't crash dev.
 let _auth: ReturnType<typeof getAuth> | null = null;

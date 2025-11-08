@@ -12,7 +12,7 @@ export default function JoinPage() {
 
   // If you share links like /join?code=ABC-123, prefill:
   useEffect(() => {
-    const q = (search.get("code") || "").toUpperCase().replace(/\W/g, "");
+    const q = (search.get("joinCodes") || "").toUpperCase().replace(/\W/g, "");
     if (q) setCode(pretty(q));
     inputRef.current?.focus();
   }, [search]);
@@ -32,7 +32,7 @@ export default function JoinPage() {
     console.log("[join] looking up code doc:", id);
 
     try {
-      const ref = doc(db, "codes", id);
+      const ref = doc(db, "joinCodes", id);
       const snap = await getDoc(ref);
       if (!snap.exists()) {
         console.warn("[join] code not found");
