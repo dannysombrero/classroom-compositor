@@ -12,7 +12,7 @@ export default function JoinPage() {
 
   // If you share links like /join?code=ABC-123, prefill:
   useEffect(() => {
-    const q = (search.get("code") || "").toUpperCase().replace(/\W/g, "");
+    const q = (search.get("joinCodes") || "").toUpperCase().replace(/\W/g, "");
     if (q) setCode(pretty(q));
     inputRef.current?.focus();
   }, [search]);
