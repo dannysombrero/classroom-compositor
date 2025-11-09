@@ -431,12 +431,14 @@ export async function startHost(
   startingHost = true;
   const tag = Date.now();
   const hostPc = getPc();
-  
+
   try {
     // --- Decide initial video: screen if provided/required, else loading slate ---
     let screenTrack: MediaStreamTrack | null = null;
+    
     if (opts?.displayStream) {
       screenTrack = opts.displayStream.getVideoTracks()[0] ?? null;
+      console.log("📹 [startHost] Using provided displayStream, track:", screenTrack ? "YES" : "NO");
     } else if (opts?.requireDisplay) {
       const displayStream = await (navigator.mediaDevices as any).getDisplayMedia({ video: true, audio: false });
       screenTrack = displayStream.getVideoTracks()[0] ?? null;
@@ -444,12 +446,24 @@ export async function startHost(
         displayStream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
         throw new Error("No video track from display capture");
       }
+      console.log("📹 [startHost] Captured display via getDisplayMedia");
     }
-
+    
     const vSender = (videoSender = ensureVideoSender(hostPc, videoSender));
+    
     if (screenTrack) {
       try { (screenTrack as any).contentHint = "detail"; } catch {}
       await vSender.replaceTrack(screenTrack);
+      
+      // ✅ Debug: Confirm track was added
+      console.log("✅ [startHost] Canvas track added to sender:", {
+        trackId: screenTrack.id,
+        readyState: screenTrack.readyState,
+        enabled: screenTrack.enabled,
+        muted: screenTrack.muted,
+        label: screenTrack.label
+      });
+      
       if (screenTrack.muted) {
         const onUnmute = async () => {
           screenTrack!.removeEventListener("unmute", onUnmute);
@@ -457,6 +471,7 @@ export async function startHost(
         };
         screenTrack.addEventListener("unmute", onUnmute, { once: true });
       }
+      
       screenTrack.onended = async () => {
         try {
           const placeholder = createLoadingSlateTrack(opts?.loadingText ?? "Waiting for presenter…");
@@ -466,6 +481,9 @@ export async function startHost(
     } else {
       const placeholder = createLoadingSlateTrack(opts?.loadingText ?? "Waiting for presenter…");
       await vSender.replaceTrack(placeholder);
+      
+      // ⚠️ Debug: No real track provided
+      console.log("⚠️ [startHost] Using placeholder track (no displayStream provided)");
     }
 
     // Optional audio
@@ -516,6 +534,18 @@ export async function startHost(
     };
 
     const offer = await hostPc.createOffer();
+    
+    console.log("📝 [HOST] Offer SDP contains video?", offer.sdp?.includes("m=video"));
+    console.log("📝 [HOST] Offer SDP preview:", offer.sdp?.substring(0, 200));
+    const senders = hostPc.getSenders();
+    const videoSenderObj = senders.find(s => s.track?.kind === "video");
+    console.log("📹 [HOST] Video sender at offer time:", {
+      hasSender: !!videoSenderObj,
+      hasTrack: !!videoSenderObj?.track,
+      trackId: videoSenderObj?.track?.id,
+      trackReadyState: videoSenderObj?.track?.readyState
+    });
+    
     await hostPc.setLocalDescription(offer);
     await setDoc(offersDoc, { type: "offer", sdp: offer.sdp, at: tag, tag });
 
@@ -542,6 +572,7 @@ export async function startHost(
           }
           const expectedUfrag = getUfrag(hostPc.remoteDescription ?? null);
           const candUfrag = (data && typeof data.ufrag === "string") ? data.ufrag : undefined;
+          // Only enforce when BOTH are present; otherwise accept (Firefox may omit)
           if (expectedUfrag && candUfrag && candUfrag !== expectedUfrag) {
             console.warn("[host] skipping viewer cand due to ufrag mismatch", { candUfrag, expectedUfrag });
             continue;
@@ -565,48 +596,54 @@ export async function startHost(
       answersDoc,
       async (snap) => {
         console.log("📨 [HOST] Answer snapshot triggered, exists:", snap.exists());
-        
+
         if (!snap.exists()) {
           console.log("⚠️ [HOST] Answer doc doesn't exist yet");
           return;
         }
-        
+
         const data = snap.data() as any;
         console.log("📦 [HOST] Answer data received:", data ? JSON.stringify(data).substring(0, 200) : "null");
-        
+
         if (!data?.sdp) {
           console.log("❌ [HOST] No SDP field in answer document");
           return;
         }
 
-        if (hostPc.signalingState !== "have-local-offer") {
-          console.log(`⚠️ [HOST] Wrong signaling state: ${hostPc.signalingState}, expected 'have-local-offer'`);
-          return;
-        }
+        const canApplySRD =
+          hostPc.signalingState === "have-local-offer" && !hostPc.remoteDescription;
 
-        try {
+        if (canApplySRD) {
           console.log("✅ [HOST] Calling setRemoteDescription with answer...");
-          await hostPc.setRemoteDescription(
-            new RTCSessionDescription({ type: "answer", sdp: data.sdp })
-          );
-          console.log("🎉 [HOST] SRD SUCCESS! Remote description is set!");
-          console.log("🔌 [HOST] ICE connection state:", hostPc.iceConnectionState);
-
-          // Drain any queued ICE we buffered pre-SRD
-          const expectedUfrag = getUfrag(hostPc.remoteDescription ?? null);
-          for (const queued of pendingViewerCandidates) {
-            const queuedUfrag = (queued as any).ufrag as string | undefined;
-            if (expectedUfrag && queuedUfrag && queuedUfrag !== expectedUfrag) {
-              console.warn("[host] skipping queued viewer cand due to ufrag mismatch", { queuedUfrag, expectedUfrag });
-              continue;
-            }
-            try { await safeAddIceCandidate(hostPc, queued); }
-            catch (err) { console.warn("[host] safeAddIceCandidate(queued) failed", err, queued); }
+          try {
+            await hostPc.setRemoteDescription(
+              new RTCSessionDescription({ type: "answer", sdp: data.sdp })
+            );
+            console.log("🎉 [HOST] SRD SUCCESS! Remote description is set!");
+            console.log("🔌 [HOST] ICE connection state:", hostPc.iceConnectionState);
+          } catch (err) {
+            console.error("💥 [HOST] setRemoteDescription(answer) failed:", err);
+            return;
           }
-          pendingViewerCandidates = [];
-        } catch (err) {
-          console.error("💥 [HOST] setRemoteDescription(answer) failed:", err);
+        } else {
+          // If we're already stable with a remote description, don't try to SRD again —
+          // but DO proceed to drain any queued viewer candidates.
+          console.log("ℹ️ [HOST] Skipping SRD. State:", hostPc.signalingState, "hasRemote:", !!hostPc.remoteDescription);
         }
+
+        // Drain any queued ICE we buffered pre-SRD (also runs when already stable)
+        const expectedUfrag =
+          getUfrag(hostPc.remoteDescription ?? ({ sdp: data.sdp } as any));
+        for (const queued of pendingViewerCandidates) {
+          const queuedUfrag = (queued as any).ufrag as string | undefined;
+          if (expectedUfrag && queuedUfrag && queuedUfrag !== expectedUfrag) {
+            console.warn("[host] skipping queued viewer cand due to ufrag mismatch", { queuedUfrag, expectedUfrag });
+            continue;
+          }
+          try { await safeAddIceCandidate(hostPc, queued); }
+          catch (err) { console.warn("[host] safeAddIceCandidate(queued) failed", err, queued); }
+        }
+        pendingViewerCandidates = [];
       },
       (err) => {
         console.error("🔥 [HOST] Answer listener error:", err);
@@ -662,44 +699,25 @@ export async function startViewer(
   const candHostCol = collection(db, "sessions", sessionId, "candidates_host");
   const candViewerCol = collection(db, "sessions", sessionId, "candidates_viewer");
 
-  await viewerPc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: offerData.sdp }));
-  const remoteUfrag = getUfrag(viewerPc.remoteDescription);
+  // --- Prepare to receive before SRD (fixes flaky ontrack/black video in some browsers) ---
+  const offerSdpText = offerData.sdp as string;
+  const offerHasAudio = sdpHasMediaKind(offerSdpText, "audio");
 
-  // Always be ready to receive video; add audio if present in offer
-  const offerSdp = viewerPc.remoteDescription?.sdp ?? undefined;
-  const hasAudio = sdpHasMediaKind(offerSdp, "audio");
+  // Pre-declare recv-only transceivers BEFORE SRD
   viewerPc.addTransceiver("video", { direction: "recvonly" });
-  if (hasAudio) viewerPc.addTransceiver("audio", { direction: "recvonly" });
+  if (offerHasAudio) viewerPc.addTransceiver("audio", { direction: "recvonly" });
 
-  viewerPc.onicecandidate = async (e) => {
-    console.log("🧊 [VIEWER] ICE candidate event fired, candidate:", e.candidate ? "YES" : "null (gathering complete)");
-    
-    if (!e.candidate) {
-      console.log("✅ [VIEWER] ICE gathering complete");
-      return;
-    }
-    
-    const myUfrag = getUfrag(viewerPc.localDescription ?? null);
-    console.log("📤 [VIEWER] Writing ICE candidate to Firestore...", {
-      candidate: e.candidate.candidate.substring(0, 50),
-      type: e.candidate.type
-    });
-    
-    await addDoc(candViewerCol, {
-      candidate: e.candidate.toJSON(),
-      at: Date.now(),
-      from: "viewer",
-      tag,
-      ufrag: myUfrag,
-    }).catch((err) => {
-      console.error("💥 [VIEWER] FAILED to write ICE candidate:", err);
-    });
-    
-    console.log("✅ [VIEWER] ICE candidate written successfully");
-  };
-
+  // Set up ontrack BEFORE SRD so first frames aren't missed
   const viewerStream = new MediaStream();
   viewerPc.ontrack = (ev) => {
+    console.log("🎥 [VIEWER] ontrack event fired!", {
+      kind: ev.track.kind,
+      id: ev.track.id,
+      readyState: ev.track.readyState,
+      muted: ev.track.muted,
+      streams: ev.streams?.length || 0
+    });
+
     const track = ev.track;
     const inbound = ev.streams?.[0] ?? new MediaStream([track]);
 
@@ -722,6 +740,10 @@ export async function startViewer(
     onStream(viewerStream);
     console.log("[viewer] ontrack fired; stream tracks:", viewerStream.getTracks().map((t) => t.kind));
   };
+
+  // Now apply the remote offer
+  await viewerPc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: offerData.sdp }));
+  const remoteUfrag = getUfrag(viewerPc.remoteDescription);
 
   console.log("🎬 [VIEWER] Creating answer...");
   const answer = await viewerPc.createAnswer();

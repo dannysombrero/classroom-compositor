@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { startViewer } from "../utils/webrtc";
+import { attachStreamToVideo } from "../utils/webrtc";
+
 
 export default function ViewerPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -22,19 +24,27 @@ export default function ViewerPage() {
     }
   };
 
-  const attachStreamAndAutoplay = (stream: MediaStream) => {
+  const attachStreamAndAutoplay = async (stream: MediaStream) => {
     const v = videoRef.current!;
-    if (v.srcObject !== stream) v.srcObject = stream;
+    // Use shared helper to attach and handle ready/play plumbing
+    try {
+      await attachStreamToVideo(v, stream);
+    } catch (e) {
+      console.warn("[VIEWER] attachStreamToVideo failed, falling back", e);
+      if (v.srcObject !== stream) v.srcObject = stream;
+    }
+
+    // Ensure attributes for mobile autoplay policies
     v.muted = true;
     v.playsInline = true;
 
     if (stream.getTracks().length > 0) setConnecting(false);
 
-    if (userTapRef.current) {
-      tryPlay();
-      return;
+    // Best-effort autoplay (some browsers still require a tap)
+    const p = v.play?.();
+    if (p && typeof p.then === "function") {
+      p.then(() => setNeedsTap(false)).catch(() => setNeedsTap(true));
     }
-    tryPlay();
   };
 
   useEffect(() => {

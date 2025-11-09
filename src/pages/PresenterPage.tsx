@@ -411,16 +411,13 @@ function PresenterPage() {
 
     const track = stream.getVideoTracks()[0];
     if (track) {
-      console.log("Presenter: Stream track settings", {
-        readyState: track.readyState,
-        muted: track.muted,
-        enabled: track.enabled,
-        settings: track.getSettings?.() ?? null,
-      });
-      setTimeout(() => {
+      console.log("Presenter: Stream track settings", track.getSettings());
+      try {
         replaceHostVideoTrack(track);
-        console.log("✅ [PRESENTER] Canvas track sent to WebRTC");
-      }, 100);
+        console.log("✅ [PRESENTER] Canvas track sent to WebRTC (startStreaming)");
+      } catch (err) {
+        console.warn("Presenter: replaceHostVideoTrack failed in startStreaming", err);
+      }
     }
 
     setCurrentStream(stream);
@@ -767,9 +764,37 @@ function PresenterPage() {
         return;
       }
 
+      // 2) START CANVAS FIRST - capture before WebRTC
+      let displayStream: MediaStream | undefined;
+      if (canvasRef.current) {
+        const stream = captureCanvasStream(canvasRef.current, { fps: DEFAULT_STREAM_FPS });
+        if (stream) {
+          streamRef.current = stream;
+          setCurrentStream(stream);
+          displayStream = stream;
+
+          // 👉 Attach the track to the sender BEFORE startHost creates its offer
+          const track = stream.getVideoTracks()[0];
+          if (track) {
+            try {
+              replaceHostVideoTrack(track);
+              console.log("📹 [handleGoLive] Canvas track pre-attached to sender", {
+                trackId: track.id,
+                readyState: track.readyState,
+              });
+            } catch (err) {
+              console.warn("[handleGoLive] replaceHostVideoTrack failed pre-offer", err);
+            }
+          }
+
+          console.log("✅ [handleGoLive] Canvas captured, ready for WebRTC");
+        }
+      }
+
       // 3) Start WebRTC host without forcing capture (publish loading slate)
       hostingRef.current = true;
       hostRef.current = await startHost(s.id, {
+        displayStream,
         requireDisplay: false,   // do NOT prompt; we’ll capture only from the ScreenShare control
         sendAudio: false,        // optional: change to true if you want mic on at Go Live
         loadingText: "Waiting for presenter…",
