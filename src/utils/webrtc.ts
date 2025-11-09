@@ -480,7 +480,7 @@ export async function startHost(
       const aSender = (audioSender = ensureAudioSender(hostPc, audioSender));
       await aSender.replaceTrack(micTrack);
     }
-    
+
     // ---- Firestore signaling ----
     const offersDoc = doc(db, "sessions", sessionId, "offers", "latest");
     const candHostCol = collection(db, "sessions", sessionId, "candidates_host");

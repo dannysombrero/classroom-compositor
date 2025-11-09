@@ -6,11 +6,10 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 // ⬇️ Add this import
 import "./global.css";
 
-import PresenterPage from "./pages/PresenterPage";
+import App from "./App";
 import JoinPage from "./pages/JoinPage";
 import ViewerPage from "./pages/ViewerPage";
 import { ViewerHostPage } from "./pages/ViewerHostPage";
-import { ErrorBoundary } from "./components/ErrorBoundary";
 
 function RouteError() {
   return (
@@ -22,22 +21,14 @@ function RouteError() {
 }
 
 const router = createBrowserRouter([
-  { path: "/", element: <PresenterPage />, errorElement: <RouteError /> },
+  { path: "/", element: <App />, errorElement: <RouteError /> },
   { path: "/join", element: <JoinPage />, errorElement: <RouteError /> },
   { path: "/view/:sessionId", element: <ViewerPage />, errorElement: <RouteError /> },
   { path: "/viewer", element: <ViewerHostPage />, errorElement: <RouteError /> },
 ]);
 
-const isStandaloneViewer = window.location.pathname === "/viewer";
-
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    {isStandaloneViewer ? (
-      <ErrorBoundary>
-        <ViewerHostPage />
-      </ErrorBoundary>
-    ) : (
-      <RouterProvider router={router} />
-    )}
+    <RouterProvider router={router} />
   </React.StrictMode>
 );
