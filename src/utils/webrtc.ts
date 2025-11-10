@@ -1001,24 +1001,53 @@ export async function startViewer(
 
   const myUfrag = getUfrag(offer) || getUfrag(viewerPc.localDescription) || null;
 
-  // 🔧 Publish OFFER to per-viewer path
-  try {
-    const offersDoc = doc(db, "sessions", sessionId, "offers", viewerId);
-    console.log("📤 [VIEWER] Publishing offer to:", `sessions/${sessionId}/offers/${viewerId}`);
-    console.log("📤 [VIEWER] Offer SDP preview:", offer.sdp?.substring(0, 100));
+  // 🔧 Set up ALL listeners BEFORE publishing offer
+  // This ensures we catch all responses from the host
 
-    await setDoc(offersDoc, {
-      type: "offer",
-      sdp: offer.sdp,
-      at: Date.now(),
-      tag,
-      viewerId,
-    });
-    console.log("✅ [VIEWER] Offer published successfully!", { sessionId, viewerId, tag });
-  } catch (e) {
-    console.error("💥 [VIEWER] FAILED to publish offer doc:", e);
-    throw e;
-  }
+  // Listen for host ICE candidates (set up FIRST to avoid missing early candidates)
+  let unsubHostCand: (() => void) | undefined;
+  unsubHostCand = onSnapshot(
+    candHostCol,
+    async (snap) => {
+      console.log("📥 [VIEWER] Received host candidates snapshot, docChanges:", snap.docChanges().length);
+
+      // Get current remote ufrag (from answer)
+      const remoteUfrag = getUfrag(viewerPc.remoteDescription);
+
+      for (const ch of snap.docChanges()) {
+        if (ch.type !== "added") continue;
+        const data = ch.doc.data() as any;
+        if (!data?.candidate) continue;
+
+        // 🔧 Filter by viewerId - only process candidates meant for this viewer
+        if (data.viewerId && data.viewerId !== viewerId) {
+          console.log(`⏭️ [VIEWER] Skipping candidate for different viewer: ${data.viewerId}`);
+          continue;
+        }
+
+        // (lenient; only enforce if tag present)
+        if (data && "tag" in data && data.tag !== tag) {
+          // Different offer cycle — ignore
+          continue;
+        }
+
+        // Check ufrag match (only if we have remote description set)
+        if (remoteUfrag && data?.ufrag && data.ufrag !== remoteUfrag) {
+          console.log(`⏭️ [VIEWER] Skipping candidate due to ufrag mismatch`);
+          continue;
+        }
+
+        console.log("🧊 [VIEWER] Adding host candidate:", data.candidate.candidate?.substring(0, 60));
+        try {
+          await viewerPc.addIceCandidate(new RTCIceCandidate(data.candidate));
+          console.log("✅ [VIEWER] Host candidate added successfully");
+        } catch (err) {
+          console.warn("❌ [VIEWER] addIceCandidate(host) failed", err);
+        }
+      }
+    },
+    (err) => console.warn("[viewer] candHost onSnapshot error:", err)
+  );
 
   // 🔧 Listen for host's answer
   console.log("👂 [VIEWER] Waiting for answer from host...");
@@ -1066,7 +1095,7 @@ export async function startViewer(
     }
   );
 
-  // 🚀 Publish viewer ICE candidates with tag + ufrag + viewerId
+  // 🚀 Set up ICE candidate publishing
   viewerPc.onicecandidate = (e) => {
     if (!e.candidate) {
       console.log("✅ [VIEWER] ICE gathering complete (null candidate)");
@@ -1084,6 +1113,25 @@ export async function startViewer(
       console.log("✅ [VIEWER] candidate published");
     }).catch((err) => console.warn("[VIEWER] failed to write ICE", err));
   };
+
+  // 🔧 NOW publish OFFER (after all listeners are ready)
+  try {
+    const offersDoc = doc(db, "sessions", sessionId, "offers", viewerId);
+    console.log("📤 [VIEWER] Publishing offer to:", `sessions/${sessionId}/offers/${viewerId}`);
+    console.log("📤 [VIEWER] Offer SDP preview:", offer.sdp?.substring(0, 100));
+
+    await setDoc(offersDoc, {
+      type: "offer",
+      sdp: offer.sdp,
+      at: Date.now(),
+      tag,
+      viewerId,
+    });
+    console.log("✅ [VIEWER] Offer published successfully!", { sessionId, viewerId, tag });
+  } catch (e) {
+    console.error("💥 [VIEWER] FAILED to publish offer doc:", e);
+    throw e;
+  }
 
   // Wait for ICE gathering to start (Firefox sometimes delays)
   if (viewerPc.iceGatheringState === "new") {
@@ -1115,52 +1163,6 @@ export async function startViewer(
   }
 
   console.log("🔍 [VIEWER] Final ICE gathering state:", viewerPc.iceGatheringState);
-
-  // Answer already published above, no need to duplicate
-
-  let unsubHostCand: (() => void) | undefined;
-  unsubHostCand = onSnapshot(
-    candHostCol,
-    async (snap) => {
-      console.log("📥 [VIEWER] Received host candidates snapshot, docChanges:", snap.docChanges().length);
-
-      // Get current remote ufrag (from answer)
-      const remoteUfrag = getUfrag(viewerPc.remoteDescription);
-
-      for (const ch of snap.docChanges()) {
-        if (ch.type !== "added") continue;
-        const data = ch.doc.data() as any;
-        if (!data?.candidate) continue;
-
-        // 🔧 Filter by viewerId - only process candidates meant for this viewer
-        if (data.viewerId && data.viewerId !== viewerId) {
-          console.log(`⏭️ [VIEWER] Skipping candidate for different viewer: ${data.viewerId}`);
-          continue;
-        }
-
-        // (lenient; only enforce if tag present)
-        if (data && "tag" in data && data.tag !== tag) {
-          // Different offer cycle — ignore
-          continue;
-        }
-
-        // Check ufrag match (only if we have remote description set)
-        if (remoteUfrag && data?.ufrag && data.ufrag !== remoteUfrag) {
-          console.log(`⏭️ [VIEWER] Skipping candidate due to ufrag mismatch`);
-          continue;
-        }
-
-        console.log("🧊 [VIEWER] Adding host candidate:", data.candidate.candidate?.substring(0, 60));
-        try {
-          await viewerPc.addIceCandidate(new RTCIceCandidate(data.candidate));
-          console.log("✅ [VIEWER] Host candidate added successfully");
-        } catch (err) {
-          console.warn("❌ [VIEWER] addIceCandidate(host) failed", err);
-        }
-      }
-    },
-    (err) => console.warn("[viewer] candHost onSnapshot error:", err)
-  );
 
   return {
     pc: viewerPc,
