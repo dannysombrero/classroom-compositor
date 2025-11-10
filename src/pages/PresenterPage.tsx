@@ -509,9 +509,15 @@ function PresenterPage() {
         clearInterval(checkClosed);
         setIsViewerOpen(false);
         viewerWindowRef.current = null;
-        if (streamRef.current) {
+        // DON'T stop the stream if we're still live streaming to remote viewers!
+        // Only stop if we're not hosting
+        if (streamRef.current && !hostRef.current) {
+          console.log("🛑 [openViewer] Stopping stream (not live)");
           streamRef.current.getTracks().forEach((track) => track.stop());
           streamRef.current = null;
+          setCurrentStream(null);
+        } else if (streamRef.current && hostRef.current) {
+          console.log("✅ [openViewer] Keeping stream alive (still live to remote viewers)");
         }
       }
     }, 500);
@@ -810,11 +816,22 @@ function PresenterPage() {
         const track = displayStream.getVideoTracks()[0];
         if (track) {
           try {
+            // Request a frame immediately to ensure the track is producing frames
+            if ('requestFrame' in track && typeof (track as any).requestFrame === 'function') {
+              try {
+                (track as any).requestFrame();
+                console.log("🎬 [handleGoLive] Requested initial frame from canvas track");
+              } catch (err) {
+                console.warn("⚠️ [handleGoLive] requestFrame failed", err);
+              }
+            }
+
             replaceHostVideoTrack(track);
             console.log("📹 [handleGoLive] Canvas track pre-attached to sender", {
               trackId: track.id,
               readyState: track.readyState,
             });
+
           } catch (err) {
             console.warn("⚠️ [handleGoLive] replaceHostVideoTrack failed pre-offer", err);
           }
