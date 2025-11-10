@@ -90,6 +90,11 @@ export async function replaceHostVideoTrack(newTrack: MediaStreamTrack | null) {
   for (const [viewerId, conn] of viewerConnections.entries()) {
     const promise = (async () => {
       try {
+        if (!conn.videoSender) {
+          console.warn(`⚠️ [HOST] No video sender for viewer ${viewerId}, skipping`);
+          return;
+        }
+
         await conn.videoSender.replaceTrack(newTrack);
 
         if (newTrack) {
@@ -422,10 +427,10 @@ export interface HostHandle {
     stop(keepPc?: boolean): Promise<void>;
   }
 
-// ===== Multi-Viewer Support: Track per-viewer peer connections =====
+/// ===== Multi-Viewer Support: Track per-viewer peer connections =====
 interface ViewerConnection {
   pc: RTCPeerConnection;
-  videoSender: RTCRtpSender;
+  videoSender: RTCRtpSender | null;
   audioSender: RTCRtpSender | null;
   unsubCandidates: (() => void) | null;
   viewerId: string;
@@ -486,22 +491,6 @@ async function handleViewerOffer(
   // Create fresh peer connection for this viewer
   const viewerPc = await buildPeer("host", FORCE_RELAY);
 
-  // Add transceivers with the media tracks
-  const vSender = ensureVideoSender(viewerPc, null);
-  if (videoTrack) {
-    await vSender.replaceTrack(videoTrack);
-    const streamWithTrack = new MediaStream([videoTrack]);
-    vSender.setStreams(streamWithTrack);
-    console.log("✅ [HOST] Video track attached for viewer:", viewerId);
-  }
-
-  let aSender: RTCRtpSender | null = null;
-  if (audioTrack) {
-    aSender = ensureAudioSender(viewerPc, null);
-    await aSender.replaceTrack(audioTrack);
-    console.log("✅ [HOST] Audio track attached for viewer:", viewerId);
-  }
-
   // 🔧 Set up ICE candidate handling BEFORE setRemoteDescription
   const candHostCol = collection(db, "sessions", sessionId, "candidates_host");
   const candViewerCol = collection(db, "sessions", sessionId, `candidates_viewer_${viewerId}`);
@@ -529,9 +518,44 @@ async function handleViewerOffer(
     }
   };
 
-  // Apply viewer's offer as remote description
+  // Apply viewer's offer as remote description FIRST
+  // This creates transceivers from the viewer's offer
   console.log("📥 [HOST] Setting remote description (viewer's offer)");
   await viewerPc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: offerData.sdp }));
+
+  // Now get the transceivers that were created from the remote offer
+  const transceivers = viewerPc.getTransceivers();
+  console.log("📊 [HOST] Transceivers after applying offer:", transceivers.length);
+
+  // Find video and audio transceivers and attach our tracks
+  let vSender: RTCRtpSender | null = null;
+  let aSender: RTCRtpSender | null = null;
+
+  for (const transceiver of transceivers) {
+    if (transceiver.receiver.track.kind === "video" && !vSender) {
+      vSender = transceiver.sender;
+      if (videoTrack) {
+        await vSender.replaceTrack(videoTrack);
+        const streamWithTrack = new MediaStream([videoTrack]);
+        vSender.setStreams(streamWithTrack);
+        console.log("✅ [HOST] Video track attached for viewer:", viewerId, {
+          trackId: videoTrack.id,
+          readyState: videoTrack.readyState,
+          enabled: videoTrack.enabled
+        });
+      }
+    } else if (transceiver.receiver.track.kind === "audio" && !aSender) {
+      aSender = transceiver.sender;
+      if (audioTrack) {
+        await aSender.replaceTrack(audioTrack);
+        console.log("✅ [HOST] Audio track attached for viewer:", viewerId);
+      }
+    }
+  }
+
+  if (!vSender) {
+    console.error("💥 [HOST] No video transceiver found after applying offer!");
+  }
 
   // Create answer
   console.log("🎬 [HOST] Creating answer for viewer:", viewerId);
