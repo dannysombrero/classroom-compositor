@@ -78,46 +78,70 @@ function ensureVideoSender(pc: RTCPeerConnection, sender: RTCRtpSender | null): 
  *   setHostVideoTrack(track)
  */
 export async function replaceHostVideoTrack(newTrack: MediaStreamTrack | null) {
-  const hostPc = getPc();
-  if (!hostPc) {
-    console.warn("[replaceHostVideoTrack] No peer connection");
+  if (viewerConnections.size === 0) {
+    console.warn("[replaceHostVideoTrack] No active viewer connections");
     return;
   }
-  
-  if (!videoSender) {
-    console.warn("[replaceHostVideoTrack] No video sender");
-    return;
+
+  console.log("🎥 [HOST] Broadcasting video track to", viewerConnections.size, "viewers");
+
+  const promises: Promise<void>[] = [];
+
+  for (const [viewerId, conn] of viewerConnections.entries()) {
+    const promise = (async () => {
+      try {
+        await conn.videoSender.replaceTrack(newTrack);
+
+        if (newTrack) {
+          const dummyStream = new MediaStream([newTrack]);
+          conn.videoSender.setStreams(dummyStream);
+        }
+
+        // Nudge a first frame for canvas/synthetic tracks
+        try { (conn.videoSender as any)?.track?.requestFrame?.(); } catch {}
+
+        console.log("✅ [HOST] Video track replaced for viewer:", viewerId);
+      } catch (err) {
+        console.error(`💥 [HOST] Failed to replace video track for viewer ${viewerId}:`, err);
+      }
+    })();
+
+    promises.push(promise);
   }
-  
-  try {
-    console.log("🎥 [HOST] Replacing video track with:", newTrack ? "canvas track" : "null");
-    await videoSender.replaceTrack(newTrack);
-    
-    if (newTrack) {
-      const dummyStream = new MediaStream([newTrack]);
-      videoSender.setStreams(dummyStream);
-      console.log("✅ [HOST] Stream associated with sender");
-    }
-    
-    // Nudge a first frame for canvas/synthetic tracks
-    try { (videoSender as any)?.track?.requestFrame?.(); } catch {}
-    
-    console.log("✅ [HOST] Video track replaced successfully");
-  } catch (err) {
-    console.error("💥 [HOST] Failed to replace video track:", err);
-  }
+
+  await Promise.all(promises);
+  console.log("✅ [HOST] Video track broadcast complete");
 }
 
 /**
  * Swap the host AUDIO track without renegotiation. Accepts `null` to detach.
  */
 export async function replaceHostAudioTrack(track: MediaStreamTrack | null): Promise<void> {
-  if (!pc) {
-    console.warn("[replaceHostAudioTrack] PeerConnection not initialized; skipping audio swap until Go Live.");
+  if (viewerConnections.size === 0) {
+    console.warn("[replaceHostAudioTrack] No active viewer connections");
     return;
   }
-  const sender = (audioSender = ensureAudioSender(pc, audioSender));
-  await sender.replaceTrack(track);
+
+  console.log("🎤 [HOST] Broadcasting audio track to", viewerConnections.size, "viewers");
+
+  const promises: Promise<void>[] = [];
+
+  for (const [viewerId, conn] of viewerConnections.entries()) {
+    const promise = (async () => {
+      try {
+        if (conn.audioSender) {
+          await conn.audioSender.replaceTrack(track);
+          console.log("✅ [HOST] Audio track replaced for viewer:", viewerId);
+        }
+      } catch (err) {
+        console.error(`💥 [HOST] Failed to replace audio track for viewer ${viewerId}:`, err);
+      }
+    })();
+
+    promises.push(promise);
+  }
+
+  await Promise.all(promises);
 }
 
 /**
@@ -398,49 +422,167 @@ export interface HostHandle {
     stop(keepPc?: boolean): Promise<void>;
   }
 
-let pc: RTCPeerConnection | null = null;
-let videoSender: RTCRtpSender | null = null;
-let audioSender: RTCRtpSender | null = null;
+// ===== Multi-Viewer Support: Track per-viewer peer connections =====
+interface ViewerConnection {
+  pc: RTCPeerConnection;
+  videoSender: RTCRtpSender;
+  audioSender: RTCRtpSender | null;
+  unsubCandidates: (() => void) | null;
+  viewerId: string;
+  createdAt: number;
+}
+
+// Map of viewerId -> connection details
+const viewerConnections = new Map<string, ViewerConnection>();
+
 let startingHost = false; // prevents double-click races
 let liveHandle: HostHandle | null = null;
-let pendingViewerCandidates: RTCIceCandidateInit[] = [];
+let currentSessionId: string | null = null;
+let hostTag: number = 0;
 
-function getPc(): RTCPeerConnection {
-    if (!pc) throw new Error("PeerConnection not initialized");
-    return pc;
-  }
-
-// Firestore unsubscribers for host side
-let unsubViewerAnswers: (() => void) | null = null;
-let unsubViewerCandidates: (() => void) | null = null;
-// Safety valve: limit re-offer retries per tag to avoid loops
-const srdRetryCountByTag = new Map<number, number>();
+// Firestore unsubscribers for host side (now per-viewer)
+let unsubViewerAnswersCollection: (() => void) | null = null;
+// Safety valve: limit re-offer retries per viewer to avoid loops
+const srdRetryCountByViewer = new Map<string, number>();
 
 export async function stopHost(keepPc = false): Promise<void> {
+    console.log("🛑 [HOST] Stopping host, cleaning up", viewerConnections.size, "viewer connections");
+
     // Unsubscribe Firestore listeners
-    if (unsubViewerAnswers) { unsubViewerAnswers(); unsubViewerAnswers = null; }
-    if (unsubViewerCandidates) { unsubViewerCandidates(); unsubViewerCandidates = null; }
-  
-    // Detach tracks to avoid accidental reuse
-    if (videoSender) await videoSender.replaceTrack(null);
-    if (audioSender) await audioSender.replaceTrack(null);
-  
-    // Stop any live tracks (closes share bubble)
-    pc?.getSenders().forEach((s: RTCRtpSender) => {
-      const t = s.track;
-      if (t) t.stop();
-    });
-  
-    if (!keepPc) {
-      pc?.getTransceivers().forEach((t: RTCRtpTransceiver) => t.stop());
-      try { pc?.close(); } catch {}
-      pc = null;
-      videoSender = null;
-      audioSender = null;
+    if (unsubViewerAnswersCollection) {
+      unsubViewerAnswersCollection();
+      unsubViewerAnswersCollection = null;
     }
-  
+
+    // Close all viewer connections
+    if (!keepPc) {
+      for (const [viewerId, conn] of viewerConnections.entries()) {
+        console.log("🔌 [HOST] Closing connection to viewer:", viewerId);
+        try { conn.unsubCandidates?.(); } catch {}
+        try { conn.pc.getTransceivers().forEach((t: RTCRtpTransceiver) => t.stop()); } catch {}
+        try { conn.pc.close(); } catch {}
+      }
+      viewerConnections.clear();
+    }
+
+    currentSessionId = null;
     liveHandle = null;
   }
+
+/**
+ * Helper: Create a peer connection for a single viewer
+ * Called when a new viewer answer arrives
+ */
+async function handleNewViewerConnection(
+  sessionId: string,
+  viewerId: string,
+  answerData: any,
+  offerSdp: string,
+  videoTrack: MediaStreamTrack | null,
+  audioTrack: MediaStreamTrack | null,
+  tag: number
+): Promise<void> {
+  console.log("🆕 [HOST] Setting up connection for viewer:", viewerId);
+
+  // Create fresh peer connection for this viewer
+  const viewerPc = await buildPeer("host", FORCE_RELAY);
+
+  // Add transceivers with the media tracks
+  const vSender = ensureVideoSender(viewerPc, null);
+  if (videoTrack) {
+    await vSender.replaceTrack(videoTrack);
+    const streamWithTrack = new MediaStream([videoTrack]);
+    vSender.setStreams(streamWithTrack);
+    console.log("✅ [HOST] Video track attached to viewer connection:", viewerId);
+  }
+
+  let aSender: RTCRtpSender | null = null;
+  if (audioTrack) {
+    aSender = ensureAudioSender(viewerPc, null);
+    await aSender.replaceTrack(audioTrack);
+    console.log("✅ [HOST] Audio track attached to viewer connection:", viewerId);
+  }
+
+  // Set the original offer as local description
+  await viewerPc.setLocalDescription(new RTCSessionDescription({ type: "offer", sdp: offerSdp }));
+  console.log("✅ [HOST] Local description (offer) set for viewer:", viewerId);
+
+  // Set the viewer's answer as remote description
+  if (answerData?.sdp) {
+    await viewerPc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: answerData.sdp }));
+    console.log("✅ [HOST] Remote description (answer) set for viewer:", viewerId);
+  } else {
+    throw new Error(`No SDP in answer for viewer ${viewerId}`);
+  }
+
+  // Set up ICE candidate handling for this viewer
+  const candHostCol = collection(db, "sessions", sessionId, "candidates_host");
+  const candViewerCol = collection(db, "sessions", sessionId, `candidates_viewer_${viewerId}`);
+
+  // Publish host ICE candidates for this viewer
+  viewerPc.onicecandidate = async (e) => {
+    if (!e.candidate) {
+      console.log("✅ [HOST] ICE gathering complete for viewer:", viewerId);
+      return;
+    }
+
+    try {
+      const myUfrag = getUfrag(viewerPc.localDescription);
+      await addDoc(candHostCol, {
+        candidate: e.candidate.toJSON(),
+        at: Date.now(),
+        from: "host",
+        tag,
+        ufrag: myUfrag,
+        viewerId, // Tag candidates with viewerId
+      });
+      console.log("✅ [HOST] ICE candidate published for viewer:", viewerId);
+    } catch (err) {
+      console.error(`💥 [HOST] Failed to write ICE candidate for viewer ${viewerId}:`, err);
+    }
+  };
+
+  // Listen for ICE candidates from this viewer
+  const unsubCandidates = onSnapshot(
+    candViewerCol,
+    async (snap) => {
+      const expectedUfrag = getUfrag(viewerPc.remoteDescription);
+
+      for (const ch of snap.docChanges()) {
+        if (ch.type !== "added") continue;
+        const data = ch.doc.data() as any;
+        if (!data?.candidate) continue;
+
+        // Check ufrag match
+        const candUfrag = data.ufrag;
+        if (expectedUfrag && candUfrag && candUfrag !== expectedUfrag) {
+          console.warn(`[HOST][${viewerId}] Skipping candidate due to ufrag mismatch`);
+          continue;
+        }
+
+        try {
+          await viewerPc.addIceCandidate(new RTCIceCandidate(data.candidate));
+          console.log(`✅ [HOST] Added ICE candidate for viewer ${viewerId}`);
+        } catch (err) {
+          console.warn(`❌ [HOST] Failed to add ICE candidate for viewer ${viewerId}:`, err);
+        }
+      }
+    },
+    (err) => console.warn(`[HOST][${viewerId}] Candidate listener error:`, err)
+  );
+
+  // Track this connection
+  viewerConnections.set(viewerId, {
+    pc: viewerPc,
+    videoSender: vSender,
+    audioSender: aSender,
+    unsubCandidates,
+    viewerId,
+    createdAt: Date.now(),
+  });
+
+  console.log("🎉 [HOST] Viewer connection setup complete:", viewerId);
+}
 
 // utils/webrtc.ts
 export interface StartHostOpts {
@@ -451,7 +593,7 @@ export interface StartHostOpts {
   requireDisplay?: boolean;   // if true, force getDisplayMedia when displayStream not provided
   loadingText?: string;       // custom text for placeholder slate
 }
-  
+
 export async function startHost(
   sessionId: string,
   opts?: StartHostOpts
@@ -462,32 +604,29 @@ export async function startHost(
   }
   if (liveHandle) return liveHandle;
 
-  // 🔧 CRITICAL FIX: Always create fresh peer connection to avoid ufrag mismatches
-  // If pc exists from a previous session, close it first
-  if (pc) {
-    console.log("🔄 [startHost] Closing existing peer connection from previous session...");
-    try {
-      pc.getTransceivers().forEach((t: RTCRtpTransceiver) => t.stop());
-      pc.close();
-    } catch (e) {
-      console.warn("⚠️ [startHost] Error closing old peer connection:", e);
-    }
-    pc = null;
-    videoSender = null;
-    audioSender = null;
+  // Clean up any existing connections
+  if (viewerConnections.size > 0) {
+    console.log("🔄 [startHost] Closing existing viewer connections...");
+    await stopHost(false);
   }
 
-  pc = await buildPeer("host", opts?.forceRelay ?? FORCE_RELAY);
-  if (!pc) throw new Error("Failed to create RTCPeerConnection");
-  
   startingHost = true;
-  const tag = Date.now();
-  const hostPc = getPc();
+  currentSessionId = sessionId;
+  hostTag = Date.now();
+
+  // 🔧 Create a TEMPLATE peer connection just to generate the offer
+  // This will be closed after the offer is created
+  const templatePc = await buildPeer("host", opts?.forceRelay ?? FORCE_RELAY);
+  if (!templatePc) throw new Error("Failed to create template RTCPeerConnection");
+
+  // Keep references to tracks so we can attach them to each viewer connection
+  let currentVideoTrack: MediaStreamTrack | null = null;
+  let currentAudioTrack: MediaStreamTrack | null = null;
 
   try {
     // --- Decide initial video: screen if provided/required, else loading slate ---
     let screenTrack: MediaStreamTrack | null = null;
-    
+
     if (opts?.displayStream) {
       screenTrack = opts.displayStream.getVideoTracks()[0] ?? null;
       console.log("📹 [startHost] Using provided displayStream, track:", screenTrack ? "YES" : "NO");
@@ -500,8 +639,8 @@ export async function startHost(
       }
       console.log("📹 [startHost] Captured display via getDisplayMedia");
     }
-    
-    const vSender = (videoSender = ensureVideoSender(hostPc, videoSender));
+
+    const vSender = ensureVideoSender(templatePc, null);
     
     // Ensure sender has an associated stream so SDP gets proper a=msid lines.
     try {
@@ -514,41 +653,27 @@ export async function startHost(
     if (screenTrack) {
       // Use the real screen track
       try { (screenTrack as any).contentHint = "detail"; } catch {}
+      currentVideoTrack = screenTrack; // Save for viewer connections
+
       await vSender.replaceTrack(screenTrack);
-      
       const streamWithTrack = new MediaStream([screenTrack]);
       vSender.setStreams(streamWithTrack);
-      console.log("✅ [startHost] Stream associated with sender (before offer)");
-      
-      console.log("✅ [startHost] Canvas track added to sender:", {
+
+      console.log("✅ [startHost] Canvas track added to template:", {
         trackId: screenTrack.id,
         readyState: screenTrack.readyState,
         enabled: screenTrack.enabled,
         muted: screenTrack.muted,
         label: screenTrack.label
       });
-      
+
       // Nudge first frame
       try { (vSender as any)?.track?.requestFrame?.(); } catch {}
-
-      if (screenTrack.muted) {
-        const onUnmute = async () => {
-          screenTrack.removeEventListener("unmute", onUnmute);
-          try { await vSender.replaceTrack(screenTrack); } catch {}
-        };
-        screenTrack.addEventListener("unmute", onUnmute, { once: true });
-      }
-
-      screenTrack.onended = async () => {
-        try {
-          const placeholder = createLoadingSlateTrack(opts?.loadingText ?? "Waiting for presenter…");
-          await vSender.replaceTrack(placeholder);
-          try { (vSender as any)?.track?.requestFrame?.(); } catch {}
-        } catch {}
-      };
     } else {
       // No display provided; send a placeholder slate
       const placeholder = createLoadingSlateTrack(opts?.loadingText ?? "Waiting for presenter…");
+      currentVideoTrack = placeholder; // Save for viewer connections
+
       await vSender.replaceTrack(placeholder);
       try { (vSender as any)?.track?.requestFrame?.(); } catch {}
       console.log("⚠️ [startHost] Using placeholder track (no displayStream provided)");
@@ -563,212 +688,112 @@ export async function startHost(
         micStream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
         throw new Error("No audio track from microphone");
       }
-      const aSender = (audioSender = ensureAudioSender(hostPc, audioSender));
+      currentAudioTrack = micTrack; // Save for viewer connections
+
+      const aSender = ensureAudioSender(templatePc, null);
       await aSender.replaceTrack(micTrack);
     }
   
-    // ---- Firestore signaling ----
+    // ---- Create and publish the offer ----
     const offersDoc = doc(db, "sessions", sessionId, "offers", "latest");
-    const candHostCol = collection(db, "sessions", sessionId, "candidates_host");
-    const candViewerCol = collection(db, "sessions", sessionId, "candidates_viewer");
 
-    hostPc.onicecandidate = async (e) => {
-      console.log("🧊 [HOST] ICE candidate event fired, candidate:", e.candidate ? "YES" : "null (gathering complete)");
-      if (!e.candidate) { console.log("✅ [HOST] ICE gathering complete"); return; }
-
-      try {
-        const myUfrag = getUfrag(hostPc.localDescription);
-        console.log("📤 [HOST] Writing ICE candidate to Firestore...", {
-          candidate: e.candidate.candidate.substring(0, 50),
-          type: e.candidate.type
-        });
-
-        await addDoc(candHostCol, {
-          candidate: e.candidate.toJSON(),
-          at: Date.now(),
-          from: "host",
-          tag,                 // <-- scope by current offer
-          ufrag: myUfrag,      // <-- include ufrag
-        });
-
-        console.log("✅ [HOST] ICE candidate written successfully");
-      } catch (err) {
-        console.error("💥 [HOST] FAILED to write ICE candidate:", err);
-      }
-    };
-
-    const offer = await hostPc.createOffer();
+    const offer = await templatePc.createOffer();
 
     console.log("📝 [HOST] Offer SDP contains video?", offer.sdp?.includes("m=video"));
     console.log("📝 [HOST] Offer SDP preview:", offer.sdp?.substring(0, 200));
-    const senders = hostPc.getSenders();
-    const videoSenderObj = senders.find(s => s.track?.kind === "video");
-    console.log("📹 [HOST] Video sender at offer time:", {
-      hasSender: !!videoSenderObj,
-      hasTrack: !!videoSenderObj?.track,
-      trackId: videoSenderObj?.track?.id,
-      trackReadyState: videoSenderObj?.track?.readyState
-    });
 
-    await hostPc.setLocalDescription(offer);
+    await templatePc.setLocalDescription(offer);
 
-    // Publish the offer with tag + ufrag
+    // Save the offer SDP for creating per-viewer connections
+    const offerSdp = offer.sdp!;
+
+    // Publish the offer
     await setDoc(offersDoc, {
       type: "offer",
-      sdp: offer.sdp,
-      at: tag,
-      tag,
+      sdp: offerSdp,
+      at: hostTag,
+      tag: hostTag,
       ufrag: getUfrag(offer),
     });
 
-    // ADD THESE AFTER setDoc closes:
-    console.log("📤 [HOST] Offer written to Firestore, checking...");
-    const checkDoc = await getDoc(offersDoc);
-    const storedSdp = checkDoc.data()?.sdp;
-    console.log("🔍 [HOST] SDP match?", storedSdp === offer.sdp);
-    console.log("🔍 [HOST] Stored SDP has msid?", storedSdp?.includes("a=msid"));
+    console.log("✅ [HOST] Offer published to Firestore");
 
-    console.log("[host] mids:", hostPc.getTransceivers().map((t) => t.mid));
-    console.log("[host] SRD set?", !!hostPc.remoteDescription);
+    // 🔧 Close the template peer connection - we don't need it anymore
+    // Each viewer will get their own fresh connection
+    try {
+      templatePc.close();
+      console.log("✅ [HOST] Template peer connection closed");
+    } catch (e) {
+      console.warn("⚠️ [HOST] Error closing template peer connection:", e);
+    }
 
+    // 🔧 Listen for viewer answers at the COLLECTION level (not single document)
+    // Each viewer publishes to their own document: sessions/{sessionId}/answers/{viewerId}
+    const answersCol = collection(db, "sessions", sessionId, "answers");
 
-    // Buffer viewer ICE until SRD applied
-    pendingViewerCandidates = [];
-    if (unsubViewerCandidates) { unsubViewerCandidates(); unsubViewerCandidates = null; }
-    unsubViewerCandidates = onSnapshot(
-      candViewerCol,
+    console.log("🎯 [HOST] Setting up answer collection listener at:", `sessions/${sessionId}/answers/`);
+
+    if (unsubViewerAnswersCollection) {
+      unsubViewerAnswersCollection();
+      unsubViewerAnswersCollection = null;
+    }
+
+    unsubViewerAnswersCollection = onSnapshot(
+      answersCol,
       async (snap) => {
+        console.log("📨 [HOST] Answer collection snapshot, docChanges:", snap.docChanges().length);
+
         for (const ch of snap.docChanges()) {
-          if (ch.type !== "added") continue;
+          if (ch.type !== "added") continue; // Only handle new viewers
+
+          const viewerId = ch.doc.id;
           const data = ch.doc.data() as any;
-          if (!data?.candidate) continue;
-          if (data?.tag !== tag) continue; // <-- ignore different offer
 
-          const cand: RTCIceCandidateInit = data.candidate;
-          if (!hostPc.remoteDescription) {
-            const c: any = { ...cand, ufrag: typeof data.ufrag === "string" ? data.ufrag : undefined };
-            pendingViewerCandidates.push(c);
+          console.log("📦 [HOST] New viewer answer from:", viewerId);
+
+          // Validate answer data
+          if (!data?.sdp) {
+            console.warn("❌ [HOST] No SDP in answer from viewer:", viewerId);
             continue;
           }
-          const expectedUfrag = getUfrag(hostPc.remoteDescription ?? null);
-          const candUfrag = (typeof data.ufrag === "string") ? data.ufrag : undefined;
-          if (expectedUfrag && candUfrag && candUfrag !== expectedUfrag) {
-            console.warn("[host] skipping viewer cand due to ufrag mismatch", { candUfrag, expectedUfrag });
+
+          // Check tag matches current offer
+          if (Number(data.tag) !== Number(hostTag)) {
+            console.log(`↪️ [HOST] Ignoring answer for different tag from viewer ${viewerId}`, {
+              expected: hostTag,
+              got: data.tag
+            });
             continue;
           }
-          try {
-            await safeAddIceCandidate(hostPc, cand);
-            console.log("✅ [HOST] Added viewer ICE", cand.candidate?.substring?.(0, 60));
-          } catch (err) {
-            console.warn("❌ [HOST] addIceCandidate(viewer) failed", err);
+
+          // Skip if we already have a connection for this viewer
+          if (viewerConnections.has(viewerId)) {
+            console.log("⚠️ [HOST] Already have connection for viewer:", viewerId);
+            continue;
           }
-        }
-      },
-      (err) => console.warn("[host] candViewer onSnapshot error:", err)
-    );
 
-    const answersDoc = doc(db, "sessions", sessionId, "answers", "latest");
-
-    if (unsubViewerAnswers) { unsubViewerAnswers(); unsubViewerAnswers = null; }
-    console.log("🎯 [HOST] Setting up answer listener at:", `sessions/${sessionId}/answers/latest`);
-
-    unsubViewerAnswers = onSnapshot(
-      answersDoc,
-      async (snap) => {
-        console.log("📨 [HOST] Answer snapshot triggered, exists:", snap.exists());
-        if (!snap.exists()) { console.log("⚠️ [HOST] Answer doc doesn't exist yet"); return; }
-
-        const data = snap.data() as any;
-        console.log("📦 [HOST] Answer data received:", data ? JSON.stringify(data).substring(0, 200) : "null");
-        if (!data?.sdp) { console.log("❌ [HOST] No SDP field in answer document"); return; }
-
-        // 🚫 IMPORTANT: only accept the answer if it matches THIS offer/tag
-        if (Number(data.tag) !== Number(tag)) {
-          console.log("↪️ [HOST] Ignoring answer for a different tag", { expected: tag, got: data.tag });
-          return;
-        }
-
-        const canApplySRD = hostPc.signalingState === "have-local-offer" && !hostPc.remoteDescription;
-
-        if (canApplySRD) {
-          console.log("✅ [HOST] Calling setRemoteDescription with answer...");
+          // Create peer connection for this viewer
           try {
-            await hostPc.setRemoteDescription(
-              new RTCSessionDescription({ type: "answer", sdp: data.sdp })
+            await handleNewViewerConnection(
+              sessionId,
+              viewerId,
+              data,
+              offerSdp,
+              currentVideoTrack,
+              currentAudioTrack,
+              hostTag
             );
-            console.log("🎉 [HOST] SRD SUCCESS! Remote description is set!");
-            console.log("🔌 [HOST] ICE connection state:", hostPc.iceConnectionState);
+            console.log("✅ [HOST] Successfully created connection for viewer:", viewerId);
+            console.log("📊 [HOST] Total active viewers:", viewerConnections.size);
           } catch (err) {
-            console.error("💥 [HOST] setRemoteDescription(answer) failed:", err);
-            return;
-          }
-        } else {
-          // Safety valve: if an answer arrives when we're not in 'have-local-offer',
-          // try a one-time re-offer with ICE restart and republish the offer
-          const already = srdRetryCountByTag.get(tag) ?? 0;
-          if (already < 1) {
-            console.warn("⚠️ [HOST] Answer arrived out-of-phase; re-offering with iceRestart");
-            try {
-              const re = await hostPc.createOffer({ iceRestart: true });
-              await hostPc.setLocalDescription(re);
-              await setDoc(offersDoc, {
-                type: "offer",
-                sdp: re.sdp,
-                at: Date.now(),
-                tag,
-                ufrag: getUfrag(re)
-              }, { merge: true });
-              srdRetryCountByTag.set(tag, already + 1);
-              // Wait for a fresh, tag-matched answer
-              return;
-            } catch (reErr) {
-              console.error("💥 [HOST] Re-offer (iceRestart) failed; proceeding without restart", reErr);
-            }
-          } else {
-            console.log("ℹ️ [HOST] Skipping SRD and already retried once; proceeding to drain ICE.");
+            console.error(`💥 [HOST] Failed to create connection for viewer ${viewerId}:`, err);
           }
         }
-
-        // Drain buffered candidates (respect ufrag)
-        const expectedUfrag = getUfrag(hostPc.remoteDescription ?? ({ sdp: data.sdp } as any));
-        for (const queued of pendingViewerCandidates) {
-          const queuedUfrag = (queued as any).ufrag as string | undefined;
-          if (expectedUfrag && queuedUfrag && queuedUfrag !== expectedUfrag) {
-            console.warn("[host] skipping queued viewer cand due to ufrag mismatch", { queuedUfrag, expectedUfrag });
-            continue;
-          }
-          try { await safeAddIceCandidate(hostPc, queued); }
-          catch (err) { console.warn("[host] safeAddIceCandidate(queued) failed", err, queued); }
-        }
-        pendingViewerCandidates = [];
       },
       (err) => {
-        console.error("🔥 [HOST] Answer listener error:", err);
+        console.error("🔥 [HOST] Answer collection listener error:", err);
       }
     );
-
-    // Fallback fetch (kept)
-    setTimeout(async () => {
-      if (!hostPc.remoteDescription) {
-        console.warn("⏰ [HOST] SRD still not set ~4s after offer. Trying fallback fetch...");
-        try {
-          const snap = await getDoc(answersDoc);
-          console.log("📋 [HOST] Fallback fetch result, exists:", snap.exists());
-          const data = snap.data() as any;
-          if (data?.sdp && hostPc.signalingState === "have-local-offer" && Number(data.tag) === Number(tag)) {
-            console.log("✅ [HOST] Fallback found answer, applying...");
-            await hostPc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: data.sdp }));
-            console.log("🎉 [HOST] SRD set via fallback fetch!");
-          } else {
-            console.warn("❌ [HOST] Fallback fetch found no valid answer (or wrong tag)");
-          }
-        } catch (err) {
-          console.error("💥 [HOST] Fallback fetch error:", err);
-        }
-      } else {
-        console.log("✅ [HOST] SRD already set, fallback not needed");
-      }
-    }, 4000);
 
     liveHandle = { stop: async (keepPc = false) => { await stopHost(keepPc); } };
     return liveHandle;
@@ -782,6 +807,10 @@ export async function startViewer(
   sessionId: string,
   onStream: (stream: MediaStream) => void
 ) {
+  // 🆔 Generate unique viewer ID for multi-viewer support
+  const viewerId = crypto.randomUUID ? crypto.randomUUID() : `viewer_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  console.log("🆔 [VIEWER] Generated unique viewer ID:", viewerId);
+
   const offersRef = doc(db, "sessions", sessionId, "offers", "latest");
   const offSnap = await getDoc(offersRef);
   const offerData = offSnap.data() as any;
@@ -792,7 +821,8 @@ export async function startViewer(
   const viewerPc = await buildPeer("viewer", FORCE_RELAY);
   const answersCol = collection(db, "sessions", sessionId, "answers");
   const candHostCol = collection(db, "sessions", sessionId, "candidates_host");
-  const candViewerCol = collection(db, "sessions", sessionId, "candidates_viewer");
+  // 🔧 Each viewer gets their own candidate subcollection
+  const candViewerCol = collection(db, "sessions", sessionId, `candidates_viewer_${viewerId}`);
 
   // --- Prepare to receive before SRD (fixes flaky ontrack/black video in some browsers) ---
   const offerSdpText = offerData.sdp as string;
@@ -948,25 +978,31 @@ export async function startViewer(
   // After await viewerPc.setLocalDescription(answer);
   const myUfrag = getUfrag(answer) || getUfrag(viewerPc.localDescription) || null;
 
-  // Publish the answer (unchanged)
+  // 🔧 Publish answer to per-viewer path for multi-viewer support
   try {
-    const answersDoc = doc(db, "sessions", sessionId, "answers", "latest");
-    console.log("📤 [VIEWER] About to publish answer to:", `sessions/${sessionId}/answers/latest`);
+    const answersDoc = doc(db, "sessions", sessionId, "answers", viewerId);
+    console.log("📤 [VIEWER] Publishing answer to:", `sessions/${sessionId}/answers/${viewerId}`);
     console.log("📤 [VIEWER] Answer SDP preview:", answer.sdp?.substring(0, 100));
 
-    const answerKey = sessionId;
+    const answerKey = `${sessionId}_${viewerId}`;
     if (!publishedAnswersFor.has(answerKey)) {
-      await setDoc(answersDoc, { type: "answer", sdp: answer.sdp, at: Date.now(), tag }, { merge: true });
+      await setDoc(answersDoc, {
+        type: "answer",
+        sdp: answer.sdp,
+        at: Date.now(),
+        tag,
+        viewerId // Include viewerId in the document for tracking
+      }, { merge: true });
       publishedAnswersFor.add(answerKey);
-      console.log("✅ [VIEWER] Answer published successfully!", { sessionId, tag });
+      console.log("✅ [VIEWER] Answer published successfully!", { sessionId, viewerId, tag });
     } else {
-      console.log("⚠️ [VIEWER] Skipped duplicate answer publish", { sessionId });
+      console.log("⚠️ [VIEWER] Skipped duplicate answer publish", { sessionId, viewerId });
     }
   } catch (e) {
     console.error("💥 [VIEWER] FAILED to publish answer doc:", e);
   }
 
-  // 🚀 Publish viewer ICE candidates with tag + ufrag
+  // 🚀 Publish viewer ICE candidates with tag + ufrag + viewerId
   viewerPc.onicecandidate = (e) => {
     if (!e.candidate) {
       console.log("✅ [VIEWER] ICE gathering complete (null candidate)");
@@ -979,6 +1015,7 @@ export async function startViewer(
       from: "viewer",
       tag,
       ufrag: myUfrag,
+      viewerId, // Include viewerId for routing
     }).then(() => {
       console.log("✅ [VIEWER] candidate published");
     }).catch((err) => console.warn("[VIEWER] failed to write ICE", err));
@@ -1015,22 +1052,7 @@ export async function startViewer(
 
   console.log("🔍 [VIEWER] Final ICE gathering state:", viewerPc.iceGatheringState);
 
-  try {
-    const answersDoc = doc(db, "sessions", sessionId, "answers", "latest");
-    console.log("📤 [VIEWER] About to publish answer to:", `sessions/${sessionId}/answers/latest`);
-    console.log("📤 [VIEWER] Answer SDP preview:", answer.sdp?.substring(0, 100));
-    
-    const answerKey = sessionId;
-    if (!publishedAnswersFor.has(answerKey)) {
-      await setDoc(answersDoc, { type: "answer", sdp: answer.sdp, at: Date.now(), tag }, { merge: true });
-      publishedAnswersFor.add(answerKey);
-      console.log("✅ [VIEWER] Answer published successfully!", { sessionId, tag });
-    } else {
-      console.log("⚠️ [VIEWER] Skipped duplicate answer publish", { sessionId });
-    }
-  } catch (e) {
-    console.error("💥 [VIEWER] FAILED to publish answer doc:", e);
-  }
+  // Answer already published above, no need to duplicate
 
   let unsubHostCand: (() => void) | undefined;
   unsubHostCand = onSnapshot(
