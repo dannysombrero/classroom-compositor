@@ -462,7 +462,22 @@ export async function startHost(
   }
   if (liveHandle) return liveHandle;
 
-  if (!pc) pc = await buildPeer("host", opts?.forceRelay ?? FORCE_RELAY);
+  // 🔧 CRITICAL FIX: Always create fresh peer connection to avoid ufrag mismatches
+  // If pc exists from a previous session, close it first
+  if (pc) {
+    console.log("🔄 [startHost] Closing existing peer connection from previous session...");
+    try {
+      pc.getTransceivers().forEach((t: RTCRtpTransceiver) => t.stop());
+      pc.close();
+    } catch (e) {
+      console.warn("⚠️ [startHost] Error closing old peer connection:", e);
+    }
+    pc = null;
+    videoSender = null;
+    audioSender = null;
+  }
+
+  pc = await buildPeer("host", opts?.forceRelay ?? FORCE_RELAY);
   if (!pc) throw new Error("Failed to create RTCPeerConnection");
   
   startingHost = true;
