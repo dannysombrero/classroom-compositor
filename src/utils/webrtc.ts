@@ -846,27 +846,25 @@ export async function startViewer(
     if (track.kind === "video" && track.muted) {
       console.log("[viewer] video track muted; waiting for frames…");
 
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
       let delivered = false;
-      const deliverOnce = () => {
+
+      const deliverStream = () => {
         if (delivered) return;
         delivered = true;
+        if (timeoutId) clearTimeout(timeoutId);
         console.log("[viewer] video track unmuted; delivering stream");
         onStream(viewerStream);
       };
 
-      // Wait for unmute event (works in Chrome)
-      track.addEventListener("unmute", deliverOnce, { once: true });
+      // Try unmute event first (Chrome/modern browsers)
+      track.addEventListener("unmute", deliverStream, { once: true });
 
-      // 🔧 FIREFOX FIX: Fallback timeout if unmute never fires (Firefox canvas tracks)
-      const unmuteTimeout = setTimeout(() => {
-        if (delivered) return;
-        console.log("⏰ [viewer] unmute timeout - delivering stream anyway (Firefox fix)");
-        track.removeEventListener("unmute", deliverOnce);
-        deliverOnce();
-      }, 2000); // 2 second timeout
-
-      // Clean up timeout if unmute fires first
-      track.addEventListener("unmute", () => clearTimeout(unmuteTimeout), { once: true });
+      // 🔧 FIREFOX FIX: Fallback timeout (unmute never fires on Firefox canvas tracks)
+      timeoutId = setTimeout(() => {
+        console.log("⏰ [viewer] unmute timeout - delivering anyway (Firefox fix)");
+        deliverStream();
+      }, 1500); // 1.5s timeout
 
       return;
     }
