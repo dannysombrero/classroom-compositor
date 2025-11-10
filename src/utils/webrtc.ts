@@ -733,6 +733,8 @@ export async function startHost(
     const answersCol = collection(db, "sessions", sessionId, "answers");
 
     console.log("🎯 [HOST] Setting up answer collection listener at:", `sessions/${sessionId}/answers/`);
+    console.log("🎯 [HOST] Current offer tag:", hostTag);
+    console.log("🎯 [HOST] Video track ready:", !!currentVideoTrack);
 
     if (unsubViewerAnswersCollection) {
       unsubViewerAnswersCollection();
@@ -742,15 +744,29 @@ export async function startHost(
     unsubViewerAnswersCollection = onSnapshot(
       answersCol,
       async (snap) => {
-        console.log("📨 [HOST] Answer collection snapshot, docChanges:", snap.docChanges().length);
+        console.log("📨 [HOST] Answer collection snapshot triggered!");
+        console.log("📨 [HOST] Total docs in collection:", snap.size);
+        console.log("📨 [HOST] Document changes:", snap.docChanges().length);
+        console.log("📨 [HOST] Change types:", snap.docChanges().map(ch => `${ch.type}:${ch.doc.id}`));
+
+        if (snap.docChanges().length === 0) {
+          console.log("⚠️ [HOST] No document changes in snapshot (might be initial empty snapshot)");
+        }
 
         for (const ch of snap.docChanges()) {
-          if (ch.type !== "added") continue; // Only handle new viewers
+          if (ch.type !== "added") {
+            console.log(`⏭️ [HOST] Skipping ${ch.type} change for doc:`, ch.doc.id);
+            continue; // Only handle new viewers
+          }
 
           const viewerId = ch.doc.id;
           const data = ch.doc.data() as any;
 
-          console.log("📦 [HOST] New viewer answer from:", viewerId);
+          console.log("📦 [HOST] New viewer answer from:", viewerId, "data:", {
+            hasSDp: !!data?.sdp,
+            tag: data?.tag,
+            viewerId: data?.viewerId
+          });
 
           // Validate answer data
           if (!data?.sdp) {
@@ -774,6 +790,7 @@ export async function startHost(
           }
 
           // Create peer connection for this viewer
+          console.log("🔨 [HOST] About to create connection for viewer:", viewerId);
           try {
             await handleNewViewerConnection(
               sessionId,
@@ -788,6 +805,7 @@ export async function startHost(
             console.log("📊 [HOST] Total active viewers:", viewerConnections.size);
           } catch (err) {
             console.error(`💥 [HOST] Failed to create connection for viewer ${viewerId}:`, err);
+            console.error("Stack trace:", err);
           }
         }
       },
