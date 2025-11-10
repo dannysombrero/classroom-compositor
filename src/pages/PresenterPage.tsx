@@ -396,50 +396,85 @@ function PresenterPage() {
     layerIdsRef.current = currentIds;
   }, [sceneLayers]);
 
-  const startStreaming = useCallback((canvas: HTMLCanvasElement) => {
+  /**
+   * Ensures a canvas stream exists, creating one if needed or reusing existing live stream.
+   * This prevents multiple stream creations that would break active viewers.
+   */
+  const ensureCanvasStreamExists = useCallback((): MediaStream | null => {
+    // Check if we already have a live stream - REUSE IT!
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
+      const track = streamRef.current.getVideoTracks()[0];
+      if (track && track.readyState === 'live') {
+        console.log("✅ [ensureStream] Reusing existing live canvas stream");
+        return streamRef.current;
+      }
+      // Stream is dead, clean it up
+      console.log("⚠️ [ensureStream] Existing stream is dead, cleaning up");
+      streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
+      setCurrentStream(null);
     }
+
+    // Need to create new stream
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      console.warn("❌ [ensureStream] Cannot create stream without canvas");
+      return null;
+    }
+
     const stream = captureCanvasStream(canvas, { fps: DEFAULT_STREAM_FPS });
     if (!stream) {
-      console.error("Presenter: Failed to capture canvas stream");
-      return;
+      console.error("❌ [ensureStream] Failed to capture canvas stream");
+      return null;
     }
-    console.log("Presenter: Captured stream with", stream.getVideoTracks().length, "video tracks");
+
+    console.log("🎬 [ensureStream] Created NEW canvas stream with", stream.getVideoTracks().length, "tracks");
     streamRef.current = stream;
+    setCurrentStream(stream);
+
+    // Set up ended handler ONCE when stream is created
+    const track = stream.getVideoTracks()[0];
+    if (track) {
+      const handleEnded = () => {
+        console.log("🛑 [ensureStream] Canvas track ended");
+        if (viewerWindowRef.current && !viewerWindowRef.current.closed) {
+          notifyStreamEnded(viewerWindowRef.current);
+        }
+        streamRef.current = null;
+        setCurrentStream(null);
+        setIsPresentationMode(false);
+        setIsConfidencePreviewVisible(false);
+        setControlStripVisible(true);
+        showControlStrip();
+      };
+      track.addEventListener("ended", handleEnded, { once: true });
+    }
+
+    return stream;
+  }, [showControlStrip]);
+
+  const startStreaming = useCallback((canvas: HTMLCanvasElement) => {
+    // Get or create the stream (will reuse if already live!)
+    const stream = ensureCanvasStreamExists();
+    if (!stream) return;
 
     const track = stream.getVideoTracks()[0];
     if (track) {
-      console.log("Presenter: Stream track settings", track.getSettings());
+      console.log("📹 [startStreaming] Stream track settings", track.getSettings());
       try {
         replaceHostVideoTrack(track);
-        console.log("✅ [PRESENTER] Canvas track sent to WebRTC (startStreaming)");
+        console.log("✅ [startStreaming] Canvas track sent to WebRTC");
       } catch (err) {
-        console.warn("Presenter: replaceHostVideoTrack failed in startStreaming", err);
+        console.warn("⚠️ [startStreaming] replaceHostVideoTrack failed", err);
       }
     }
 
-    setCurrentStream(stream);
-
+    // Send to local viewer window if open
     if (viewerWindowRef.current && !viewerWindowRef.current.closed) {
-      console.log("Presenter: Sending stream to viewer window");
+      console.log("📤 [startStreaming] Sending stream to viewer window");
       sendStreamToViewer(viewerWindowRef.current, stream);
     }
-
-    stream.getVideoTracks()[0]?.addEventListener("ended", () => {
-      console.log("Presenter: Stream ended");
-      if (viewerWindowRef.current && !viewerWindowRef.current.closed) {
-        notifyStreamEnded(viewerWindowRef.current);
-      }
-      streamRef.current = null;
-      setCurrentStream(null);
-      setIsPresentationMode(false);
-      setIsConfidencePreviewVisible(false);
-      setControlStripVisible(true);
-      showControlStrip();
-    });
-  }, [showControlStrip]);
+  }, [ensureCanvasStreamExists]);
 
   const openViewer = () => {
     if (viewerWindowRef.current && !viewerWindowRef.current.closed) {
@@ -499,15 +534,9 @@ function PresenterPage() {
   }, [startStreaming]);
 
   const ensureCanvasStream = useCallback((): MediaStream | null => {
-    if (streamRef.current) return streamRef.current;
-    const canvas = canvasRef.current;
-    if (!canvas) {
-      console.warn("Presenter: Cannot ensure stream without a canvas");
-      return null;
-    }
-    startStreaming(canvas);
-    return streamRef.current;
-  }, [startStreaming]);
+    // Just delegate to the main helper function
+    return ensureCanvasStreamExists();
+  }, [ensureCanvasStreamExists]);
 
   const isTextInputTarget = (event: KeyboardEvent): boolean => {
     const target = event.target as HTMLElement | null;
@@ -760,62 +789,55 @@ function PresenterPage() {
       await goLive(HOST_ID);
       const s = useSessionStore.getState().session;
       if (!s?.id) {
-        setLiveError("Couldn’t create a session. Check Firestore rules/connection.");
+        setLiveError("Couldn't create a session. Check Firestore rules/connection.");
         return;
       }
 
-      // 2) START CANVAS FIRST - capture before WebRTC
-      let displayStream: MediaStream | undefined;
-      if (canvasRef.current) {
-        const stream = captureCanvasStream(canvasRef.current, { fps: DEFAULT_STREAM_FPS });
-        if (stream) {
-          streamRef.current = stream;
-          setCurrentStream(stream);
-          displayStream = stream;
+      // 2) Get or create canvas stream (will reuse if already exists!)
+      const displayStream = ensureCanvasStreamExists() || undefined;
 
-          // 👉 Attach the track to the sender BEFORE startHost creates its offer
-          const track = stream.getVideoTracks()[0];
-          if (track) {
-            try {
-              replaceHostVideoTrack(track);
-              console.log("📹 [handleGoLive] Canvas track pre-attached to sender", {
-                trackId: track.id,
-                readyState: track.readyState,
-              });
-            } catch (err) {
-              console.warn("[handleGoLive] replaceHostVideoTrack failed pre-offer", err);
-            }
+      // 3) Attach the track to WebRTC BEFORE creating the offer
+      if (displayStream) {
+        const track = displayStream.getVideoTracks()[0];
+        if (track) {
+          try {
+            replaceHostVideoTrack(track);
+            console.log("📹 [handleGoLive] Canvas track pre-attached to sender", {
+              trackId: track.id,
+              readyState: track.readyState,
+            });
+          } catch (err) {
+            console.warn("⚠️ [handleGoLive] replaceHostVideoTrack failed pre-offer", err);
           }
-
-          console.log("✅ [handleGoLive] Canvas captured, ready for WebRTC");
         }
+        console.log("✅ [handleGoLive] Canvas stream ready for WebRTC");
       }
 
-      // 3) Start WebRTC host without forcing capture (publish loading slate)
+      // 4) Start WebRTC host with the canvas stream
       hostingRef.current = true;
       hostRef.current = await startHost(s.id, {
         displayStream,
-        requireDisplay: false,   // do NOT prompt; we’ll capture only from the ScreenShare control
+        requireDisplay: false,   // do NOT prompt; we'll capture only from the ScreenShare control
         sendAudio: false,        // optional: change to true if you want mic on at Go Live
         loadingText: "Waiting for presenter…",
       });
-      console.log("[host] started (no capture)");
+      console.log("✅ [handleGoLive] WebRTC host started");
 
-      // 4) Activate join code and reflect it in UI
+      // 5) Activate join code and reflect it in UI
       const { codePretty } = await activateJoinCode(s.id);
       useSessionStore.setState({ joinCode: codePretty, isJoinCodeActive: true });
 
     } catch (e: any) {
-      console.error("[host] failed to start:", e);
+      console.error("❌ [handleGoLive] Failed to start:", e);
       setLiveError(
         e?.name === "NotAllowedError"
           ? 'Go Live was blocked by the browser. Click again and press "Allow".'
-          : "Go Live failed. If your browser is still sharing, click its “Stop sharing”, then try again."
+          : 'Go Live failed. If your browser is still sharing, click its "Stop sharing", then try again.'
       );
     } finally {
       hostingRef.current = false;
     }
-  }, [goLive]);
+  }, [goLive, ensureCanvasStreamExists]);
 
   return (
     <div
