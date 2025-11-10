@@ -4,6 +4,9 @@ service cloud.firestore {
 
     // Allow the host and viewers to negotiate within a session namespace.
     match /sessions/{sessionId} {
+      // Allow reading and writing the session document itself
+      allow read, write: if true;
+
       // Host ready signal (new architecture)
       match /host_ready/{docId} {
         allow read, write: if true;
@@ -32,6 +35,11 @@ service cloud.firestore {
       match /codes/{codeId} {
         allow read, write: if true;
       }
+    }
+
+    // Join codes collection for session lookup
+    match /joinCodes/{codeId} {
+      allow read, write: if true;
     }
   }
 }
