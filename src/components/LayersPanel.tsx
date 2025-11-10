@@ -150,7 +150,6 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
       <div style={panelShellStyle}>
         <section style={layersSectionStyle}>
           <div style={layersHeaderStyle}>
-            <span>Objects & Layers</span>
             <div style={menuTriggerWrapperStyle}>
               <button
                 type="button"
@@ -231,7 +230,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
               </div>
             )}
           </div>
-          <div style={layersScrollStyle}>
+          <div style={layersScrollStyle} className="invisible-scrollbar">
           {orderedLayers.length === 0 ? (
             <div
               style={{
@@ -429,7 +428,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
         </section>
         <section style={propertiesSectionOuterStyle}>
           <div style={propertiesHeaderStyle}>Properties</div>
-          <div style={propertiesContentStyle}>
+          <div style={propertiesContentStyle} className="invisible-scrollbar">
             <LayerPropertiesPanel layer={selectedLayer ?? null} />
           </div>
         </section>
