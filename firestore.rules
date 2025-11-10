@@ -12,11 +12,14 @@ service cloud.firestore {
         allow read, write: if true;
       }
 
-      // ICE candidate fanouts
+      // ICE candidate fanouts - shared host collection
       match /candidates_host/{candId} {
         allow read, write: if true;
       }
-      match /candidates_viewer/{candId} {
+
+      // 🔧 Support per-viewer candidate collections: candidates_viewer_{viewerId}
+      // This wildcard matches any subcollection under the session
+      match /{collection}/{docId} {
         allow read, write: if true;
       }
 

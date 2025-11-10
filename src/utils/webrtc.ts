@@ -503,23 +503,12 @@ async function handleNewViewerConnection(
     console.log("✅ [HOST] Audio track attached to viewer connection:", viewerId);
   }
 
-  // Set the original offer as local description
-  await viewerPc.setLocalDescription(new RTCSessionDescription({ type: "offer", sdp: offerSdp }));
-  console.log("✅ [HOST] Local description (offer) set for viewer:", viewerId);
-
-  // Set the viewer's answer as remote description
-  if (answerData?.sdp) {
-    await viewerPc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: answerData.sdp }));
-    console.log("✅ [HOST] Remote description (answer) set for viewer:", viewerId);
-  } else {
-    throw new Error(`No SDP in answer for viewer ${viewerId}`);
-  }
-
-  // Set up ICE candidate handling for this viewer
+  // 🔧 Set up ICE candidate handling BEFORE setLocalDescription to avoid race condition
   const candHostCol = collection(db, "sessions", sessionId, "candidates_host");
   const candViewerCol = collection(db, "sessions", sessionId, `candidates_viewer_${viewerId}`);
 
-  // Publish host ICE candidates for this viewer
+  // CRITICAL: Set onicecandidate handler BEFORE setLocalDescription
+  // Otherwise candidates generated during setLocalDescription are lost
   viewerPc.onicecandidate = async (e) => {
     if (!e.candidate) {
       console.log("✅ [HOST] ICE gathering complete for viewer:", viewerId);
@@ -541,6 +530,18 @@ async function handleNewViewerConnection(
       console.error(`💥 [HOST] Failed to write ICE candidate for viewer ${viewerId}:`, err);
     }
   };
+
+  // Set the original offer as local description
+  await viewerPc.setLocalDescription(new RTCSessionDescription({ type: "offer", sdp: offerSdp }));
+  console.log("✅ [HOST] Local description (offer) set for viewer:", viewerId);
+
+  // Set the viewer's answer as remote description
+  if (answerData?.sdp) {
+    await viewerPc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: answerData.sdp }));
+    console.log("✅ [HOST] Remote description (answer) set for viewer:", viewerId);
+  } else {
+    throw new Error(`No SDP in answer for viewer ${viewerId}`);
+  }
 
   // Listen for ICE candidates from this viewer
   const unsubCandidates = onSnapshot(
@@ -1063,13 +1064,20 @@ export async function startViewer(
         if (ch.type !== "added") continue;
         const data = ch.doc.data() as any;
         if (!data?.candidate) continue;
+
+        // 🔧 Filter by viewerId - only process candidates meant for this viewer
+        if (data.viewerId && data.viewerId !== viewerId) {
+          console.log(`⏭️ [VIEWER] Skipping candidate for different viewer: ${data.viewerId}`);
+          continue;
+        }
+
         // (lenient; only enforce if tag present)
         if (data && "tag" in data && data.tag !== tag) {
           // Different offer cycle — ignore
           continue;
         }
         if (remoteUfrag && data?.ufrag && data.ufrag !== remoteUfrag) continue;
-        
+
         console.log("🧊 [VIEWER] Adding host candidate:", data.candidate.candidate?.substring(0, 60));
         try {
           await viewerPc.addIceCandidate(new RTCIceCandidate(data.candidate));
