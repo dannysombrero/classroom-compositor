@@ -35,6 +35,7 @@ import {
   startCameraCapture,
   stopSource,
   replaceVideoTrack,
+  getActiveVideoTrack,
 } from "../media/sourceManager";
 import { FloatingPanel } from "../components/FloatingPanel";
 import { LayersPanel } from "../components/LayersPanel";
@@ -50,8 +51,7 @@ import { GroupTransformControls } from "../components/GroupTransformControls";
 import { tinykeys } from "tinykeys";
 import type { KeyBindingMap } from "tinykeys";
 import { useBackgroundEffectTrack } from "../hooks/useBackgroundEffectTrack";
-import { useVideoEffectsStore } from "../stores/videoEffects";
-import { replaceHostVideoTrack } from '../utils/webrtc';
+import { replaceHostVideoTrack } from "../utils/webrtc";
 
 const EMPTY_LAYERS: Layer[] = [];
 const LAYERS_PANEL_WIDTH = 280;
@@ -103,8 +103,6 @@ function PresenterPage() {
   const controlStripTimerRef = useRef<number | null>(null);
   const clipboardRef = useRef<Layer[] | null>(null);
 
-  // Effects store for background effects panel
-  const effectsStore = useVideoEffectsStore();
   const [cameraTrackForEffects, setCameraTrackForEffects] = useState<MediaStreamTrack | null>(null);
   const [cameraLayerForEffects, setCameraLayerForEffects] = useState<string | null>(null);
   const processedCameraTrack = useBackgroundEffectTrack(cameraTrackForEffects);
@@ -127,6 +125,9 @@ function PresenterPage() {
     const id = state.selection[0];
     return scene.layers.find((layer) => layer.id === id) ?? null;
   }) as Layer | null;
+
+  const selectedCameraLayer =
+    selectedLayer && selectedLayer.type === "camera" ? (selectedLayer as CameraLayer) : null;
 
   const selectionLength = selectionIds.length;
   const selectedGroup = selectedLayer && selectedLayer.type === "group" ? selectedLayer : null;
@@ -284,6 +285,14 @@ function PresenterPage() {
       setIsAddingCamera(false);
     }
   }, [addLayer, getCurrentScene, isAddingCamera, removeLayer, updateLayer]);
+
+  useEffect(() => {
+    if (!selectedCameraLayer) return;
+    const track = getActiveVideoTrack(selectedCameraLayer.id);
+    if (!track) return;
+    setCameraLayerForEffects(selectedCameraLayer.id);
+    setCameraTrackForEffects((prev) => (prev?.id === track.id ? prev : track));
+  }, [selectedCameraLayer]);
 
   // Swap processed track into layer when ready
   useEffect(() => {
@@ -1075,91 +1084,6 @@ function PresenterPage() {
         )}
 
       <input ref={fileInputRef} type="file" accept="image/*" style={{ display: "none" }} />
-
-      {/* Background Effects Panel */}
-      <div
-        style={{
-          position: "fixed",
-          top: 24,
-          right: 24,
-          zIndex: 10000,
-          background: "rgba(20,20,20,0.85)",
-          border: "1px solid rgba(255,255,255,0.08)",
-          borderRadius: 8,
-          padding: "10px 12px",
-          color: "#eaeaea",
-          fontSize: 12,
-          backdropFilter: "blur(4px)",
-          boxShadow: "0 6px 24px rgba(0,0,0,0.35)",
-          width: 300,
-        }}
-      >
-        <div style={{ marginBottom: 8, opacity: 0.9, fontWeight: 700 }}>Background Effects</div>
-        <div style={{ display: "grid", rowGap: 10 }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input
-              type="checkbox"
-              checked={effectsStore.enabled}
-              onChange={(e) => effectsStore.setEnabled(e.target.checked)}
-            />
-            Effects Enabled
-          </label>
-
-          <label style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between" }}>
-            <span style={{ opacity: 0.8 }}>Mode</span>
-            <select value={effectsStore.mode} onChange={(e) => effectsStore.setMode(e.target.value as any)}>
-              <option value="off">Off</option>
-              <option value="blur">Blur</option>
-              <option value="replace">Replace</option>
-              <option value="chroma">Chroma</option>
-            </select>
-          </label>
-
-          <label style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between" }}>
-            <span style={{ opacity: 0.8 }}>Quality</span>
-            <select value={effectsStore.quality} onChange={(e) => effectsStore.setQuality(e.target.value as any)}>
-              <option value="fast">Fast</option>
-              <option value="balanced">Balanced</option>
-              <option value="high">High</option>
-            </select>
-          </label>
-
-          <label style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between" }}>
-            <span style={{ opacity: 0.8 }}>Engine</span>
-            <select value={effectsStore.engine} onChange={(e) => effectsStore.setEngine(e.target.value as any)}>
-              <option value="mock">Mock</option>
-              <option value="mediapipe">MediaPipe</option>
-              <option value="onnx">ONNX</option>
-            </select>
-          </label>
-
-          <label style={{ display: "grid", rowGap: 6 }}>
-            <span style={{ opacity: 0.8, display: "flex", justifyContent: "space-between" }}>
-              <span>Blur Strength</span>
-              <span style={{ fontVariantNumeric: "tabular-nums" }}>{effectsStore.blurRadius}px</span>
-            </span>
-            <input
-              type="range"
-              min={0}
-              max={48}
-              step={1}
-              value={effectsStore.blurRadius}
-              onChange={(e) => effectsStore.setBlurRadius(e.currentTarget.valueAsNumber)}
-            />
-          </label>
-
-          <label style={{ display: "grid", rowGap: 6 }}>
-            <span style={{ opacity: 0.8 }}>Background (optional URL/data URI)</span>
-            <input
-              type="text"
-              value={effectsStore.background ?? ""}
-              onChange={(e) => effectsStore.setBackground(e.target.value || null)}
-              placeholder="https://… or data:image/png;base64,…"
-              style={{ width: "100%" }}
-            />
-          </label>
-        </div>
-      </div>
 
       <ControlStrip
         visible={controlStripShouldBeVisible}
