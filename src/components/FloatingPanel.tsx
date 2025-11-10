@@ -7,9 +7,6 @@ interface FloatingPanelProps {
   minSize?: { width: number; height: number };
   onPositionChange: (position: { x: number; y: number }) => void;
   onSizeChange?: (size: { width: number; height: number }) => void;
-  collapsible?: boolean;
-  collapsed?: boolean;
-  onToggleCollapse?: () => void;
   children: ReactNode;
 }
 
@@ -21,12 +18,9 @@ export function FloatingPanel({
   title,
   position,
   size,
-  minSize = { width: 240, height: 200 },
+  minSize = { width: 280, height: 380 },
   onPositionChange,
   onSizeChange,
-  collapsible = false,
-  collapsed = false,
-  onToggleCollapse,
   children,
 }: FloatingPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -40,23 +34,6 @@ export function FloatingPanel({
   } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
-  const [edgeHover, setEdgeHover] = useState(false);
-
-  const EDGE_TOLERANCE = 12;
-
-  const isNearEdge = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    const panel = panelRef.current;
-    if (!panel) return false;
-    const rect = panel.getBoundingClientRect();
-    const offsetX = event.clientX - rect.left;
-    const offsetY = event.clientY - rect.top;
-    return (
-      offsetX <= EDGE_TOLERANCE ||
-      rect.width - offsetX <= EDGE_TOLERANCE ||
-      offsetY <= EDGE_TOLERANCE ||
-      rect.height - offsetY <= EDGE_TOLERANCE
-    );
-  }, []);
 
   const clampPosition = useCallback(
     (nextX: number, nextY: number) => {
@@ -70,13 +47,8 @@ export function FloatingPanel({
       const viewportHeight = window.innerHeight;
       const { offsetWidth, offsetHeight } = panel;
 
-      const visibleMargin = 80;
-      const minX = Math.min(visibleMargin - offsetWidth, 0);
-      const maxX = Math.max(viewportWidth - visibleMargin, 0);
-      const minY = Math.min(visibleMargin - offsetHeight, 0);
-      const maxY = Math.max(viewportHeight - visibleMargin, 0);
-      const clampedX = Math.min(Math.max(minX, nextX), maxX);
-      const clampedY = Math.min(Math.max(minY, nextY), maxY);
+      const clampedX = Math.min(Math.max(0, nextX), viewportWidth - offsetWidth);
+      const clampedY = Math.min(Math.max(0, nextY), viewportHeight - offsetHeight);
       onPositionChange({ x: clampedX, y: clampedY });
     },
     [onPositionChange]
@@ -139,7 +111,7 @@ export function FloatingPanel({
     };
   }, [clampPosition, clampSize]);
 
-  const beginDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+  const startDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     const panel = panelRef.current;
     if (!panel) return;
@@ -150,29 +122,7 @@ export function FloatingPanel({
       offsetY: event.clientY - rect.top,
     };
     setIsDragging(true);
-    setEdgeHover(false);
     (event.target as HTMLElement).setPointerCapture(event.pointerId);
-  };
-
-  const startDrag = (event: React.PointerEvent<HTMLDivElement>) => {
-    event.stopPropagation();
-    beginDrag(event);
-  };
-
-  const handlePanelPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    if (isNearEdge(event)) {
-      beginDrag(event);
-    }
-  };
-
-  const handlePanelPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (isDragging) return;
-    setEdgeHover(isNearEdge(event));
-  };
-
-  const handlePanelPointerLeave = () => {
-    setEdgeHover(false);
   };
 
   const startResize = (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -191,9 +141,6 @@ export function FloatingPanel({
   return (
     <div
       ref={panelRef}
-      onPointerDown={handlePanelPointerDown}
-      onPointerMove={handlePanelPointerMove}
-      onPointerLeave={handlePanelPointerLeave}
       style={{
         position: 'absolute',
         left: `${position.x}px`,
@@ -210,68 +157,35 @@ export function FloatingPanel({
         backdropFilter: 'blur(8px)',
         border: '1px solid rgba(255, 255, 255, 0.08)',
         zIndex: 20,
-        cursor: isDragging ? 'grabbing' : edgeHover ? 'grab' : 'default',
+        overflow: 'hidden',
       }}
     >
       <div
+        onPointerDown={startDrag}
         style={{
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
           padding: '8px 12px',
           cursor: isDragging ? 'grabbing' : 'grab',
-          borderBottom: collapsed ? 'none' : '1px solid rgba(255, 255, 255, 0.06)',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
           fontSize: '13px',
           letterSpacing: '0.02em',
           fontWeight: 600,
           textTransform: 'uppercase',
         }}
-        onPointerDown={startDrag}
       >
-        <span>{title}</span>
-        {collapsible && onToggleCollapse && (
-          <button
-            type="button"
-            onPointerDown={(event) => {
-              event.stopPropagation();
-            }}
-            onClick={(event) => {
-              event.stopPropagation();
-              onToggleCollapse();
-            }}
-            aria-label={collapsed ? 'Expand panel' : 'Collapse panel'}
-            aria-expanded={!collapsed}
-            style={{
-              border: 'none',
-              background: 'rgba(255, 255, 255, 0.08)',
-              color: '#f5f5f5',
-              borderRadius: '6px',
-              width: '24px',
-              height: '24px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              fontSize: '14px',
-              lineHeight: 1,
-            }}
-          >
-            {collapsed ? '▾' : '▴'}
-          </button>
-        )}
+        {title}
       </div>
-      {!collapsed && (
-        <div
-          style={{
-            flex: 1,
-            overflow: 'visible',
-            display: 'flex',
-            flexDirection: 'column',
-          }}
-        >
-          {children}
-        </div>
-      )}
+      <div
+        style={{
+          flex: 1,
+          overflow: 'visible',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        {children}
+      </div>
       {onSizeChange && (
         <button
           onPointerDown={startResize}
