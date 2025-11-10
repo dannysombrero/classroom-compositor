@@ -8,15 +8,23 @@ export default function ViewerVideo({ sessionId }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const startedRef = useRef(false);
   const [needsTap, setNeedsTap] = useState(false);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const tryPlay = () => {
+  const tryPlay = async () => {
     const v = videoRef.current;
     if (!v) return;
-    const p = v.play();
-    if (p && typeof (p as any).then === "function") {
-      (p as Promise<void>)
-        .then(() => setNeedsTap(false))
-        .catch(() => setNeedsTap(true));
+
+    try {
+      await v.play();
+      console.log("✅ [ViewerVideo] Video playing successfully");
+      setNeedsTap(false);
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+    } catch (err) {
+      console.warn("⚠️ [ViewerVideo] Play failed:", err);
+      setNeedsTap(true);
     }
   };
 
@@ -31,13 +39,71 @@ export default function ViewerVideo({ sessionId }: Props) {
       const { stop: stopFn } = await startViewer(sessionId, async (stream) => {
         const el = videoRef.current;
         if (!el) return;
-        await attachStreamToVideo(el, stream);
-        tryPlay();
+
+        try {
+          await attachStreamToVideo(el, stream);
+          console.log("✅ [ViewerVideo] Stream attached successfully");
+
+          // Try playing immediately
+          await tryPlay();
+
+          // Set up aggressive retry if initial play failed
+          // This catches cases where the video needs a frame or two before it can play
+          let retryCount = 0;
+          const maxRetries = 5;
+
+          const retryPlay = async () => {
+            if (retryCount >= maxRetries) {
+              console.warn("⚠️ [ViewerVideo] Max autoplay retries reached");
+              return;
+            }
+
+            const v = videoRef.current;
+            if (!v) return;
+
+            // Check if video is already playing
+            if (!v.paused) {
+              console.log("✅ [ViewerVideo] Video is already playing");
+              return;
+            }
+
+            retryCount++;
+            console.log(`🔄 [ViewerVideo] Retry autoplay attempt ${retryCount}/${maxRetries}`);
+
+            try {
+              await v.play();
+              console.log("✅ [ViewerVideo] Retry successful");
+              setNeedsTap(false);
+            } catch {
+              // Schedule next retry with exponential backoff
+              const delay = Math.min(100 * Math.pow(2, retryCount - 1), 1000);
+              retryTimerRef.current = setTimeout(retryPlay, delay);
+            }
+          };
+
+          // Start retry timer if video isn't playing
+          setTimeout(() => {
+            const v = videoRef.current;
+            if (v && v.paused) {
+              retryPlay();
+            }
+          }, 100);
+
+        } catch (err) {
+          console.error("💥 [ViewerVideo] Failed to attach stream:", err);
+        }
       });
       stop = stopFn;
     })();
 
-    return () => { try { stop?.(); } catch {} startedRef.current = false; };
+    return () => {
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+      try { stop?.(); } catch {}
+      startedRef.current = false;
+    };
   }, [sessionId]);
 
   return (

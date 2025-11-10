@@ -354,10 +354,22 @@ async function tryFetchAnswerOnce(answersColRef: any, tag: number, pcRef: RTCPee
     video.autoplay = true;
 
     const tryPlay = async () => {
-      try { await video.play(); } catch (err) {
-        console.warn("video.play was blocked by autoplay policy.", err);
+      try {
+        await video.play();
+        console.log("✅ [attachStreamToVideo] Video playing successfully");
+      } catch (err) {
+        console.warn("⚠️ [attachStreamToVideo] video.play was blocked by autoplay policy.", err);
+        throw err; // Propagate error so ViewerVideo can show "Click to Play"
       }
     };
+
+    // Try playing immediately (muted video should autoplay)
+    try {
+      await tryPlay();
+      return; // If successful, we're done
+    } catch {
+      console.log("🔄 [attachStreamToVideo] Initial play failed, waiting for metadata...");
+    }
 
     // Kick on metadata or first resize, whichever comes first (first dimensioned frame)
     let done = false;
