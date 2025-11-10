@@ -676,15 +676,32 @@ export async function startHost(
     // 🔧 NEW APPROACH: Don't create an offer
     // Instead, publish a "ready" signal and wait for viewer offers
     const readyDoc = doc(db, "sessions", sessionId, "host_ready", "status");
-    await setDoc(readyDoc, {
-      ready: true,
-      at: hostTag,
-      tag: hostTag,
-      hasVideo: !!currentVideoTrack,
-      hasAudio: !!currentAudioTrack,
-    });
+    const readyPath = `sessions/${sessionId}/host_ready/status`;
 
-    console.log("✅ [HOST] Published ready signal");
+    console.log("📝 [HOST] About to write ready signal to:", readyPath);
+    console.log("📝 [HOST] SessionId:", sessionId);
+
+    try {
+      await setDoc(readyDoc, {
+        ready: true,
+        at: hostTag,
+        tag: hostTag,
+        hasVideo: !!currentVideoTrack,
+        hasAudio: !!currentAudioTrack,
+      });
+      console.log("✅ [HOST] Published ready signal successfully");
+    } catch (err) {
+      console.error("💥 [HOST] FAILED to write ready signal:", err);
+      console.error("💥 [HOST] Error details:", {
+        name: (err as any).name,
+        code: (err as any).code,
+        message: (err as any).message,
+        sessionId,
+        readyPath,
+      });
+      throw err;
+    }
+
     console.log("🎯 [HOST] Current tag:", hostTag);
     console.log("🎯 [HOST] Video track ready:", !!currentVideoTrack);
     console.log("🎯 [HOST] Audio track ready:", !!currentAudioTrack);
