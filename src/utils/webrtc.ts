@@ -532,8 +532,21 @@ async function handleViewerOffer(
   let aSender: RTCRtpSender | null = null;
 
   for (const transceiver of transceivers) {
+    console.log(`📡 [HOST] Transceiver ${transceiver.mid}:`, {
+      kind: transceiver.receiver.track.kind,
+      direction: transceiver.direction,
+      currentDirection: transceiver.currentDirection
+    });
+
     if (transceiver.receiver.track.kind === "video" && !vSender) {
       vSender = transceiver.sender;
+
+      // Ensure transceiver is set to send
+      if (transceiver.direction === "recvonly" || transceiver.direction === "inactive") {
+        transceiver.direction = "sendrecv";
+        console.log("🔄 [HOST] Changed video transceiver direction to sendrecv");
+      }
+
       if (videoTrack) {
         await vSender.replaceTrack(videoTrack);
         const streamWithTrack = new MediaStream([videoTrack]);
@@ -541,11 +554,19 @@ async function handleViewerOffer(
         console.log("✅ [HOST] Video track attached for viewer:", viewerId, {
           trackId: videoTrack.id,
           readyState: videoTrack.readyState,
-          enabled: videoTrack.enabled
+          enabled: videoTrack.enabled,
+          transceiverDirection: transceiver.direction
         });
       }
     } else if (transceiver.receiver.track.kind === "audio" && !aSender) {
       aSender = transceiver.sender;
+
+      // Ensure transceiver is set to send
+      if (transceiver.direction === "recvonly" || transceiver.direction === "inactive") {
+        transceiver.direction = "sendrecv";
+        console.log("🔄 [HOST] Changed audio transceiver direction to sendrecv");
+      }
+
       if (audioTrack) {
         await aSender.replaceTrack(audioTrack);
         console.log("✅ [HOST] Audio track attached for viewer:", viewerId);
