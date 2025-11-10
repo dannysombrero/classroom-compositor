@@ -11,6 +11,7 @@ interface ActiveSource {
   stream: MediaStream;
   video: HTMLVideoElement;
   type: SourceType;
+  rawTrack: MediaStreamTrack | null;
 }
 
 const sources = new Map<string, ActiveSource>();
@@ -43,7 +44,12 @@ async function registerSource(
   stopSource(layerId);
 
   const video = await createVideoElement(stream);
-  const active: ActiveSource = { stream, video, type };
+  const active: ActiveSource = {
+    stream,
+    video,
+    type,
+    rawTrack: stream.getVideoTracks()[0] ?? null,
+  };
   sources.set(layerId, active);
   return active;
 }
@@ -133,6 +139,9 @@ export function stopSource(layerId: string): void {
   existing.stream.getTracks().forEach((track) => {
     try { track.stop(); } catch { /* ignore */ }
   });
+  if (existing.rawTrack && !existing.stream.getTracks().includes(existing.rawTrack)) {
+    try { existing.rawTrack.stop(); } catch { /* ignore */ }
+  }
   try {
     existing.video.srcObject = null;
   } catch { /* ignore */ }
@@ -152,4 +161,13 @@ export function getVideoForLayer(layerId: string): HTMLVideoElement | null {
  */
 export function hasActiveSource(layerId: string): boolean {
   return sources.has(layerId);
+}
+
+/**
+ * Retrieve the active video track for a layer, if one exists.
+ */
+export function getActiveVideoTrack(layerId: string): MediaStreamTrack | null {
+  const active = sources.get(layerId);
+  if (!active) return null;
+  return active.rawTrack ?? active.stream.getVideoTracks?.()[0] ?? null;
 }
