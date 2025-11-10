@@ -470,19 +470,18 @@ export async function stopHost(keepPc = false): Promise<void> {
   }
 
 /**
- * Helper: Create a peer connection for a single viewer
- * Called when a new viewer answer arrives
+ * Helper: Create answer for a viewer's offer
+ * Called when a new viewer offer arrives
  */
-async function handleNewViewerConnection(
+async function handleViewerOffer(
   sessionId: string,
   viewerId: string,
-  answerData: any,
-  offerSdp: string,
+  offerData: any,
   videoTrack: MediaStreamTrack | null,
   audioTrack: MediaStreamTrack | null,
   tag: number
 ): Promise<void> {
-  console.log("🆕 [HOST] Setting up connection for viewer:", viewerId);
+  console.log("🆕 [HOST] Creating answer for viewer offer:", viewerId);
 
   // Create fresh peer connection for this viewer
   const viewerPc = await buildPeer("host", FORCE_RELAY);
@@ -493,22 +492,21 @@ async function handleNewViewerConnection(
     await vSender.replaceTrack(videoTrack);
     const streamWithTrack = new MediaStream([videoTrack]);
     vSender.setStreams(streamWithTrack);
-    console.log("✅ [HOST] Video track attached to viewer connection:", viewerId);
+    console.log("✅ [HOST] Video track attached for viewer:", viewerId);
   }
 
   let aSender: RTCRtpSender | null = null;
   if (audioTrack) {
     aSender = ensureAudioSender(viewerPc, null);
     await aSender.replaceTrack(audioTrack);
-    console.log("✅ [HOST] Audio track attached to viewer connection:", viewerId);
+    console.log("✅ [HOST] Audio track attached for viewer:", viewerId);
   }
 
-  // 🔧 Set up ICE candidate handling BEFORE setLocalDescription to avoid race condition
+  // 🔧 Set up ICE candidate handling BEFORE setRemoteDescription
   const candHostCol = collection(db, "sessions", sessionId, "candidates_host");
   const candViewerCol = collection(db, "sessions", sessionId, `candidates_viewer_${viewerId}`);
 
-  // CRITICAL: Set onicecandidate handler BEFORE setLocalDescription
-  // Otherwise candidates generated during setLocalDescription are lost
+  // Set onicecandidate handler BEFORE creating answer
   viewerPc.onicecandidate = async (e) => {
     if (!e.candidate) {
       console.log("✅ [HOST] ICE gathering complete for viewer:", viewerId);
@@ -531,17 +529,28 @@ async function handleNewViewerConnection(
     }
   };
 
-  // Set the original offer as local description
-  await viewerPc.setLocalDescription(new RTCSessionDescription({ type: "offer", sdp: offerSdp }));
-  console.log("✅ [HOST] Local description (offer) set for viewer:", viewerId);
+  // Apply viewer's offer as remote description
+  console.log("📥 [HOST] Setting remote description (viewer's offer)");
+  await viewerPc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: offerData.sdp }));
 
-  // Set the viewer's answer as remote description
-  if (answerData?.sdp) {
-    await viewerPc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: answerData.sdp }));
-    console.log("✅ [HOST] Remote description (answer) set for viewer:", viewerId);
-  } else {
-    throw new Error(`No SDP in answer for viewer ${viewerId}`);
-  }
+  // Create answer
+  console.log("🎬 [HOST] Creating answer for viewer:", viewerId);
+  const answer = await viewerPc.createAnswer();
+
+  // Set answer as local description
+  await viewerPc.setLocalDescription(answer);
+  console.log("✅ [HOST] Answer created and set as local description");
+
+  // Publish answer to Firestore
+  const answersDoc = doc(db, "sessions", sessionId, "answers", viewerId);
+  await setDoc(answersDoc, {
+    type: "answer",
+    sdp: answer.sdp,
+    at: Date.now(),
+    tag,
+    viewerId,
+  });
+  console.log("✅ [HOST] Answer published for viewer:", viewerId);
 
   // Listen for ICE candidates from this viewer
   const unsubCandidates = onSnapshot(
@@ -582,7 +591,7 @@ async function handleNewViewerConnection(
     createdAt: Date.now(),
   });
 
-  console.log("🎉 [HOST] Viewer connection setup complete:", viewerId);
+  console.log("🎉 [HOST] Answer complete for viewer:", viewerId);
 }
 
 // utils/webrtc.ts
@@ -615,11 +624,6 @@ export async function startHost(
   currentSessionId = sessionId;
   hostTag = Date.now();
 
-  // 🔧 Create a TEMPLATE peer connection just to generate the offer
-  // This will be closed after the offer is created
-  const templatePc = await buildPeer("host", opts?.forceRelay ?? FORCE_RELAY);
-  if (!templatePc) throw new Error("Failed to create template RTCPeerConnection");
-
   // Keep references to tracks so we can attach them to each viewer connection
   let currentVideoTrack: MediaStreamTrack | null = null;
   let currentAudioTrack: MediaStreamTrack | null = null;
@@ -641,42 +645,19 @@ export async function startHost(
       console.log("📹 [startHost] Captured display via getDisplayMedia");
     }
 
-    const vSender = ensureVideoSender(templatePc, null);
-    
-    // Ensure sender has an associated stream so SDP gets proper a=msid lines.
-    try {
-      vSender.setStreams(new MediaStream());
-      console.log("🪪 [HOST] setStreams applied to video sender");
-    } catch (e) {
-      console.warn("⚠️ [HOST] setStreams not supported?", e);
-    }
-
     if (screenTrack) {
-      // Use the real screen track
       try { (screenTrack as any).contentHint = "detail"; } catch {}
-      currentVideoTrack = screenTrack; // Save for viewer connections
-
-      await vSender.replaceTrack(screenTrack);
-      const streamWithTrack = new MediaStream([screenTrack]);
-      vSender.setStreams(streamWithTrack);
-
-      console.log("✅ [startHost] Canvas track added to template:", {
+      currentVideoTrack = screenTrack;
+      console.log("✅ [startHost] Video track ready:", {
         trackId: screenTrack.id,
         readyState: screenTrack.readyState,
         enabled: screenTrack.enabled,
         muted: screenTrack.muted,
         label: screenTrack.label
       });
-
-      // Nudge first frame
-      try { (vSender as any)?.track?.requestFrame?.(); } catch {}
     } else {
-      // No display provided; send a placeholder slate
       const placeholder = createLoadingSlateTrack(opts?.loadingText ?? "Waiting for presenter…");
-      currentVideoTrack = placeholder; // Save for viewer connections
-
-      await vSender.replaceTrack(placeholder);
-      try { (vSender as any)?.track?.requestFrame?.(); } catch {}
+      currentVideoTrack = placeholder;
       console.log("⚠️ [startHost] Using placeholder track (no displayStream provided)");
     }
 
@@ -689,52 +670,30 @@ export async function startHost(
         micStream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
         throw new Error("No audio track from microphone");
       }
-      currentAudioTrack = micTrack; // Save for viewer connections
-
-      const aSender = ensureAudioSender(templatePc, null);
-      await aSender.replaceTrack(micTrack);
+      currentAudioTrack = micTrack;
     }
-  
-    // ---- Create and publish the offer ----
-    const offersDoc = doc(db, "sessions", sessionId, "offers", "latest");
 
-    const offer = await templatePc.createOffer();
-
-    console.log("📝 [HOST] Offer SDP contains video?", offer.sdp?.includes("m=video"));
-    console.log("📝 [HOST] Offer SDP preview:", offer.sdp?.substring(0, 200));
-
-    await templatePc.setLocalDescription(offer);
-
-    // Save the offer SDP for creating per-viewer connections
-    const offerSdp = offer.sdp!;
-
-    // Publish the offer
-    await setDoc(offersDoc, {
-      type: "offer",
-      sdp: offerSdp,
+    // 🔧 NEW APPROACH: Don't create an offer
+    // Instead, publish a "ready" signal and wait for viewer offers
+    const readyDoc = doc(db, "sessions", sessionId, "host_ready", "status");
+    await setDoc(readyDoc, {
+      ready: true,
       at: hostTag,
       tag: hostTag,
-      ufrag: getUfrag(offer),
+      hasVideo: !!currentVideoTrack,
+      hasAudio: !!currentAudioTrack,
     });
 
-    console.log("✅ [HOST] Offer published to Firestore");
-
-    // 🔧 Close the template peer connection - we don't need it anymore
-    // Each viewer will get their own fresh connection
-    try {
-      templatePc.close();
-      console.log("✅ [HOST] Template peer connection closed");
-    } catch (e) {
-      console.warn("⚠️ [HOST] Error closing template peer connection:", e);
-    }
-
-    // 🔧 Listen for viewer answers at the COLLECTION level (not single document)
-    // Each viewer publishes to their own document: sessions/{sessionId}/answers/{viewerId}
-    const answersCol = collection(db, "sessions", sessionId, "answers");
-
-    console.log("🎯 [HOST] Setting up answer collection listener at:", `sessions/${sessionId}/answers/`);
-    console.log("🎯 [HOST] Current offer tag:", hostTag);
+    console.log("✅ [HOST] Published ready signal");
+    console.log("🎯 [HOST] Current tag:", hostTag);
     console.log("🎯 [HOST] Video track ready:", !!currentVideoTrack);
+    console.log("🎯 [HOST] Audio track ready:", !!currentAudioTrack);
+
+    // 🔧 Listen for viewer OFFERS (role reversal)
+    // Each viewer creates an offer, host creates answer
+    const offersCol = collection(db, "sessions", sessionId, "offers");
+
+    console.log("🎯 [HOST] Setting up offer collection listener at:", `sessions/${sessionId}/offers/`);
 
     if (unsubViewerAnswersCollection) {
       unsubViewerAnswersCollection();
@@ -742,9 +701,9 @@ export async function startHost(
     }
 
     unsubViewerAnswersCollection = onSnapshot(
-      answersCol,
+      offersCol,
       async (snap) => {
-        console.log("📨 [HOST] Answer collection snapshot triggered!");
+        console.log("📨 [HOST] Offer collection snapshot triggered!");
         console.log("📨 [HOST] Total docs in collection:", snap.size);
         console.log("📨 [HOST] Document changes:", snap.docChanges().length);
         console.log("📨 [HOST] Change types:", snap.docChanges().map(ch => `${ch.type}:${ch.doc.id}`));
@@ -756,27 +715,34 @@ export async function startHost(
         for (const ch of snap.docChanges()) {
           if (ch.type !== "added") {
             console.log(`⏭️ [HOST] Skipping ${ch.type} change for doc:`, ch.doc.id);
-            continue; // Only handle new viewers
+            continue;
           }
 
           const viewerId = ch.doc.id;
+
+          // Skip the old "latest" document if it exists
+          if (viewerId === "latest") {
+            console.log("⏭️ [HOST] Skipping legacy 'latest' offer document");
+            continue;
+          }
+
           const data = ch.doc.data() as any;
 
-          console.log("📦 [HOST] New viewer answer from:", viewerId, "data:", {
-            hasSDp: !!data?.sdp,
+          console.log("📦 [HOST] New viewer offer from:", viewerId, "data:", {
+            hasSDP: !!data?.sdp,
             tag: data?.tag,
             viewerId: data?.viewerId
           });
 
-          // Validate answer data
+          // Validate offer data
           if (!data?.sdp) {
-            console.warn("❌ [HOST] No SDP in answer from viewer:", viewerId);
+            console.warn("❌ [HOST] No SDP in offer from viewer:", viewerId);
             continue;
           }
 
-          // Check tag matches current offer
+          // Check tag matches current session
           if (Number(data.tag) !== Number(hostTag)) {
-            console.log(`↪️ [HOST] Ignoring answer for different tag from viewer ${viewerId}`, {
+            console.log(`↪️ [HOST] Ignoring offer for different tag from viewer ${viewerId}`, {
               expected: hostTag,
               got: data.tag
             });
@@ -789,28 +755,27 @@ export async function startHost(
             continue;
           }
 
-          // Create peer connection for this viewer
-          console.log("🔨 [HOST] About to create connection for viewer:", viewerId);
+          // Create answer for this viewer
+          console.log("🔨 [HOST] About to create answer for viewer:", viewerId);
           try {
-            await handleNewViewerConnection(
+            await handleViewerOffer(
               sessionId,
               viewerId,
               data,
-              offerSdp,
               currentVideoTrack,
               currentAudioTrack,
               hostTag
             );
-            console.log("✅ [HOST] Successfully created connection for viewer:", viewerId);
+            console.log("✅ [HOST] Successfully created answer for viewer:", viewerId);
             console.log("📊 [HOST] Total active viewers:", viewerConnections.size);
           } catch (err) {
-            console.error(`💥 [HOST] Failed to create connection for viewer ${viewerId}:`, err);
+            console.error(`💥 [HOST] Failed to create answer for viewer ${viewerId}:`, err);
             console.error("Stack trace:", err);
           }
         }
       },
       (err) => {
-        console.error("🔥 [HOST] Answer collection listener error:", err);
+        console.error("🔥 [HOST] Offer collection listener error:", err);
       }
     );
 
@@ -830,26 +795,28 @@ export async function startViewer(
   const viewerId = crypto.randomUUID ? crypto.randomUUID() : `viewer_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   console.log("🆔 [VIEWER] Generated unique viewer ID:", viewerId);
 
-  const offersRef = doc(db, "sessions", sessionId, "offers", "latest");
-  const offSnap = await getDoc(offersRef);
-  const offerData = offSnap.data() as any;
-  if (!offerData?.sdp) throw new Error("No offer from host yet.");
+  // 🔧 NEW APPROACH: Wait for host ready signal instead of fetching offer
+  const readyDoc = doc(db, "sessions", sessionId, "host_ready", "status");
+  const readySnap = await getDoc(readyDoc);
+  const readyData = readySnap.data() as any;
 
-  const tag = offerData.tag ?? offerData.at ?? Date.now();
+  if (!readyData?.ready) {
+    throw new Error("Host is not ready yet. Please wait for the host to start streaming.");
+  }
+
+  const tag = readyData.tag ?? readyData.at ?? Date.now();
+  const hasVideo = readyData.hasVideo ?? true;
+  const hasAudio = readyData.hasAudio ?? false;
+
+  console.log("✅ [VIEWER] Host is ready, tag:", tag, "hasVideo:", hasVideo, "hasAudio:", hasAudio);
 
   const viewerPc = await buildPeer("viewer", FORCE_RELAY);
-  const answersCol = collection(db, "sessions", sessionId, "answers");
   const candHostCol = collection(db, "sessions", sessionId, "candidates_host");
-  // 🔧 Each viewer gets their own candidate subcollection
   const candViewerCol = collection(db, "sessions", sessionId, `candidates_viewer_${viewerId}`);
 
-  // --- Prepare to receive before SRD (fixes flaky ontrack/black video in some browsers) ---
-  const offerSdpText = offerData.sdp as string;
-  const offerHasAudio = sdpHasMediaKind(offerSdpText, "audio");
-
-  // Pre-declare recv-only transceivers BEFORE SRD
+  // Pre-declare recv-only transceivers
   viewerPc.addTransceiver("video", { direction: "recvonly" });
-  if (offerHasAudio) viewerPc.addTransceiver("audio", { direction: "recvonly" });
+  if (hasAudio) viewerPc.addTransceiver("audio", { direction: "recvonly" });
 
   // Prefer VP8 then H264 on the receiving side
   try {
@@ -957,16 +924,13 @@ export async function startViewer(
     }
   }, 250);
 
-  // Now apply the remote offer
-  await viewerPc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: offerData.sdp }));
-  const remoteUfrag = getUfrag(viewerPc.remoteDescription);
+  // 🔧 NEW: Create OFFER (viewer-initiated)
+  console.log("🎬 [VIEWER] Creating offer...");
+  const offer = await viewerPc.createOffer();
+  console.log("✅ [VIEWER] Offer created, setting as local description...");
 
-  console.log("🎬 [VIEWER] Creating answer...");
-  const answer = await viewerPc.createAnswer();
-  console.log("✅ [VIEWER] Answer created, setting as local description...");
-  
-  await viewerPc.setLocalDescription(answer);
-  console.log("✅ [VIEWER] setLocalDescription complete");
+  await viewerPc.setLocalDescription(offer);
+  console.log("✅ [VIEWER] setLocalDescription complete (offer)");
   // Debug: inbound video stats probe (every 2s)
   try {
     let lastBytes = 0, lastFrames = 0;
@@ -994,32 +958,72 @@ export async function startViewer(
   console.log("🔍 [VIEWER] ICE gathering state:", viewerPc.iceGatheringState);
   console.log("🔍 [VIEWER] Signaling state:", viewerPc.signalingState);
 
-  // After await viewerPc.setLocalDescription(answer);
-  const myUfrag = getUfrag(answer) || getUfrag(viewerPc.localDescription) || null;
+  const myUfrag = getUfrag(offer) || getUfrag(viewerPc.localDescription) || null;
 
-  // 🔧 Publish answer to per-viewer path for multi-viewer support
+  // 🔧 Publish OFFER to per-viewer path
   try {
-    const answersDoc = doc(db, "sessions", sessionId, "answers", viewerId);
-    console.log("📤 [VIEWER] Publishing answer to:", `sessions/${sessionId}/answers/${viewerId}`);
-    console.log("📤 [VIEWER] Answer SDP preview:", answer.sdp?.substring(0, 100));
+    const offersDoc = doc(db, "sessions", sessionId, "offers", viewerId);
+    console.log("📤 [VIEWER] Publishing offer to:", `sessions/${sessionId}/offers/${viewerId}`);
+    console.log("📤 [VIEWER] Offer SDP preview:", offer.sdp?.substring(0, 100));
 
-    const answerKey = `${sessionId}_${viewerId}`;
-    if (!publishedAnswersFor.has(answerKey)) {
-      await setDoc(answersDoc, {
-        type: "answer",
-        sdp: answer.sdp,
-        at: Date.now(),
-        tag,
-        viewerId // Include viewerId in the document for tracking
-      }, { merge: true });
-      publishedAnswersFor.add(answerKey);
-      console.log("✅ [VIEWER] Answer published successfully!", { sessionId, viewerId, tag });
-    } else {
-      console.log("⚠️ [VIEWER] Skipped duplicate answer publish", { sessionId, viewerId });
-    }
+    await setDoc(offersDoc, {
+      type: "offer",
+      sdp: offer.sdp,
+      at: Date.now(),
+      tag,
+      viewerId,
+    });
+    console.log("✅ [VIEWER] Offer published successfully!", { sessionId, viewerId, tag });
   } catch (e) {
-    console.error("💥 [VIEWER] FAILED to publish answer doc:", e);
+    console.error("💥 [VIEWER] FAILED to publish offer doc:", e);
+    throw e;
   }
+
+  // 🔧 Listen for host's answer
+  console.log("👂 [VIEWER] Waiting for answer from host...");
+  const answersDoc = doc(db, "sessions", sessionId, "answers", viewerId);
+
+  const unsubAnswer = onSnapshot(
+    answersDoc,
+    async (snap) => {
+      if (!snap.exists()) {
+        console.log("⏳ [VIEWER] Answer document doesn't exist yet");
+        return;
+      }
+
+      const data = snap.data() as any;
+      console.log("📨 [VIEWER] Received answer from host!");
+
+      if (!data?.sdp) {
+        console.warn("❌ [VIEWER] No SDP in answer");
+        return;
+      }
+
+      // Check tag matches
+      if (Number(data.tag) !== Number(tag)) {
+        console.log(`↪️ [VIEWER] Ignoring answer for different tag`, {
+          expected: tag,
+          got: data.tag
+        });
+        return;
+      }
+
+      try {
+        console.log("📥 [VIEWER] Applying answer as remote description...");
+        await viewerPc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: data.sdp }));
+        console.log("✅ [VIEWER] Answer applied successfully!");
+        console.log("🔌 [VIEWER] ICE connection state:", viewerPc.iceConnectionState);
+
+        // Stop listening for answers
+        unsubAnswer();
+      } catch (err) {
+        console.error("💥 [VIEWER] Failed to apply answer:", err);
+      }
+    },
+    (err) => {
+      console.error("🔥 [VIEWER] Answer listener error:", err);
+    }
+  );
 
   // 🚀 Publish viewer ICE candidates with tag + ufrag + viewerId
   viewerPc.onicecandidate = (e) => {
@@ -1078,6 +1082,10 @@ export async function startViewer(
     candHostCol,
     async (snap) => {
       console.log("📥 [VIEWER] Received host candidates snapshot, docChanges:", snap.docChanges().length);
+
+      // Get current remote ufrag (from answer)
+      const remoteUfrag = getUfrag(viewerPc.remoteDescription);
+
       for (const ch of snap.docChanges()) {
         if (ch.type !== "added") continue;
         const data = ch.doc.data() as any;
@@ -1094,7 +1102,12 @@ export async function startViewer(
           // Different offer cycle — ignore
           continue;
         }
-        if (remoteUfrag && data?.ufrag && data.ufrag !== remoteUfrag) continue;
+
+        // Check ufrag match (only if we have remote description set)
+        if (remoteUfrag && data?.ufrag && data.ufrag !== remoteUfrag) {
+          console.log(`⏭️ [VIEWER] Skipping candidate due to ufrag mismatch`);
+          continue;
+        }
 
         console.log("🧊 [VIEWER] Adding host candidate:", data.candidate.candidate?.substring(0, 60));
         try {
