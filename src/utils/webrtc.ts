@@ -563,6 +563,18 @@ async function handleViewerOffer(
         await vSender.replaceTrack(videoTrack);
         const streamWithTrack = new MediaStream([videoTrack]);
         vSender.setStreams(streamWithTrack);
+
+        // Request a frame immediately so new viewer gets current frame
+        // This is crucial for dirty-rendered canvases that may not redraw often
+        if ('requestFrame' in videoTrack && typeof (videoTrack as any).requestFrame === 'function') {
+          try {
+            (videoTrack as any).requestFrame();
+            console.log("🎬 [HOST] Requested initial frame for new viewer:", viewerId);
+          } catch (err) {
+            console.warn("⚠️ [HOST] requestFrame failed:", err);
+          }
+        }
+
         console.log("✅ [HOST] Video track attached for viewer:", viewerId, {
           trackId: videoTrack.id,
           readyState: videoTrack.readyState,
