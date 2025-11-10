@@ -1061,9 +1061,6 @@ function PresenterPage() {
           height: isLayersPanelCollapsed ? LAYERS_PANEL_COLLAPSED_HEIGHT : LAYERS_PANEL_EXPANDED_HEIGHT,
         }}
         onPositionChange={setPanelPosition}
-        collapsible
-        collapsed={isLayersPanelCollapsed}
-        onToggleCollapse={() => setLayersPanelCollapsed((prev) => !prev)}
       >
         <LayersPanel
           layers={sceneLayers}
