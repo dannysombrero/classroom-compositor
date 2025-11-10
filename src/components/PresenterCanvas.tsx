@@ -117,7 +117,9 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
       }
 
       drawScene(currentScene, ctx, { skipLayerIds, dirtyRect });
-      requestCurrentStreamFrame();
+      // NOTE: requestCurrentStreamFrame() removed - captureStream(fps) automatically
+      // captures frames as the canvas is drawn. Calling requestFrame() on every render
+      // was causing performance issues by forcing frame capture too frequently.
 
       dirtyRef.current = false;
       previousSceneRef.current = currentScene ?? null;

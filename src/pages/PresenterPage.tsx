@@ -816,22 +816,11 @@ function PresenterPage() {
         const track = displayStream.getVideoTracks()[0];
         if (track) {
           try {
-            // Request a frame immediately to ensure the track is producing frames
-            if ('requestFrame' in track && typeof (track as any).requestFrame === 'function') {
-              try {
-                (track as any).requestFrame();
-                console.log("🎬 [handleGoLive] Requested initial frame from canvas track");
-              } catch (err) {
-                console.warn("⚠️ [handleGoLive] requestFrame failed", err);
-              }
-            }
-
             replaceHostVideoTrack(track);
             console.log("📹 [handleGoLive] Canvas track pre-attached to sender", {
               trackId: track.id,
               readyState: track.readyState,
             });
-
           } catch (err) {
             console.warn("⚠️ [handleGoLive] replaceHostVideoTrack failed pre-offer", err);
           }
