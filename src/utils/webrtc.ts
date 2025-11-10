@@ -78,17 +78,30 @@ function ensureVideoSender(pc: RTCPeerConnection, sender: RTCRtpSender | null): 
  *   setHostVideoTrack(track)
  */
 export async function replaceHostVideoTrack(newTrack: MediaStreamTrack | null) {
-  if (!pc) {
-    console.warn("[replaceHostVideoTrack] PeerConnection not initialized; skipping video swap until Go Live.");
+  const hostPc = getPc();
+  if (!hostPc) {
+    console.warn("[replaceHostVideoTrack] No peer connection");
     return;
   }
   
-  const hostPc = pc;
-  const vSender = (videoSender = ensureVideoSender(hostPc, videoSender));
+  if (!videoSender) {
+    console.warn("[replaceHostVideoTrack] No video sender");
+    return;
+  }
   
   try {
     console.log("🎥 [HOST] Replacing video track with:", newTrack ? "canvas track" : "null");
-    await vSender.replaceTrack(newTrack);
+    await videoSender.replaceTrack(newTrack);
+    
+    if (newTrack) {
+      const dummyStream = new MediaStream([newTrack]);
+      videoSender.setStreams(dummyStream);
+      console.log("✅ [HOST] Stream associated with sender");
+    }
+    
+    // Nudge a first frame for canvas/synthetic tracks
+    try { (videoSender as any)?.track?.requestFrame?.(); } catch {}
+    
     console.log("✅ [HOST] Video track replaced successfully");
   } catch (err) {
     console.error("💥 [HOST] Failed to replace video track:", err);
@@ -305,22 +318,44 @@ async function tryFetchAnswerOnce(answersColRef: any, tag: number, pcRef: RTCPee
   }
 }
 
-export async function attachStreamToVideo(video: HTMLVideoElement, stream: MediaStream): Promise<void> {
-  (video as any).srcObject = stream;
-  video.muted = true;
-  (video as any).playsInline = true;
-  video.autoplay = true;
-  if (video.readyState < 2) {
-    await new Promise<void>((resolve) => {
-      video.onloadedmetadata = () => { video.onloadedmetadata = null; resolve(); };
-    });
+  export async function attachStreamToVideo(video: HTMLVideoElement, stream: MediaStream): Promise<void> {
+    (video as any).srcObject = stream;
+    video.muted = true;
+    (video as any).playsInline = true;
+    video.autoplay = true;
+
+    const tryPlay = async () => {
+      try { await video.play(); } catch (err) {
+        console.warn("video.play was blocked by autoplay policy.", err);
+      }
+    };
+
+    // Kick on metadata or first resize, whichever comes first (first dimensioned frame)
+    let done = false;
+    const onMeta = () => {
+      if (done) return; done = true;
+      video.removeEventListener("loadedmetadata", onMeta);
+      video.removeEventListener("resize", onResize);
+      void tryPlay();
+    };
+    const onResize = () => {
+      if (done) return; done = true;
+      video.removeEventListener("loadedmetadata", onMeta);
+      video.removeEventListener("resize", onResize);
+      void tryPlay();
+    };
+
+    video.addEventListener("loadedmetadata", onMeta, { once: true });
+    video.addEventListener("resize", onResize, { once: true });
+
+    // If it's already ready, play now
+    if (video.readyState >= 2) {
+      done = true;
+      video.removeEventListener("loadedmetadata", onMeta);
+      video.removeEventListener("resize", onResize);
+      await tryPlay();
+    }
   }
-  try {
-    await video.play();
-  } catch (err) {
-    console.warn("video.play was blocked by autoplay policy.", err);
-  }
-}
 
 // Create a loading/placeholder video track using a canvas animation.
 export function createLoadingSlateTrack(
@@ -378,6 +413,8 @@ function getPc(): RTCPeerConnection {
 // Firestore unsubscribers for host side
 let unsubViewerAnswers: (() => void) | null = null;
 let unsubViewerCandidates: (() => void) | null = null;
+// Safety valve: limit re-offer retries per tag to avoid loops
+const srdRetryCountByTag = new Map<number, number>();
 
 export async function stopHost(keepPc = false): Promise<void> {
     // Unsubscribe Firestore listeners
@@ -451,11 +488,23 @@ export async function startHost(
     
     const vSender = (videoSender = ensureVideoSender(hostPc, videoSender));
     
+    // Ensure sender has an associated stream so SDP gets proper a=msid lines.
+    try {
+      vSender.setStreams(new MediaStream());
+      console.log("🪪 [HOST] setStreams applied to video sender");
+    } catch (e) {
+      console.warn("⚠️ [HOST] setStreams not supported?", e);
+    }
+
     if (screenTrack) {
+      // Use the real screen track
       try { (screenTrack as any).contentHint = "detail"; } catch {}
       await vSender.replaceTrack(screenTrack);
       
-      // ✅ Debug: Confirm track was added
+      const streamWithTrack = new MediaStream([screenTrack]);
+      vSender.setStreams(streamWithTrack);
+      console.log("✅ [startHost] Stream associated with sender (before offer)");
+      
       console.log("✅ [startHost] Canvas track added to sender:", {
         trackId: screenTrack.id,
         readyState: screenTrack.readyState,
@@ -464,25 +513,29 @@ export async function startHost(
         label: screenTrack.label
       });
       
+      // Nudge first frame
+      try { (vSender as any)?.track?.requestFrame?.(); } catch {}
+
       if (screenTrack.muted) {
         const onUnmute = async () => {
-          screenTrack!.removeEventListener("unmute", onUnmute);
-          try { await vSender.replaceTrack(screenTrack!); } catch {}
+          screenTrack.removeEventListener("unmute", onUnmute);
+          try { await vSender.replaceTrack(screenTrack); } catch {}
         };
         screenTrack.addEventListener("unmute", onUnmute, { once: true });
       }
-      
+
       screenTrack.onended = async () => {
         try {
           const placeholder = createLoadingSlateTrack(opts?.loadingText ?? "Waiting for presenter…");
           await vSender.replaceTrack(placeholder);
+          try { (vSender as any)?.track?.requestFrame?.(); } catch {}
         } catch {}
       };
     } else {
+      // No display provided; send a placeholder slate
       const placeholder = createLoadingSlateTrack(opts?.loadingText ?? "Waiting for presenter…");
       await vSender.replaceTrack(placeholder);
-      
-      // ⚠️ Debug: No real track provided
+      try { (vSender as any)?.track?.requestFrame?.(); } catch {}
       console.log("⚠️ [startHost] Using placeholder track (no displayStream provided)");
     }
 
@@ -498,7 +551,7 @@ export async function startHost(
       const aSender = (audioSender = ensureAudioSender(hostPc, audioSender));
       await aSender.replaceTrack(micTrack);
     }
-
+  
     // ---- Firestore signaling ----
     const offersDoc = doc(db, "sessions", sessionId, "offers", "latest");
     const candHostCol = collection(db, "sessions", sessionId, "candidates_host");
@@ -506,27 +559,23 @@ export async function startHost(
 
     hostPc.onicecandidate = async (e) => {
       console.log("🧊 [HOST] ICE candidate event fired, candidate:", e.candidate ? "YES" : "null (gathering complete)");
-      
-      if (!e.candidate) {
-        console.log("✅ [HOST] ICE gathering complete");
-        return;
-      }
-      
+      if (!e.candidate) { console.log("✅ [HOST] ICE gathering complete"); return; }
+
       try {
         const myUfrag = getUfrag(hostPc.localDescription);
-        console.log("📤 [HOST] Writing ICE candidate to Firestore...", { 
+        console.log("📤 [HOST] Writing ICE candidate to Firestore...", {
           candidate: e.candidate.candidate.substring(0, 50),
-          type: e.candidate.type 
+          type: e.candidate.type
         });
-        
+
         await addDoc(candHostCol, {
           candidate: e.candidate.toJSON(),
           at: Date.now(),
           from: "host",
-          tag,
-          ufrag: myUfrag,
+          tag,                 // <-- scope by current offer
+          ufrag: myUfrag,      // <-- include ufrag
         });
-        
+
         console.log("✅ [HOST] ICE candidate written successfully");
       } catch (err) {
         console.error("💥 [HOST] FAILED to write ICE candidate:", err);
@@ -534,7 +583,7 @@ export async function startHost(
     };
 
     const offer = await hostPc.createOffer();
-    
+
     console.log("📝 [HOST] Offer SDP contains video?", offer.sdp?.includes("m=video"));
     console.log("📝 [HOST] Offer SDP preview:", offer.sdp?.substring(0, 200));
     const senders = hostPc.getSenders();
@@ -545,12 +594,28 @@ export async function startHost(
       trackId: videoSenderObj?.track?.id,
       trackReadyState: videoSenderObj?.track?.readyState
     });
-    
+
     await hostPc.setLocalDescription(offer);
-    await setDoc(offersDoc, { type: "offer", sdp: offer.sdp, at: tag, tag });
+
+    // Publish the offer with tag + ufrag
+    await setDoc(offersDoc, {
+      type: "offer",
+      sdp: offer.sdp,
+      at: tag,
+      tag,
+      ufrag: getUfrag(offer),
+    });
+
+    // ADD THESE AFTER setDoc closes:
+    console.log("📤 [HOST] Offer written to Firestore, checking...");
+    const checkDoc = await getDoc(offersDoc);
+    const storedSdp = checkDoc.data()?.sdp;
+    console.log("🔍 [HOST] SDP match?", storedSdp === offer.sdp);
+    console.log("🔍 [HOST] Stored SDP has msid?", storedSdp?.includes("a=msid"));
 
     console.log("[host] mids:", hostPc.getTransceivers().map((t) => t.mid));
     console.log("[host] SRD set?", !!hostPc.remoteDescription);
+
 
     // Buffer viewer ICE until SRD applied
     pendingViewerCandidates = [];
@@ -561,26 +626,26 @@ export async function startHost(
         for (const ch of snap.docChanges()) {
           if (ch.type !== "added") continue;
           const data = ch.doc.data() as any;
-          if (data?.tag !== tag || !data?.candidate) continue;
+          if (!data?.candidate) continue;
+          if (data?.tag !== tag) continue; // <-- ignore different offer
 
           const cand: RTCIceCandidateInit = data.candidate;
           if (!hostPc.remoteDescription) {
-            const c: any = { ...cand };
-            (c as any).ufrag = (data && typeof data.ufrag === "string") ? data.ufrag : undefined;
+            const c: any = { ...cand, ufrag: typeof data.ufrag === "string" ? data.ufrag : undefined };
             pendingViewerCandidates.push(c);
             continue;
           }
           const expectedUfrag = getUfrag(hostPc.remoteDescription ?? null);
-          const candUfrag = (data && typeof data.ufrag === "string") ? data.ufrag : undefined;
-          // Only enforce when BOTH are present; otherwise accept (Firefox may omit)
+          const candUfrag = (typeof data.ufrag === "string") ? data.ufrag : undefined;
           if (expectedUfrag && candUfrag && candUfrag !== expectedUfrag) {
             console.warn("[host] skipping viewer cand due to ufrag mismatch", { candUfrag, expectedUfrag });
             continue;
           }
           try {
             await safeAddIceCandidate(hostPc, cand);
+            console.log("✅ [HOST] Added viewer ICE", cand.candidate?.substring?.(0, 60));
           } catch (err) {
-            console.warn("[host] addIceCandidate(viewer) failed", err);
+            console.warn("❌ [HOST] addIceCandidate(viewer) failed", err);
           }
         }
       },
@@ -596,22 +661,19 @@ export async function startHost(
       answersDoc,
       async (snap) => {
         console.log("📨 [HOST] Answer snapshot triggered, exists:", snap.exists());
-
-        if (!snap.exists()) {
-          console.log("⚠️ [HOST] Answer doc doesn't exist yet");
-          return;
-        }
+        if (!snap.exists()) { console.log("⚠️ [HOST] Answer doc doesn't exist yet"); return; }
 
         const data = snap.data() as any;
         console.log("📦 [HOST] Answer data received:", data ? JSON.stringify(data).substring(0, 200) : "null");
+        if (!data?.sdp) { console.log("❌ [HOST] No SDP field in answer document"); return; }
 
-        if (!data?.sdp) {
-          console.log("❌ [HOST] No SDP field in answer document");
+        // 🚫 IMPORTANT: only accept the answer if it matches THIS offer/tag
+        if (Number(data.tag) !== Number(tag)) {
+          console.log("↪️ [HOST] Ignoring answer for a different tag", { expected: tag, got: data.tag });
           return;
         }
 
-        const canApplySRD =
-          hostPc.signalingState === "have-local-offer" && !hostPc.remoteDescription;
+        const canApplySRD = hostPc.signalingState === "have-local-offer" && !hostPc.remoteDescription;
 
         if (canApplySRD) {
           console.log("✅ [HOST] Calling setRemoteDescription with answer...");
@@ -626,14 +688,34 @@ export async function startHost(
             return;
           }
         } else {
-          // If we're already stable with a remote description, don't try to SRD again —
-          // but DO proceed to drain any queued viewer candidates.
-          console.log("ℹ️ [HOST] Skipping SRD. State:", hostPc.signalingState, "hasRemote:", !!hostPc.remoteDescription);
+          // Safety valve: if an answer arrives when we're not in 'have-local-offer',
+          // try a one-time re-offer with ICE restart and republish the offer
+          const already = srdRetryCountByTag.get(tag) ?? 0;
+          if (already < 1) {
+            console.warn("⚠️ [HOST] Answer arrived out-of-phase; re-offering with iceRestart");
+            try {
+              const re = await hostPc.createOffer({ iceRestart: true });
+              await hostPc.setLocalDescription(re);
+              await setDoc(offersDoc, {
+                type: "offer",
+                sdp: re.sdp,
+                at: Date.now(),
+                tag,
+                ufrag: getUfrag(re)
+              }, { merge: true });
+              srdRetryCountByTag.set(tag, already + 1);
+              // Wait for a fresh, tag-matched answer
+              return;
+            } catch (reErr) {
+              console.error("💥 [HOST] Re-offer (iceRestart) failed; proceeding without restart", reErr);
+            }
+          } else {
+            console.log("ℹ️ [HOST] Skipping SRD and already retried once; proceeding to drain ICE.");
+          }
         }
 
-        // Drain any queued ICE we buffered pre-SRD (also runs when already stable)
-        const expectedUfrag =
-          getUfrag(hostPc.remoteDescription ?? ({ sdp: data.sdp } as any));
+        // Drain buffered candidates (respect ufrag)
+        const expectedUfrag = getUfrag(hostPc.remoteDescription ?? ({ sdp: data.sdp } as any));
         for (const queued of pendingViewerCandidates) {
           const queuedUfrag = (queued as any).ufrag as string | undefined;
           if (expectedUfrag && queuedUfrag && queuedUfrag !== expectedUfrag) {
@@ -650,21 +732,20 @@ export async function startHost(
       }
     );
 
-    // Fallback fetch if snapshot listener hasn't fired
+    // Fallback fetch (kept)
     setTimeout(async () => {
       if (!hostPc.remoteDescription) {
         console.warn("⏰ [HOST] SRD still not set ~4s after offer. Trying fallback fetch...");
         try {
           const snap = await getDoc(answersDoc);
           console.log("📋 [HOST] Fallback fetch result, exists:", snap.exists());
-          
           const data = snap.data() as any;
-          if (data?.sdp && hostPc.signalingState === "have-local-offer") {
+          if (data?.sdp && hostPc.signalingState === "have-local-offer" && Number(data.tag) === Number(tag)) {
             console.log("✅ [HOST] Fallback found answer, applying...");
             await hostPc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: data.sdp }));
             console.log("🎉 [HOST] SRD set via fallback fetch!");
           } else {
-            console.warn("❌ [HOST] Fallback fetch found no valid answer");
+            console.warn("❌ [HOST] Fallback fetch found no valid answer (or wrong tag)");
           }
         } catch (err) {
           console.error("💥 [HOST] Fallback fetch error:", err);
@@ -680,7 +761,6 @@ export async function startHost(
     startingHost = false;
   }
 }
-
 /* ---------------- Viewer side ---------------- */
 
 export async function startViewer(
@@ -706,6 +786,28 @@ export async function startViewer(
   // Pre-declare recv-only transceivers BEFORE SRD
   viewerPc.addTransceiver("video", { direction: "recvonly" });
   if (offerHasAudio) viewerPc.addTransceiver("audio", { direction: "recvonly" });
+
+  // Prefer VP8 then H264 on the receiving side
+  try {
+    const caps = RTCRtpReceiver.getCapabilities && RTCRtpReceiver.getCapabilities("video");
+    if (caps && caps.codecs && caps.codecs.length) {
+      const prefer = [
+        ...caps.codecs.filter(c => /VP8/i.test(c.mimeType)),
+        ...caps.codecs.filter(c => /H264/i.test(c.mimeType)),
+        ...caps.codecs.filter(c => !/VP8|H264/i.test(c.mimeType)),
+      ];
+      // Best-effort: pick the video recv transceiver
+      const vRx =
+        viewerPc.getTransceivers().find(t => t.receiver?.track?.kind === "video") ??
+        viewerPc.getTransceivers().find(t => t.direction === "recvonly");
+      if (vRx && (vRx as any).setCodecPreferences) {
+        (vRx as any).setCodecPreferences(prefer);
+        console.log("[VIEWER] setCodecPreferences(video) ->", prefer.map(c => c.mimeType));
+      }
+    }
+  } catch (e) {
+    console.warn("[VIEWER] setCodecPreferences(video) not supported", e);
+  }
 
   // Set up ontrack BEFORE SRD so first frames aren't missed
   const viewerStream = new MediaStream();
@@ -741,6 +843,41 @@ export async function startViewer(
     console.log("[viewer] ontrack fired; stream tracks:", viewerStream.getTracks().map((t) => t.kind));
   };
 
+  // --- Fallback: if ontrack is flaky, attach via receiver polling
+  let deliveredViaOntrack = false;
+  const originalOntrack = viewerPc.ontrack;
+  viewerPc.ontrack = (ev: RTCTrackEvent) => {
+    deliveredViaOntrack = true;
+    originalOntrack?.call(viewerPc, ev as any);
+  };
+
+  const receiverFallbackStart = Date.now();
+  const receiverFallbackTimer = setInterval(() => {
+    // Stop after ~6s
+    if (Date.now() - receiverFallbackStart > 6000) {
+      clearInterval(receiverFallbackTimer);
+      return;
+    }
+    if (deliveredViaOntrack) {
+      clearInterval(receiverFallbackTimer);
+      return;
+    }
+    const vids = viewerPc.getReceivers().filter(r => r.track && r.track.kind === "video");
+    const v0 = vids[0]?.track;
+    if (v0 && v0.readyState !== "ended") {
+      console.log("🛟 [VIEWER] Receiver fallback attaching stream");
+      try {
+        const ms = new MediaStream([v0]);
+        onStream(ms);
+        // best-effort nudge for first frame on some GPUs
+        (v0 as any).requestFrame?.();
+      } catch (e) {
+        console.warn("⚠️ [VIEWER] Receiver fallback failed", e);
+      }
+      clearInterval(receiverFallbackTimer);
+    }
+  }, 250);
+
   // Now apply the remote offer
   await viewerPc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: offerData.sdp }));
   const remoteUfrag = getUfrag(viewerPc.remoteDescription);
@@ -751,8 +888,71 @@ export async function startViewer(
   
   await viewerPc.setLocalDescription(answer);
   console.log("✅ [VIEWER] setLocalDescription complete");
+  // Debug: inbound video stats probe (every 2s)
+  try {
+    let lastBytes = 0, lastFrames = 0;
+    const statsTimer = setInterval(async () => {
+      try {
+        const stats = await viewerPc.getStats();
+        stats.forEach((s: any) => {
+          if (s.type === "inbound-rtp" && s.kind === "video") {
+            const bytes = s.bytesReceived ?? 0;
+            const frames = s.framesDecoded ?? 0;
+            const dB = bytes - lastBytes;
+            const dF = frames - lastFrames;
+            lastBytes = bytes; lastFrames = frames;
+            console.log(`[VIEWER][stats] inbound video bytes:+${dB} framesDecoded:+${dF}`);
+          }
+        });
+      } catch {}
+    }, 2000);
+    viewerPc.addEventListener("connectionstatechange", () => {
+      if (["closed","failed","disconnected"].includes(viewerPc.connectionState)) {
+        clearInterval(statsTimer);
+      }
+    });
+  } catch {}
   console.log("🔍 [VIEWER] ICE gathering state:", viewerPc.iceGatheringState);
   console.log("🔍 [VIEWER] Signaling state:", viewerPc.signalingState);
+
+  // After await viewerPc.setLocalDescription(answer);
+  const myUfrag = getUfrag(answer) || getUfrag(viewerPc.localDescription) || null;
+
+  // Publish the answer (unchanged)
+  try {
+    const answersDoc = doc(db, "sessions", sessionId, "answers", "latest");
+    console.log("📤 [VIEWER] About to publish answer to:", `sessions/${sessionId}/answers/latest`);
+    console.log("📤 [VIEWER] Answer SDP preview:", answer.sdp?.substring(0, 100));
+
+    const answerKey = sessionId;
+    if (!publishedAnswersFor.has(answerKey)) {
+      await setDoc(answersDoc, { type: "answer", sdp: answer.sdp, at: Date.now(), tag }, { merge: true });
+      publishedAnswersFor.add(answerKey);
+      console.log("✅ [VIEWER] Answer published successfully!", { sessionId, tag });
+    } else {
+      console.log("⚠️ [VIEWER] Skipped duplicate answer publish", { sessionId });
+    }
+  } catch (e) {
+    console.error("💥 [VIEWER] FAILED to publish answer doc:", e);
+  }
+
+  // 🚀 Publish viewer ICE candidates with tag + ufrag
+  viewerPc.onicecandidate = (e) => {
+    if (!e.candidate) {
+      console.log("✅ [VIEWER] ICE gathering complete (null candidate)");
+      return;
+    }
+    console.log("🧊 [VIEWER] ICE -> publishing", e.candidate.candidate.substring(0, 60));
+    addDoc(candViewerCol, {
+      candidate: e.candidate.toJSON(),
+      at: Date.now(),
+      from: "viewer",
+      tag,
+      ufrag: myUfrag,
+    }).then(() => {
+      console.log("✅ [VIEWER] candidate published");
+    }).catch((err) => console.warn("[VIEWER] failed to write ICE", err));
+  };
 
   // Wait for ICE gathering to start (Firefox sometimes delays)
   if (viewerPc.iceGatheringState === "new") {
@@ -811,7 +1011,11 @@ export async function startViewer(
         if (ch.type !== "added") continue;
         const data = ch.doc.data() as any;
         if (!data?.candidate) continue;
-        if (data?.tag !== tag) continue;
+        // (lenient; only enforce if tag present)
+        if (data && "tag" in data && data.tag !== tag) {
+          // Different offer cycle — ignore
+          continue;
+        }
         if (remoteUfrag && data?.ufrag && data.ufrag !== remoteUfrag) continue;
         
         console.log("🧊 [VIEWER] Adding host candidate:", data.candidate.candidate?.substring(0, 60));

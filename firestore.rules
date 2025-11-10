@@ -1,33 +1,27 @@
 rules_version = '2';
 service cloud.firestore {
-  match /databases/{database}/documents {
-    
-    // Join codes collection (note: "joinCodes" to match your code)
-    match /joinCodes/{codeId} {
-      allow read, write: if true;
-    }
-    
-    // Sessions
+  match /databases/{db}/documents {
+
+    // Allow the host and viewers to negotiate within a session namespace.
     match /sessions/{sessionId} {
-      allow read, write: if true;
-      
-      // Offers
-      match /offers/{offerId} {
+      // Offers & answers singletons
+      match /offers/{docId} {
         allow read, write: if true;
       }
-      
-      // Answers
-      match /answers/{answerId} {
+      match /answers/{docId} {
         allow read, write: if true;
       }
-      
-      // Host ICE candidates
-      match /candidates_host/{candidateId} {
+
+      // ICE candidate fanouts
+      match /candidates_host/{candId} {
         allow read, write: if true;
       }
-      
-      // Viewer ICE candidates
-      match /candidates_viewer/{candidateId} {
+      match /candidates_viewer/{candId} {
+        allow read, write: if true;
+      }
+
+      // Optional: code mapping collection if you use it
+      match /codes/{codeId} {
         allow read, write: if true;
       }
     }

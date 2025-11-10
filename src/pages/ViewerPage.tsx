@@ -45,6 +45,35 @@ export default function ViewerPage() {
     if (p && typeof p.then === "function") {
       p.then(() => setNeedsTap(false)).catch(() => setNeedsTap(true));
     }
+
+    // First-frame watchdog: if no frames arrive quickly, try play() again
+    const watchdog = setTimeout(async () => {
+      if (!v) return;
+      try {
+        if (v.readyState < 2 || v.paused) {
+          console.log("▶ [VIEWER] Watchdog nudging video.play()");
+          await v.play();
+          setNeedsTap(false);
+        }
+      } catch (e) {
+        // Autoplay may still be blocked; overlay/button will remain
+        console.warn("⚠️ [VIEWER] Watchdog play() failed:", e);
+      }
+    }, 1500);
+
+    // Clear watchdog once we actually have data buffered
+    const onLoadedData = () => {
+      clearTimeout(watchdog);
+    };
+    v.addEventListener("loadeddata", onLoadedData, { once: true });
+
+    const onFirstResize = () => {
+      clearTimeout(watchdog);
+      v.removeEventListener("resize", onFirstResize);
+      if (v.paused) { v.play().catch(() => setNeedsTap(true)); }
+    };
+    v.addEventListener("resize", onFirstResize);
+    (v as any).__onFirstResize = onFirstResize;
   };
 
   useEffect(() => {
@@ -69,7 +98,20 @@ export default function ViewerPage() {
       onIce();
 
       const v = videoRef.current;
-      if (v) v.onloadedmetadata = () => tryPlay();
+      if (v) {
+        const onResize = () => {
+          console.log("[VIEWER] video resize →", v.videoWidth, "x", v.videoHeight);
+          if (v.videoWidth && v.videoHeight) {
+            setConnecting(false);
+            if (v.paused) tryPlay();
+          }
+        };
+        v.addEventListener("resize", onResize);
+        v.onloadedmetadata = () => tryPlay();
+
+        // Store remover on the element so we can cleanly remove in cleanup
+        (v as any).__onResize = onResize;
+      }
 
       window.addEventListener(
         "beforeunload",
@@ -83,6 +125,14 @@ export default function ViewerPage() {
     return () => {
       try { stopFn?.(); } catch {}
       const v = videoRef.current;
+      if (v && (v as any).__onResize) {
+        v.removeEventListener("resize", (v as any).__onResize);
+        delete (v as any).__onResize;
+      }
+      if (v && (v as any).__onFirstResize) {
+        try { v.removeEventListener("resize", (v as any).__onFirstResize); } catch {}
+        try { delete (v as any).__onFirstResize; } catch {}
+      }
       if (v?.srcObject) {
         (v.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
         v.srcObject = null;
