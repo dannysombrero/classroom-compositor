@@ -38,8 +38,11 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
   }, [layers, selection]);
 
   const orderedLayers = useMemo(() => {
+    // Filter to only show top-level layers (no parentId) and sort by z-order
     // Highest z first for UI readability (top-most layer at top)
-    return [...layers].sort((a, b) => b.z - a.z);
+    return [...layers]
+      .filter((layer) => !layer.parentId)
+      .sort((a, b) => b.z - a.z);
   }, [layers]);
 
   const toggleVisibility = (layerId: string, visible: boolean) => {
