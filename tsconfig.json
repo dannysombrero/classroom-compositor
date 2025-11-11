@@ -11,5 +11,5 @@
     "noEmit": true,
     "types": ["vite/client"]
   },
-  "exclude": ["node_modules", "dist", "functions", "src/server"]
+  "exclude": ["node_modules", "dist", "functions", "src/server", "packages"]
 }
