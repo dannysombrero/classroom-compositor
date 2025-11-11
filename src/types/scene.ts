@@ -28,6 +28,8 @@ export interface BaseLayer {
   visible: boolean;
   /** Lock state (prevents editing) */
   locked: boolean;
+  /** Parent group ID, if nested */
+  parentId?: string | null;
   /** Z-order for rendering */
   z: number;
   /** Transform properties */

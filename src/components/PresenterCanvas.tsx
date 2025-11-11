@@ -45,10 +45,8 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
   const previousSceneRef = useRef<Scene | null>(null);
   const previousSkipKeyRef = useRef<string>('');
 
-  const scene = useAppStore((state) => {
-    const currentScene = state.getCurrentScene();
-    return currentScene;
-  });
+  const scene = useAppStore((state) => state.getCurrentScene());
+  const sceneSize = useMemo(() => getCanvasSize(scene), [scene?.width, scene?.height]);
 
   const hasLiveVideoSources = useMemo(() => {
     if (!scene) return false;
@@ -119,7 +117,9 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
       }
 
       drawScene(currentScene, ctx, { skipLayerIds, dirtyRect });
-      requestCurrentStreamFrame();
+      // NOTE: requestCurrentStreamFrame() removed - captureStream(fps) automatically
+      // captures frames as the canvas is drawn. Calling requestFrame() on every render
+      // was causing performance issues by forcing frame capture too frequently.
 
       dirtyRef.current = false;
       previousSceneRef.current = currentScene ?? null;
@@ -144,7 +144,6 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
     const container = containerRef.current;
     if (!canvas || !container) return;
 
-    const sceneSize = getCanvasSize(scene);
     const logicalWidth = sceneSize.width;
     const logicalHeight = sceneSize.height;
 
@@ -237,7 +236,7 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
       window.addEventListener('resize', updateCanvasSize);
       return () => window.removeEventListener('resize', updateCanvasSize);
     }
-  }, [scene, fitToContainer, onLayoutChange, markDirty]);
+  }, [sceneSize.width, sceneSize.height, fitToContainer, onLayoutChange, markDirty]);
 
   useEffect(() => {
     markDirty();

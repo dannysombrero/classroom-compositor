@@ -23,9 +23,7 @@ export function ConfidencePreview({ stream, visible, onClose }: ConfidencePrevie
       return;
     }
 
-    if (video.srcObject !== stream) {
-      video.srcObject = stream;
-    }
+    video.srcObject = stream;
 
     let cancelled = false;
 

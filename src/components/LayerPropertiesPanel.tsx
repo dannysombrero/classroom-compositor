@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import type { Layer } from '../types/scene';
 import { useAppStore } from '../app/store';
 import { requestCurrentStreamFrame } from '../utils/viewerStream';
+import { CameraEffectsSection } from './CameraEffectsSection';
 
 interface LayerPropertiesPanelProps {
   layer: Layer | null;
@@ -52,6 +53,7 @@ export function LayerPropertiesPanel({ layer }: LayerPropertiesPanelProps) {
   const supportsFill = layer?.type === 'shape';
   const supportsText = layer?.type === 'text';
   const supportsImage = layer?.type === 'image';
+  const supportsCamera = layer?.type === 'camera';
 
   const textValues = useMemo(() => {
     if (layer?.type !== 'text') return null;
@@ -89,6 +91,15 @@ export function LayerPropertiesPanel({ layer }: LayerPropertiesPanelProps) {
   return (
     <div style={panelStyle.container}>
       <div style={panelStyle.sectionTitle}>Properties</div>
+      {supportsCamera && (
+        <>
+          <div style={panelStyle.sectionTitle}>Camera Effects</div>
+          <div style={panelStyle.section}>
+            <CameraEffectsSection />
+          </div>
+        </>
+      )}
+
       {supportsImage && imageValues && (
         <div style={panelStyle.section}>
           <div style={panelStyle.labelRow}>
@@ -483,7 +494,7 @@ export function LayerPropertiesPanel({ layer }: LayerPropertiesPanelProps) {
         </div>
       )}
 
-      {!supportsText && !supportsFill && (
+      {!supportsText && !supportsFill && !supportsImage && !supportsCamera && (
         <div style={panelStyle.emptySecondary}>No editable properties for this layer yet.</div>
       )}
     </div>
