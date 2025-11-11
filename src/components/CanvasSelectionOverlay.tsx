@@ -134,7 +134,7 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
     const layerMap = new Map(scene.layers.map((layer) => [layer.id, layer]));
     return selection
       .map((id) => layerMap.get(id))
-      .filter((layer): layer is Layer => !!layer && !skipIds.has(layer.id));
+      .filter((layer): layer is Layer => !!layer && !skipIds.has(layer.id) && layer.type !== 'group');
   }, [scene, selection, skipIds]);
 
   const pointerToScene = useCallback(
