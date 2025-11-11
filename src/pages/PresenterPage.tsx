@@ -23,6 +23,7 @@ import {
 import { useAppStore } from "../app/store";
 import { loadMostRecentScene } from "../app/persistence";
 import { createId } from "../utils/id";
+import { calculateOptimalSceneDimensions, calculateViewerWindowDimensions } from "../utils/sceneResolution";
 import {
   createScreenLayer,
   createCameraLayer,
@@ -96,7 +97,7 @@ function PresenterPage() {
     width: LAYERS_PANEL_WIDTH,
     height: LAYERS_PANEL_EXPANDED_HEIGHT
   });
-  const [isLayersPanelCollapsed, setLayersPanelCollapsed] = useState(false);
+  const [isPanelMinimized, setIsPanelMinimized] = useState(false);
   const [canvasLayout, setCanvasLayout] = useState<CanvasLayout | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [isPresentationMode, setIsPresentationMode] = useState(false);
@@ -106,6 +107,9 @@ function PresenterPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const controlStripTimerRef = useRef<number | null>(null);
   const clipboardRef = useRef<Layer[] | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [canvasBackgroundType, setCanvasBackgroundType] = useState<'color' | 'image'>('color');
+  const [canvasBackgroundValue, setCanvasBackgroundValue] = useState<string>('#ffffff');
 
   const [cameraTrackForEffects, setCameraTrackForEffects] = useState<MediaStreamTrack | null>(null);
   const [cameraLayerForEffects, setCameraLayerForEffects] = useState<string | null>(null);
@@ -135,7 +139,27 @@ function PresenterPage() {
 
   const selectionLength = selectionIds.length;
   const selectedGroup = selectedLayer && selectedLayer.type === "group" ? selectedLayer : null;
-  const activeGroupChildIds = selectedGroup ? selectedGroup.children : [];
+
+  // Recursively collect all descendants of a group (including nested groups' children)
+  const getAllDescendants = useCallback((groupId: string, layers: Layer[]): string[] => {
+    const group = layers.find((l) => l.id === groupId && l.type === 'group');
+    if (!group || group.type !== 'group') return [];
+
+    const result: string[] = [];
+    for (const childId of group.children) {
+      result.push(childId);
+      const child = layers.find((l) => l.id === childId);
+      if (child && child.type === 'group') {
+        result.push(...getAllDescendants(childId, layers));
+      }
+    }
+    return result;
+  }, []);
+
+  const activeGroupChildIds = selectedGroup && currentScene
+    ? getAllDescendants(selectedGroup.id, currentScene.layers)
+    : [];
+
   const groupTransformIds =
     selectedGroup && activeGroupChildIds.length > 0
       ? activeGroupChildIds
@@ -447,6 +471,16 @@ function PresenterPage() {
 
     // Set up ended handler ONCE when stream is created
     const track = stream.getVideoTracks()[0];
+
+    // Request initial frame to kickstart the stream
+    if (track && typeof (track as any).requestFrame === 'function') {
+      try {
+        (track as any).requestFrame();
+        console.log("✅ [ensureStream] Requested initial frame to kickstart stream");
+      } catch (error) {
+        console.warn("⚠️ [ensureStream] Failed to request initial frame:", error);
+      }
+    }
     if (track) {
       const handleEnded = () => {
         console.log("🛑 [ensureStream] Canvas track ended");
@@ -496,7 +530,12 @@ function PresenterPage() {
       showControlStrip();
       return;
     }
-    const viewer = window.open("/viewer", "classroom-compositor-viewer", "width=1920,height=1080");
+    // Calculate viewer window dimensions based on current scene size
+    const currentScene = getCurrentScene();
+    const windowDimensions = currentScene
+      ? calculateViewerWindowDimensions({ width: currentScene.width, height: currentScene.height })
+      : "width=1920,height=1080";
+    const viewer = window.open("/viewer", "classroom-compositor-viewer", windowDimensions);
     if (!viewer) {
       console.error("Failed to open viewer window (popup blocked?)");
       return;
@@ -593,15 +632,45 @@ function PresenterPage() {
     requestCurrentStreamFrame();
   }, []);
 
+  // Helper function to generate copy name with proper numbering
+  const generateCopyName = useCallback((originalName: string, existingNames: string[]): string => {
+    const baseName = originalName || "Layer";
+
+    // Try "Copy" first
+    const copyName = `${baseName} Copy`;
+    if (!existingNames.includes(copyName)) {
+      return copyName;
+    }
+
+    // Try "Copy 1", "Copy 2", etc.
+    let counter = 1;
+    while (true) {
+      const numberedName = `${baseName} Copy ${counter}`;
+      if (!existingNames.includes(numberedName)) {
+        return numberedName;
+      }
+      counter++;
+      // Safety limit to prevent infinite loop
+      if (counter > 1000) {
+        return `${baseName} Copy ${Date.now()}`;
+      }
+    }
+  }, []);
+
   const duplicateLayers = useCallback(() => {
     const layers = getSelectedLayers();
     if (layers.length === 0) return;
     const state = useAppStore.getState();
+    const scene = state.getCurrentScene();
+    if (!scene) return;
+    const existingNames = scene.layers.map(l => l.name);
     const newIds: string[] = [];
     layers.forEach((layer, index) => {
       const clone: Layer = JSON.parse(JSON.stringify(layer));
       clone.id = createId("layer");
-      clone.name = `${layer.name || "Layer"} Copy`;
+      clone.name = generateCopyName(layer.name, existingNames);
+      // Add the new name to existing names for next iteration
+      existingNames.push(clone.name);
       clone.transform = {
         ...layer.transform,
         pos: { x: layer.transform.pos.x + 24 + index * 12, y: layer.transform.pos.y + 24 + index * 12 },
@@ -611,7 +680,7 @@ function PresenterPage() {
     });
     state.setSelection(newIds);
     requestCurrentStreamFrame();
-  }, [getSelectedLayers]);
+  }, [getSelectedLayers, generateCopyName]);
 
   const copyLayersToClipboard = useCallback(() => {
     const layers = getSelectedLayers();
@@ -623,11 +692,16 @@ function PresenterPage() {
     const clipboard = clipboardRef.current;
     if (!clipboard || clipboard.length === 0) return;
     const state = useAppStore.getState();
+    const scene = state.getCurrentScene();
+    if (!scene) return;
+    const existingNames = scene.layers.map(l => l.name);
     const newIds: string[] = [];
     clipboard.forEach((layer, index) => {
       const clone: Layer = JSON.parse(JSON.stringify(layer));
       clone.id = createId("layer");
-      clone.name = `${layer.name || "Layer"} Paste`;
+      clone.name = generateCopyName(layer.name, existingNames);
+      // Add the new name to existing names for next iteration
+      existingNames.push(clone.name);
       clone.transform = {
         ...layer.transform,
         pos: { x: layer.transform.pos.x + 32 + index * 12, y: layer.transform.pos.y + 32 + index * 12 },
@@ -637,7 +711,7 @@ function PresenterPage() {
     });
     state.setSelection(newIds);
     requestCurrentStreamFrame();
-  }, []);
+  }, [generateCopyName]);
 
   const toggleVisibilityForSelection = useCallback(() => {
     const layers = getSelectedLayers();
@@ -758,11 +832,15 @@ function PresenterPage() {
             currentSceneId: mostRecent.id,
           }));
         } else {
-          createScene();
+          // Create new scene with optimal dimensions for presenter's display
+          const { width, height } = calculateOptimalSceneDimensions();
+          createScene('Untitled Scene', width, height);
         }
       } catch (error) {
         console.error("Failed to load most recent scene", error);
-        createScene();
+        // Create new scene with optimal dimensions for presenter's display
+        const { width, height } = calculateOptimalSceneDimensions();
+        createScene('Untitled Scene', width, height);
       } finally {
         setIsSceneLoading(false);
       }
@@ -815,7 +893,11 @@ function PresenterPage() {
       // 2) Get or create canvas stream (will reuse if already exists!)
       const displayStream = ensureCanvasStreamExists() || undefined;
 
-      // 3) Attach the track to WebRTC BEFORE creating the offer
+      // 3) Wait a brief moment to ensure canvas has rendered at least one frame
+      // This prevents the track from starting muted with no video data
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // 4) Attach the track to WebRTC BEFORE creating the offer
       if (displayStream) {
         const track = displayStream.getVideoTracks()[0];
         if (track) {
@@ -834,6 +916,7 @@ function PresenterPage() {
             console.log("📹 [handleGoLive] Canvas track pre-attached to sender", {
               trackId: track.id,
               readyState: track.readyState,
+              muted: track.muted,
             });
           } catch (err) {
             console.warn("⚠️ [handleGoLive] replaceHostVideoTrack failed pre-offer", err);
@@ -842,7 +925,7 @@ function PresenterPage() {
         console.log("✅ [handleGoLive] Canvas stream ready for WebRTC");
       }
 
-      // 4) Start WebRTC host with the canvas stream
+      // 5) Start WebRTC host with the canvas stream
       hostingRef.current = true;
       hostRef.current = await startHost(s.id, {
         displayStream,
@@ -908,22 +991,23 @@ function PresenterPage() {
             style={{
               display: "inline-flex",
               alignItems: "center",
-              gap: 8,
+              gap: 'clamp(6px, 1vw, 12px)',
               background: "#e11d48",
               color: "white",
               border: "none",
-              borderRadius: 8,
-              padding: "6px 12px",
+              borderRadius: 'clamp(6px, 1vw, 10px)',
+              padding: 'clamp(8px, 1.2vh, 12px) clamp(16px, 2vw, 24px)',
               cursor: "pointer",
               fontWeight: 700,
+              fontSize: 'clamp(13px, 1.5vw, 16px)',
             }}
             title="Start a live session and generate a join code"
           >
             <span
               style={{
                 display: "inline-flex",
-                width: 8,
-                height: 8,
+                width: 'clamp(8px, 1vw, 12px)',
+                height: 'clamp(8px, 1vw, 12px)',
                 borderRadius: 999,
                 background: "white",
               }}
@@ -935,20 +1019,21 @@ function PresenterPage() {
             <span
               style={{
                 display: "inline-flex",
-                width: 8,
-                height: 8,
+                width: 'clamp(8px, 1vw, 12px)',
+                height: 'clamp(8px, 1vw, 12px)',
                 borderRadius: 999,
                 background: "#ef4444",
                 boxShadow: "0 0 0 6px rgba(239,68,68,0.2)",
-                marginRight: 2,
+                marginRight: 'clamp(2px, 0.5vw, 4px)',
               }}
               title="Live"
             />
-            <span style={{ opacity: 0.85, marginRight: 6 }}>Live</span>
+            <span style={{ opacity: 0.85, marginRight: 'clamp(6px, 1vw, 10px)', fontSize: 'clamp(13px, 1.5vw, 16px)' }}>Live</span>
             <code
               style={{
                 fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
                 fontWeight: 700,
+                fontSize: 'clamp(13px, 1.5vw, 16px)',
               }}
               title="Join code"
             >
@@ -958,13 +1043,14 @@ function PresenterPage() {
             <button
               onClick={copyJoinInfo}
               style={{
-                marginLeft: 8,
+                marginLeft: 'clamp(8px, 1.2vw, 12px)',
                 background: "transparent",
                 color: "#eaeaea",
                 border: "1px solid rgba(255,255,255,0.2)",
-                borderRadius: 6,
-                padding: "4px 8px",
+                borderRadius: 'clamp(4px, 0.8vw, 8px)',
+                padding: 'clamp(6px, 1vh, 10px) clamp(10px, 1.5vw, 16px)',
                 cursor: "pointer",
+                fontSize: 'clamp(12px, 1.4vw, 15px)',
               }}
               title="Copy /join link"
             >
@@ -974,13 +1060,13 @@ function PresenterPage() {
             {copied && (
               <span
                 style={{
-                  marginLeft: 8,
-                  padding: "2px 6px",
-                  borderRadius: 6,
+                  marginLeft: 'clamp(8px, 1.2vw, 12px)',
+                  padding: 'clamp(4px, 0.8vh, 8px) clamp(8px, 1.2vw, 12px)',
+                  borderRadius: 'clamp(4px, 0.8vw, 8px)',
                   background: "rgba(34,197,94,0.15)",
                   border: "1px solid rgba(34,197,94,0.35)",
                   color: "#86efac",
-                  fontSize: 11,
+                  fontSize: 'clamp(11px, 1.3vw, 14px)',
                 }}
               >
                 Copied!
@@ -990,13 +1076,13 @@ function PresenterPage() {
             {liveError && (
               <span
                 style={{
-                  marginLeft: 8,
-                  padding: "2px 6px",
-                  borderRadius: 6,
+                  marginLeft: 'clamp(8px, 1.2vw, 12px)',
+                  padding: 'clamp(4px, 0.8vh, 8px) clamp(8px, 1.2vw, 12px)',
+                  borderRadius: 'clamp(4px, 0.8vw, 8px)',
                   background: "rgba(239,68,68,0.15)",
                   border: "1px solid rgba(239,68,68,0.35)",
                   color: "#fecaca",
-                  fontSize: 11,
+                  fontSize: 'clamp(11px, 1.3vw, 14px)',
                 }}
               >
                 {liveError}
@@ -1007,6 +1093,146 @@ function PresenterPage() {
 
         {/* 👇 New: inline error feedback */}
       </div>
+
+      {/* Settings button in top right */}
+      <button
+        onClick={() => setSettingsOpen(!settingsOpen)}
+        style={{
+          position: 'fixed',
+          top: 16,
+          right: 16,
+          zIndex: 10001,
+          width: 44,
+          height: 44,
+          borderRadius: '50%',
+          background: 'rgba(20,20,20,0.85)',
+          border: '1px solid rgba(255,255,255,0.15)',
+          color: '#eaeaea',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 20,
+          backdropFilter: 'blur(4px)',
+          boxShadow: '0 6px 24px rgba(0,0,0,0.35)',
+        }}
+        title="Settings"
+      >
+        ⚙️
+      </button>
+
+      {/* Settings Panel */}
+      {settingsOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 70,
+            right: 16,
+            zIndex: 10001,
+            width: 320,
+            background: 'rgba(20,20,20,0.95)',
+            border: '1px solid rgba(255,255,255,0.15)',
+            borderRadius: 12,
+            padding: 20,
+            boxShadow: '0 12px 48px rgba(0,0,0,0.5)',
+            backdropFilter: 'blur(8px)',
+          }}
+        >
+          <h3 style={{ margin: '0 0 16px 0', color: '#eaeaea', fontSize: 16, fontWeight: 600 }}>
+            Canvas Settings
+          </h3>
+
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', marginBottom: 8, color: '#aaa', fontSize: 13 }}>
+              Background Type
+            </label>
+            <select
+              value={canvasBackgroundType}
+              onChange={(e) => setCanvasBackgroundType(e.target.value as 'color' | 'image')}
+              style={{
+                width: '100%',
+                padding: 8,
+                borderRadius: 6,
+                background: 'rgba(255,255,255,0.08)',
+                border: '1px solid rgba(255,255,255,0.15)',
+                color: '#eaeaea',
+                fontSize: 13,
+              }}
+            >
+              <option value="color">Solid Color</option>
+              <option value="image">Image Upload</option>
+            </select>
+          </div>
+
+          {canvasBackgroundType === 'color' && (
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', marginBottom: 8, color: '#aaa', fontSize: 13 }}>
+                Color
+              </label>
+              <input
+                type="color"
+                value={canvasBackgroundValue}
+                onChange={(e) => setCanvasBackgroundValue(e.target.value)}
+                style={{
+                  width: '100%',
+                  height: 40,
+                  borderRadius: 6,
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  cursor: 'pointer',
+                }}
+              />
+            </div>
+          )}
+
+          {canvasBackgroundType === 'image' && (
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', marginBottom: 8, color: '#aaa', fontSize: 13 }}>
+                Upload Image
+              </label>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      setCanvasBackgroundValue(reader.result as string);
+                    };
+                    reader.readAsDataURL(file);
+                  }
+                }}
+                style={{
+                  width: '100%',
+                  padding: 8,
+                  borderRadius: 6,
+                  background: 'rgba(255,255,255,0.08)',
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  color: '#eaeaea',
+                  fontSize: 13,
+                }}
+              />
+            </div>
+          )}
+
+          <button
+            onClick={() => setSettingsOpen(false)}
+            style={{
+              width: '100%',
+              padding: 10,
+              borderRadius: 6,
+              background: 'rgba(0, 166, 255, 0.25)',
+              border: '1px solid rgba(0, 166, 255, 0.8)',
+              color: '#eaeaea',
+              cursor: 'pointer',
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+          >
+            Close
+          </button>
+        </div>
+      )}
 
       {/* Main canvas area */}
       <div
@@ -1023,6 +1249,8 @@ function PresenterPage() {
           fitToContainer
           onLayoutChange={handleCanvasLayoutChange}
           skipLayerIds={editingTextId ? [editingTextId] : undefined}
+          backgroundType={canvasBackgroundType}
+          backgroundValue={canvasBackgroundValue}
         />
         {canvasLayout && (
           <CanvasSelectionOverlay
@@ -1060,10 +1288,17 @@ function PresenterPage() {
       <FloatingPanel
         title="Objects & Layers"
         position={panelPosition}
-        size={panelSize}
+        size={isPanelMinimized ? { width: panelSize.width, height: 44 } : panelSize}
         minSize={{ width: 280, height: 200 }}
         onPositionChange={setPanelPosition}
-        onSizeChange={setPanelSize}
+        onSizeChange={(newSize) => {
+          if (!isPanelMinimized) {
+            setPanelSize(newSize);
+          }
+        }}
+        minimizable
+        minimized={isPanelMinimized}
+        onToggleMinimize={() => setIsPanelMinimized(!isPanelMinimized)}
       >
         <LayersPanel
           layers={sceneLayers}
@@ -1082,7 +1317,6 @@ function PresenterPage() {
         selectedLayer.type !== "group" &&
         !selectedLayer.locked &&
         selectedLayer.type !== "camera" &&
-        selectedLayer.type !== "screen" &&
         !isEditingSelectedText && (
           <TransformControls
             layout={canvasLayout}
@@ -1134,7 +1368,7 @@ function PresenterPage() {
       />
 
       <ConfidencePreview
-        stream={streamRef.current}
+        
         visible={isConfidencePreviewVisible}
         onClose={() => {
           setIsConfidencePreviewVisible(false);

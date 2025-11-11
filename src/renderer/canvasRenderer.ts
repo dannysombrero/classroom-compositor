@@ -12,6 +12,30 @@ import {
   drawGroupLayer,
 } from './drawLayer';
 
+// Cache for background images to avoid reloading every frame
+const backgroundImageCache = new Map<string, HTMLImageElement>();
+
+function loadBackgroundImage(src: string): HTMLImageElement | null {
+  if (backgroundImageCache.has(src)) {
+    return backgroundImageCache.get(src)!;
+  }
+
+  const img = new Image();
+  img.src = src;
+
+  if (img.complete && img.naturalWidth > 0) {
+    backgroundImageCache.set(src, img);
+    return img;
+  }
+
+  // Set up onload to cache it for next frame
+  img.onload = () => {
+    backgroundImageCache.set(src, img);
+  };
+
+  return null; // Not loaded yet
+}
+
 /**
  * Draw a complete scene to a canvas context.
  * 
@@ -21,6 +45,10 @@ import {
 interface DrawSceneOptions {
   skipLayerIds?: string[];
   dirtyRect?: { x: number; y: number; width: number; height: number };
+  background?: {
+    type: 'color' | 'image';
+    value: string;
+  };
 }
 
 export function drawScene(
@@ -42,10 +70,11 @@ export function drawScene(
 
   if (!scene) {
     // Clear canvas if no scene
-    // Use default scene dimensions (1920x1080) to match the transform coordinate space
+    // Use fallback dimensions (1920x1080) for safety when scene is not yet initialized
+    // Note: New scenes are created with viewport-optimized dimensions via calculateOptimalSceneDimensions()
     const defaultWidth = 1920;
     const defaultHeight = 1080;
-    
+
     // Fill with dark background to show canvas is working
     ctx.fillStyle = '#0a0a0a';
     ctx.fillRect(0, 0, defaultWidth, defaultHeight);
@@ -55,15 +84,49 @@ export function drawScene(
     return;
   }
 
-  // Fill canvas with a visible background (lighter than page background)
-  // This ensures we can see the canvas even when there are no layers
-  ctx.fillStyle = '#2a2a2a';
-  ctx.fillRect(0, 0, scene.width, scene.height);
-  
-  // Draw a visible border to show canvas bounds
-  ctx.strokeStyle = '#4a4a4a';
-  ctx.lineWidth = 3;
-  ctx.strokeRect(2, 2, scene.width - 4, scene.height - 4);
+  // Fill canvas with background (color or image)
+  const background = options.background || { type: 'color', value: '#ffffff' };
+
+  // Use dirty rect if available, otherwise full canvas
+  const fillX = dirtyRect?.x ?? 0;
+  const fillY = dirtyRect?.y ?? 0;
+  const fillWidth = dirtyRect?.width ?? scene.width;
+  const fillHeight = dirtyRect?.height ?? scene.height;
+
+  if (background.type === 'color') {
+    ctx.fillStyle = background.value;
+    ctx.fillRect(fillX, fillY, fillWidth, fillHeight);
+  } else if (background.type === 'image') {
+    // Fill with white first as fallback
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(fillX, fillY, fillWidth, fillHeight);
+
+    // Try to draw the cached image
+    const img = loadBackgroundImage(background.value);
+    if (img && img.complete && img.naturalWidth > 0) {
+      if (dirtyRect) {
+        // Calculate the source rectangle from the image proportionally
+        // The image is scaled to fit the scene, so we need to map dirty rect coords
+        // to source image coordinates
+        const scaleX = img.naturalWidth / scene.width;
+        const scaleY = img.naturalHeight / scene.height;
+        const sx = fillX * scaleX;
+        const sy = fillY * scaleY;
+        const sWidth = fillWidth * scaleX;
+        const sHeight = fillHeight * scaleY;
+
+        // Draw the portion of the image that corresponds to the dirty rect
+        ctx.drawImage(
+          img,
+          sx, sy, sWidth, sHeight,        // Source rect (in image coordinates)
+          fillX, fillY, fillWidth, fillHeight  // Dest rect (in canvas coordinates)
+        );
+      } else {
+        // Draw full image scaled to scene dimensions
+        ctx.drawImage(img, 0, 0, scene.width, scene.height);
+      }
+    }
+  }
   
   // Draw corner markers to show it's working (when empty)
   if (scene.layers.length === 0) {
@@ -151,9 +214,12 @@ export function drawScene(
 
 /**
  * Get the logical canvas size for a scene.
+ * Returns the scene's actual dimensions, or fallback if scene is null.
+ * Note: New scenes are created with viewport-optimized dimensions.
  */
 export function getCanvasSize(scene: Scene | null): { width: number; height: number } {
   if (!scene) {
+    // Fallback for edge cases (scene not yet initialized)
     return { width: 1920, height: 1080 };
   }
   return { width: scene.width, height: scene.height };

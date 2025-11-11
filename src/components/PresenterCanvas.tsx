@@ -11,6 +11,7 @@ import { requestCurrentStreamFrame } from '../utils/viewerStream';
 import type { Layer, Scene } from '../types/scene';
 import { getLayerBaseSize } from '../utils/layerGeometry';
 import { hasActiveSource } from '../media/sourceManager';
+import { PerformanceMonitor } from '../utils/performanceMonitor';
 
 interface PresenterCanvasProps {
   /** Whether to fit canvas to container */
@@ -19,6 +20,10 @@ interface PresenterCanvasProps {
   onLayoutChange?: (layout: CanvasLayout) => void;
   /** Layer IDs to omit during render (e.g., when editing text inline) */
   skipLayerIds?: string[];
+  /** Background type: color or image */
+  backgroundType?: 'color' | 'image';
+  /** Background value: hex color or data URL */
+  backgroundValue?: string;
 }
 
 export interface CanvasLayout {
@@ -37,16 +42,28 @@ export interface CanvasLayout {
  * @returns Canvas element with resize logic and render loop
  */
 export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProps>(
-  ({ fitToContainer = true, onLayoutChange, skipLayerIds }, ref) => {
+  ({ fitToContainer = true, onLayoutChange, skipLayerIds, backgroundType = 'color', backgroundValue = '#ffffff' }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | null>(null);
   const dirtyRef = useRef<boolean>(true);
   const previousSceneRef = useRef<Scene | null>(null);
   const previousSkipKeyRef = useRef<string>('');
+  const perfMonitorRef = useRef<PerformanceMonitor>(new PerformanceMonitor(30, 15, 30));
+  const previousBackgroundRef = useRef<string>(`${backgroundType}:${backgroundValue}`);
+  const skipLayerIdsRef = useRef(skipLayerIds);
+  const backgroundTypeRef = useRef(backgroundType);
+  const backgroundValueRef = useRef(backgroundValue);
 
   const scene = useAppStore((state) => state.getCurrentScene());
   const sceneSize = useMemo(() => getCanvasSize(scene), [scene?.width, scene?.height]);
+
+  // Keep refs updated with latest prop values
+  useEffect(() => {
+    skipLayerIdsRef.current = skipLayerIds;
+    backgroundTypeRef.current = backgroundType;
+    backgroundValueRef.current = backgroundValue;
+  }, [skipLayerIds, backgroundType, backgroundValue]);
 
   const hasLiveVideoSources = useMemo(() => {
     if (!scene) return false;
@@ -76,12 +93,14 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
   };
 
   const requestRender = useCallback(() => {
+    // Don't schedule another frame if one is already pending
     if (animationFrameRef.current !== null) {
       return;
     }
 
-    const renderFrame = () => {
+    const renderFrame = (timestamp: number) => {
       animationFrameRef.current = null;
+
       if (!dirtyRef.current) {
         return;
       }
@@ -101,11 +120,22 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
 
       const currentScene = useAppStore.getState().getCurrentScene();
       const previousScene = previousSceneRef.current;
-      const skipKey = (skipLayerIds ?? []).join('|');
+
+      // Use refs to get latest values instead of closure-captured values
+      const currentSkipLayerIds = skipLayerIdsRef.current;
+      const currentBackgroundType = backgroundTypeRef.current;
+      const currentBackgroundValue = backgroundValueRef.current;
+
+      const skipKey = (currentSkipLayerIds ?? []).join('|');
       const skipChanged = previousSkipKeyRef.current !== skipKey;
+
+      // Check if background changed
+      const currentBackground = `${currentBackgroundType}:${currentBackgroundValue}`;
+      const backgroundChanged = previousBackgroundRef.current !== currentBackground;
+
       const dirtyRect = hasLiveVideoSources
         ? fullCanvasRect(currentScene ?? previousScene)
-        : skipChanged
+        : skipChanged || backgroundChanged
           ? fullCanvasRect(currentScene ?? previousScene)
           : computeDirtyRect(previousScene, currentScene);
 
@@ -116,7 +146,29 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
         return;
       }
 
-      drawScene(currentScene, ctx, { skipLayerIds, dirtyRect });
+      // Record frame timing for performance monitoring, but don't skip frames
+      // when streaming. Skipping frames causes the canvas stream to freeze/go black
+      // because captureStream() has nothing new to capture.
+      const isFullCanvasRender = dirtyRect.width === (currentScene?.width || 1920) &&
+                                 dirtyRect.height === (currentScene?.height || 1080);
+
+      if (hasLiveVideoSources && isFullCanvasRender) {
+        // Record frame timing for adaptive FPS monitoring
+        const perfMonitor = perfMonitorRef.current;
+        perfMonitor.recordFrame(timestamp);
+        // Note: We record the frame but don't skip rendering, as that would break streaming.
+        // The performance monitor adjusts targetFPS, which can be used to adjust
+        // the render pump interval in the future.
+      }
+
+      drawScene(currentScene, ctx, {
+        skipLayerIds: currentSkipLayerIds,
+        dirtyRect,
+        background: {
+          type: currentBackgroundType,
+          value: currentBackgroundValue,
+        },
+      });
       // NOTE: requestCurrentStreamFrame() removed - captureStream(fps) automatically
       // captures frames as the canvas is drawn. Calling requestFrame() on every render
       // was causing performance issues by forcing frame capture too frequently.
@@ -124,6 +176,7 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
       dirtyRef.current = false;
       previousSceneRef.current = currentScene ?? null;
       previousSkipKeyRef.current = skipKey;
+      previousBackgroundRef.current = currentBackground;
 
       if (dirtyRef.current) {
         requestRender();
@@ -131,12 +184,17 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
     };
 
     animationFrameRef.current = requestAnimationFrame(renderFrame);
-  }, [skipLayerIds, hasLiveVideoSources]);
+  }, [hasLiveVideoSources]);
 
   const markDirty = useCallback(() => {
     dirtyRef.current = true;
     requestRender();
   }, [requestRender]);
+
+  // Mark dirty when background settings change
+  useEffect(() => {
+    markDirty();
+  }, [backgroundType, backgroundValue, markDirty]);
 
   // Update canvas size based on scene dimensions or default
   useEffect(() => {
@@ -297,14 +355,18 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
     useImperativeHandle(ref, () => canvasRef.current!, []);
 
     return (
-      <div 
-        ref={containerRef} 
-        style={{ 
-          width: '100%', 
-          height: '100%', 
+      <div
+        ref={containerRef}
+        style={{
+          width: '100%',
+          height: '100%',
           position: 'relative',
           minWidth: '100px',
           minHeight: '100px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: '#2a2a2a', // Dark gray background for outer area
         }}
       >
         <canvas
@@ -313,7 +375,8 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
             display: 'block',
             maxWidth: '100%',
             maxHeight: '100%',
-            backgroundColor: '#1a1a1a', // Temporary background to see canvas bounds
+            width: 'auto',
+            height: 'auto',
           }}
         />
       </div>
