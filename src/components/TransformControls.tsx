@@ -29,6 +29,15 @@ type DragState =
       initialFontSize?: number;
       historySnapshot?: Scene | null;
       historyApplied?: boolean;
+    }
+  | {
+      type: 'rotate';
+      pointerId: number;
+      center: { x: number; y: number };
+      startAngle: number;
+      startRotation: number;
+      historySnapshot?: Scene | null;
+      historyApplied?: boolean;
     };
 
 interface TransformControlsProps {
@@ -160,6 +169,34 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
     (event.target as HTMLElement).setPointerCapture(event.pointerId);
   };
 
+  const startRotate = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const currentLayer = layerRef.current;
+    const center = currentLayer.transform.pos;
+    const pointerScene = pointerToScene(event.clientX, event.clientY);
+
+    const dx = pointerScene.x - center.x;
+    const dy = pointerScene.y - center.y;
+    const startAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+
+    dragStateRef.current = {
+      type: 'rotate',
+      pointerId: event.pointerId,
+      center,
+      startAngle,
+      startRotation: currentLayer.transform.rot,
+      historySnapshot: cloneSceneForHistory(useAppStore.getState().getCurrentScene()),
+      historyApplied: false,
+    };
+
+    window.addEventListener('pointermove', handlePointerMove, { passive: false });
+    window.addEventListener('pointerup', endDrag);
+    window.addEventListener('pointercancel', endDrag);
+    (event.target as HTMLElement).setPointerCapture(event.pointerId);
+  };
+
   const handlePointerMove = useCallback(
     (event: PointerEvent) => {
       const dragState = dragStateRef.current;
@@ -195,6 +232,23 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
           transform: {
             ...currentLayer.transform,
             pos: newPos,
+          },
+        }, historyOptions());
+        requestCurrentStreamFrame();
+        return;
+      }
+
+      if (dragState.type === 'rotate') {
+        const dx = pointerScene.x - dragState.center.x;
+        const dy = pointerScene.y - dragState.center.y;
+        const currentAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+        const angleDelta = currentAngle - dragState.startAngle;
+        const newRotation = dragState.startRotation + angleDelta;
+
+        updateLayer(currentLayer.id, {
+          transform: {
+            ...currentLayer.transform,
+            rot: newRotation,
           },
         }, historyOptions());
         requestCurrentStreamFrame();
@@ -369,11 +423,7 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
       ))}
       {/* Rotation handle */}
       <button
-        onPointerDown={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          // TODO: Implement rotation
-        }}
+        onPointerDown={startRotate}
         style={{
           position: 'absolute',
           left: '50%',

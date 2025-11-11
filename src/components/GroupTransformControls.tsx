@@ -31,6 +31,7 @@ interface LayerTransformSnapshot {
   id: string;
   startPos: { x: number; y: number };
   startScale: { x: number; y: number };
+  startRotation: number;
   scaleLocked?: boolean;
 }
 
@@ -50,6 +51,15 @@ type GroupDragState =
       handle: ResizeHandle;
       opposite: { x: number; y: number };
       startBounds: Bounds;
+      layers: LayerTransformSnapshot[];
+      historySnapshot?: Scene | null;
+      historyApplied: boolean;
+    }
+  | {
+      type: 'rotate';
+      pointerId: number;
+      center: { x: number; y: number };
+      startAngle: number;
       layers: LayerTransformSnapshot[];
       historySnapshot?: Scene | null;
       historyApplied: boolean;
@@ -159,6 +169,7 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
       id: layer.id,
       startPos: { ...layer.transform.pos },
       startScale: { ...layer.transform.scale },
+      startRotation: layer.transform.rot,
       scaleLocked:
         layer.type === 'image' || layer.type === 'shape'
           ? layer.scaleLocked ?? true
@@ -283,6 +294,51 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
     [updateLayer]
   );
 
+  const applyRotate = useCallback(
+    (state: Extract<GroupDragState, { type: 'rotate' }>, pointerScene: { x: number; y: number }) => {
+      const dx = pointerScene.x - state.center.x;
+      const dy = pointerScene.y - state.center.y;
+      const currentAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+      const angleDelta = currentAngle - state.startAngle;
+
+      const currentScene = useAppStore.getState().getCurrentScene();
+      if (!currentScene) return;
+
+      const historyOptions = () => {
+        if (!state.historyApplied && state.historySnapshot) {
+          state.historyApplied = true;
+          return {
+            recordHistory: false,
+            persist: false,
+            historySnapshot: state.historySnapshot,
+          } as const;
+        }
+        return { recordHistory: false, persist: false } as const;
+      };
+
+      for (const target of state.layers) {
+        const layer = currentScene.layers.find((item) => item.id === target.id);
+        if (!layer) continue;
+
+        const newRotation = target.startRotation + angleDelta;
+
+        updateLayer(
+          target.id,
+          {
+            transform: {
+              ...layer.transform,
+              rot: newRotation,
+            },
+          },
+          historyOptions()
+        );
+      }
+
+      requestCurrentStreamFrame();
+    },
+    [updateLayer]
+  );
+
   const finishTransform = useCallback((state: GroupDragState | null, cancelled = false) => {
     if (!state) return;
     if (state.historyApplied && !cancelled) {
@@ -313,11 +369,13 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
 
       if (state.type === 'move') {
         applyMove(state, pointerScene);
+      } else if (state.type === 'rotate') {
+        applyRotate(state, pointerScene);
       } else {
         applyResize(state, pointerScene);
       }
     },
-    [applyMove, applyResize, pointerToScene]
+    [applyMove, applyRotate, applyResize, pointerToScene]
   );
   pointerMoveRef.current = handlePointerMove;
 
@@ -417,6 +475,48 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
     [bounds, buildLayerSnapshots]
   );
 
+  const startRotate = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!bounds) return;
+
+      const snapshots = buildLayerSnapshots();
+      if (snapshots.length === 0) {
+        return;
+      }
+
+      const center = bounds.center;
+      const pointerScene = pointerToScene(event.clientX, event.clientY);
+
+      const dx = pointerScene.x - center.x;
+      const dy = pointerScene.y - center.y;
+      const startAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+
+      dragStateRef.current = {
+        type: 'rotate',
+        pointerId: event.pointerId,
+        center,
+        startAngle,
+        layers: snapshots,
+        historySnapshot: cloneSceneForHistory(useAppStore.getState().getCurrentScene()),
+        historyApplied: false,
+      };
+
+      cleanupPointerListeners();
+      if (pointerMoveRef.current) {
+        window.addEventListener('pointermove', pointerMoveRef.current, { passive: false });
+      }
+      if (pointerUpRef.current) {
+        window.addEventListener('pointerup', pointerUpRef.current);
+      }
+      if (pointerCancelRef.current) {
+        window.addEventListener('pointercancel', pointerCancelRef.current);
+      }
+    },
+    [bounds, buildLayerSnapshots, pointerToScene]
+  );
+
   const handlePointerCancel = useCallback(
     (event: PointerEvent) => {
       const state = dragStateRef.current;
@@ -483,11 +583,7 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
       ))}
       {/* Rotation handle */}
       <button
-        onPointerDown={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          // TODO: Implement rotation for groups
-        }}
+        onPointerDown={startRotate}
         style={{
           position: 'absolute',
           left: '50%',
