@@ -11,6 +11,7 @@ import { requestCurrentStreamFrame } from '../utils/viewerStream';
 import type { Layer, Scene } from '../types/scene';
 import { getLayerBaseSize } from '../utils/layerGeometry';
 import { hasActiveSource } from '../media/sourceManager';
+import { PerformanceMonitor } from '../utils/performanceMonitor';
 
 interface PresenterCanvasProps {
   /** Whether to fit canvas to container */
@@ -44,6 +45,7 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
   const dirtyRef = useRef<boolean>(true);
   const previousSceneRef = useRef<Scene | null>(null);
   const previousSkipKeyRef = useRef<string>('');
+  const perfMonitorRef = useRef<PerformanceMonitor>(new PerformanceMonitor(30, 15, 30));
 
   const scene = useAppStore((state) => state.getCurrentScene());
   const sceneSize = useMemo(() => getCanvasSize(scene), [scene?.width, scene?.height]);
@@ -80,8 +82,21 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
       return;
     }
 
-    const renderFrame = () => {
+    const renderFrame = (timestamp: number) => {
       animationFrameRef.current = null;
+
+      // Check if we should skip this frame for performance
+      const perfMonitor = perfMonitorRef.current;
+      const shouldRender = perfMonitor.recordFrame(timestamp);
+
+      if (!shouldRender || perfMonitor.shouldSkipFrame()) {
+        // Skip this frame to maintain performance
+        if (dirtyRef.current) {
+          requestRender(); // Try again next frame
+        }
+        return;
+      }
+
       if (!dirtyRef.current) {
         return;
       }
