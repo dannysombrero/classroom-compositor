@@ -76,7 +76,7 @@ export function ControlStrip({
           ...(confidenceActive ? activeButtonStyle : null),
         }}
       >
-        {confidenceActive ? 'Hide Confidence' : 'Show Confidence'}
+        {confidenceActive ? 'Hide Mini Preview' : 'Show Mini Preview'}
       </button>
       <button
         type="button"
