@@ -245,8 +245,8 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
 
     currentOrder.splice(insertIndex, 0, draggedId);
 
-    const ascendingOrder = [...currentOrder].reverse();
-    reorderLayers(ascendingOrder);
+    // currentOrder is already in the correct UI order (descending z)
+    reorderLayers(currentOrder);
     setSelection([draggedId]);
     requestCurrentStreamFrame();
   };
