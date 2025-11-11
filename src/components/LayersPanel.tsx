@@ -260,23 +260,26 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
   };
 
   const handleCreateGroup = () => {
-    if (selection.length === 0) return;
     const scene = getCurrentScene();
     if (!scene) return;
 
     const groupId = createId();
-    const group = createGroupLayer(groupId, scene.width, scene.height, [...selection]);
+    const childrenIds = selection.length > 0 ? [...selection] : [];
+    const group = createGroupLayer(groupId, scene.width, scene.height, childrenIds);
 
-    // Update selected layers to have this group as parent
-    selection.forEach((layerId) => {
+    // Update selected layers to have this group as parent (if any)
+    childrenIds.forEach((layerId) => {
       updateLayer(layerId, { parentId: groupId }, { recordHistory: false, persist: false });
     });
 
     // Add the group layer
     addLayer(group);
 
-    // Select the new group
+    // Select the new group and expand it if it has children
     setSelection([groupId]);
+    if (childrenIds.length > 0) {
+      setExpandedGroups((prev) => new Set(prev).add(groupId));
+    }
     requestCurrentStreamFrame();
   };
 
@@ -315,14 +318,9 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
               <button
                 type="button"
                 onClick={handleCreateGroup}
-                disabled={selection.length === 0}
-                style={{
-                  ...iconButtonStyle,
-                  opacity: selection.length === 0 ? 0.35 : 1,
-                  cursor: selection.length === 0 ? 'not-allowed' : 'pointer',
-                }}
-                aria-label="Create group from selection"
-                title="Create group"
+                style={iconButtonStyle}
+                aria-label={selection.length > 0 ? "Create group from selection" : "Create empty group"}
+                title={selection.length > 0 ? "Create group from selection" : "Create empty group"}
               >
                 📁
               </button>
