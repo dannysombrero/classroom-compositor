@@ -8,35 +8,102 @@ interface ConfidencePreviewProps {
 
 export function ConfidencePreview({ stream, visible, onClose }: ConfidencePreviewProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const lowResCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const lowResStreamRef = useRef<MediaStream | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
     if (!visible || !stream) {
+      // Clean up
       try {
         video.pause();
       } catch (error) {
         console.warn('ConfidencePreview: failed to pause video', error);
       }
       video.srcObject = null;
+
+      // Stop low-res stream
+      if (lowResStreamRef.current) {
+        lowResStreamRef.current.getTracks().forEach(track => track.stop());
+        lowResStreamRef.current = null;
+      }
+
+      // Cancel animation frame
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
       return;
     }
 
-    video.srcObject = stream;
+    // Create a low-resolution canvas for the preview (320x180 @ 15fps)
+    // This dramatically reduces CPU usage vs decoding full 1920x1080 @ 30fps
+    if (!lowResCanvasRef.current) {
+      lowResCanvasRef.current = document.createElement('canvas');
+      lowResCanvasRef.current.width = 320;
+      lowResCanvasRef.current.height = 180;
+    }
 
-    let cancelled = false;
+    const lowResCanvas = lowResCanvasRef.current;
+    const ctx = lowResCanvas.getContext('2d', { alpha: false });
+    if (!ctx) return;
 
-    video
-      .play()
-      .catch((error) => {
-        if (!cancelled) {
-          console.warn('ConfidencePreview: failed to play stream', error);
-        }
+    // Create a temporary video element to decode the source stream
+    const sourceVideo = document.createElement('video');
+    sourceVideo.srcObject = stream;
+    sourceVideo.muted = true;
+    sourceVideo.playsInline = true;
+
+    let isDrawing = false;
+    let lastFrameTime = 0;
+    const targetFPS = 15; // Lower FPS for preview to save CPU
+    const frameDuration = 1000 / targetFPS;
+
+    // Draw frames to low-res canvas at reduced rate
+    const drawFrame = (timestamp: number) => {
+      if (!visible || !isDrawing) return;
+
+      const elapsed = timestamp - lastFrameTime;
+      if (elapsed >= frameDuration) {
+        ctx.drawImage(sourceVideo, 0, 0, 320, 180);
+        lastFrameTime = timestamp;
+      }
+
+      animationFrameRef.current = requestAnimationFrame(drawFrame);
+    };
+
+    // Start drawing when source video is ready
+    sourceVideo.addEventListener('loadeddata', () => {
+      sourceVideo.play().catch((err) => {
+        console.warn('ConfidencePreview: failed to play source video', err);
       });
 
+      // Capture the low-res canvas as a stream
+      const lowResStream = lowResCanvas.captureStream(targetFPS);
+      lowResStreamRef.current = lowResStream;
+
+      // Display the low-res stream in the preview video
+      video.srcObject = lowResStream;
+      video.play().catch((err) => {
+        console.warn('ConfidencePreview: failed to play preview', err);
+      });
+
+      // Start the drawing loop
+      isDrawing = true;
+      lastFrameTime = performance.now();
+      animationFrameRef.current = requestAnimationFrame(drawFrame);
+    });
+
     return () => {
-      cancelled = true;
+      isDrawing = false;
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      sourceVideo.pause();
+      sourceVideo.srcObject = null;
     };
   }, [stream, visible]);
 
