@@ -53,17 +53,6 @@ export function PresenterEffectsControls() {
           <option value="onnx">ONNX</option>
         </select>
       </label>
-
-      <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ width: 72, opacity: 0.8 }}>Background</span>
-        <input
-          type="text"
-          placeholder="(optional) URL or data URI"
-          value={background ?? ""}
-          onChange={(e) => setBackground(e.target.value || null)}
-          style={{ flex: 1 }}
-        />
-      </label>
     </div>
   );
 }
