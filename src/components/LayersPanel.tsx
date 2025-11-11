@@ -185,6 +185,13 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
 
   const isSelected = (layerId: string) => selection.includes(layerId);
 
+  // Calculate nesting depth of a layer
+  const getNestingDepth = (layerId: string): number => {
+    const layer = layers.find((l) => l.id === layerId);
+    if (!layer || !layer.parentId) return 0;
+    return 1 + getNestingDepth(layer.parentId);
+  };
+
   const handleRowClick = (event: ReactMouseEvent<HTMLButtonElement>, layerId: string) => {
     const multi = event.shiftKey || event.metaKey || event.ctrlKey;
     if (multi) {
@@ -317,6 +324,16 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
 
     // If dropping "into" a group, add to group
     if (dragPosition === 'into' && targetLayer.type === 'group' && draggedLayer.parentId !== targetId) {
+      // Check nesting depth limit (max 3 levels deep)
+      const targetDepth = getNestingDepth(targetId);
+      if (targetDepth >= 3) {
+        alert('You cannot have more than 3 nested groups in one group.');
+        setDraggingId(null);
+        setDragOverId(null);
+        setDragPosition(null);
+        return;
+      }
+
       // Remove from old parent's children array if it had one
       if (draggedLayer.parentId) {
         const oldParent = layers.find((l) => l.id === draggedLayer.parentId);
@@ -372,6 +389,16 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
   const handleDeleteSelection = () => {
     if (selection.length === 0) return;
     selection.forEach((id) => {
+      const layer = layers.find((l) => l.id === id);
+
+      // If it's a group, ungroup the children first
+      if (layer && layer.type === 'group') {
+        const children = layers.filter((l) => l.parentId === id);
+        children.forEach((child) => {
+          updateLayer(child.id, { parentId: null }, { recordHistory: false, persist: false });
+        });
+      }
+
       stopSource(id);
       removeLayer(id);
     });
