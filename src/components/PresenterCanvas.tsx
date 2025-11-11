@@ -326,6 +326,7 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
+          backgroundColor: '#2a2a2a', // Dark gray background for outer area
         }}
       >
         <canvas

@@ -75,8 +75,8 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
 
   const boxStyle: React.CSSProperties = {
     position: 'fixed',
-    left: `${centerPx.x - halfWidth * layout.scaleX}px`,
-    top: `${centerPx.y - halfHeight * layout.scaleY}px`,
+    left: `${centerPx.x}px`,
+    top: `${centerPx.y}px`,
     width: `${boundingSize.width * layout.scaleX}px`,
     height: `${boundingSize.height * layout.scaleY}px`,
     border: '2px solid #000000',
@@ -84,6 +84,8 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
     cursor: 'move',
     pointerEvents: 'auto',
     zIndex: 16,
+    transform: `translate(-50%, -50%) rotate(${layer.transform.rot}deg)`,
+    transformOrigin: 'center center',
   };
 
   const handles: Array<{ key: ResizeHandle; left: string; top: string; cursor: string }> = [

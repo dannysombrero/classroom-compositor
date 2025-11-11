@@ -612,11 +612,13 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                       color: '#f5f5f5',
                       padding: '10px 12px',
                       paddingLeft: `${12 + indentPx}px`,
+                      paddingRight: '12px',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
                       cursor: 'pointer',
                       borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                      position: 'relative',
                     }}
                   >
                   <div
@@ -626,6 +628,9 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                       alignItems: 'flex-start',
                       textAlign: 'left',
                       gap: '2px',
+                      flex: 1,
+                      minWidth: 0,
+                      marginRight: '8px',
                     }}
                   >
                     <span
@@ -635,6 +640,8 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                         display: 'flex',
                         alignItems: 'center',
                         gap: '6px',
+                        width: '100%',
+                        minWidth: 0,
                       }}
                     >
                       {isGroup && (
@@ -696,7 +703,15 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                             e.stopPropagation();
                             startRename(layer.id, layer.name);
                           }}
-                          style={{ cursor: 'text' }}
+                          title={layer.name}
+                          style={{
+                            cursor: 'text',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            flex: 1,
+                            minWidth: 0,
+                          }}
                         >
                           {layer.name}
                         </span>
@@ -734,6 +749,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                       display: 'flex',
                       alignItems: 'center',
                       gap: '10px',
+                      flexShrink: 0,
                     }}
                   >
                     <button
