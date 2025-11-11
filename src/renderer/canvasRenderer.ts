@@ -105,14 +105,24 @@ export function drawScene(
     const img = loadBackgroundImage(background.value);
     if (img && img.complete && img.naturalWidth > 0) {
       if (dirtyRect) {
-        // Only draw the portion of the image that covers the dirty rect
+        // Calculate the source rectangle from the image proportionally
+        // The image is scaled to fit the scene, so we need to map dirty rect coords
+        // to source image coordinates
+        const scaleX = img.naturalWidth / scene.width;
+        const scaleY = img.naturalHeight / scene.height;
+        const sx = fillX * scaleX;
+        const sy = fillY * scaleY;
+        const sWidth = fillWidth * scaleX;
+        const sHeight = fillHeight * scaleY;
+
+        // Draw the portion of the image that corresponds to the dirty rect
         ctx.drawImage(
           img,
-          fillX, fillY, fillWidth, fillHeight, // Source rect
-          fillX, fillY, fillWidth, fillHeight  // Dest rect
+          sx, sy, sWidth, sHeight,        // Source rect (in image coordinates)
+          fillX, fillY, fillWidth, fillHeight  // Dest rect (in canvas coordinates)
         );
       } else {
-        // Draw full image
+        // Draw full image scaled to scene dimensions
         ctx.drawImage(img, 0, 0, scene.width, scene.height);
       }
     }

@@ -51,9 +51,19 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
   const previousSkipKeyRef = useRef<string>('');
   const perfMonitorRef = useRef<PerformanceMonitor>(new PerformanceMonitor(30, 15, 30));
   const previousBackgroundRef = useRef<string>(`${backgroundType}:${backgroundValue}`);
+  const skipLayerIdsRef = useRef(skipLayerIds);
+  const backgroundTypeRef = useRef(backgroundType);
+  const backgroundValueRef = useRef(backgroundValue);
 
   const scene = useAppStore((state) => state.getCurrentScene());
   const sceneSize = useMemo(() => getCanvasSize(scene), [scene?.width, scene?.height]);
+
+  // Keep refs updated with latest prop values
+  useEffect(() => {
+    skipLayerIdsRef.current = skipLayerIds;
+    backgroundTypeRef.current = backgroundType;
+    backgroundValueRef.current = backgroundValue;
+  }, [skipLayerIds, backgroundType, backgroundValue]);
 
   const hasLiveVideoSources = useMemo(() => {
     if (!scene) return false;
@@ -83,11 +93,9 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
   };
 
   const requestRender = useCallback(() => {
-    // Cancel any pending frame from previous render callback closure
-    // This ensures we always use the latest skipLayerIds and other dependencies
+    // Don't schedule another frame if one is already pending
     if (animationFrameRef.current !== null) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
+      return;
     }
 
     const renderFrame = (timestamp: number) => {
@@ -112,11 +120,17 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
 
       const currentScene = useAppStore.getState().getCurrentScene();
       const previousScene = previousSceneRef.current;
-      const skipKey = (skipLayerIds ?? []).join('|');
+
+      // Use refs to get latest values instead of closure-captured values
+      const currentSkipLayerIds = skipLayerIdsRef.current;
+      const currentBackgroundType = backgroundTypeRef.current;
+      const currentBackgroundValue = backgroundValueRef.current;
+
+      const skipKey = (currentSkipLayerIds ?? []).join('|');
       const skipChanged = previousSkipKeyRef.current !== skipKey;
 
       // Check if background changed
-      const currentBackground = `${backgroundType}:${backgroundValue}`;
+      const currentBackground = `${currentBackgroundType}:${currentBackgroundValue}`;
       const backgroundChanged = previousBackgroundRef.current !== currentBackground;
 
       const dirtyRect = hasLiveVideoSources
@@ -148,11 +162,11 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
       }
 
       drawScene(currentScene, ctx, {
-        skipLayerIds,
+        skipLayerIds: currentSkipLayerIds,
         dirtyRect,
         background: {
-          type: backgroundType,
-          value: backgroundValue,
+          type: currentBackgroundType,
+          value: currentBackgroundValue,
         },
       });
       // NOTE: requestCurrentStreamFrame() removed - captureStream(fps) automatically
@@ -170,7 +184,7 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
     };
 
     animationFrameRef.current = requestAnimationFrame(renderFrame);
-  }, [skipLayerIds, hasLiveVideoSources, backgroundType, backgroundValue]);
+  }, [hasLiveVideoSources]);
 
   const markDirty = useCallback(() => {
     dirtyRef.current = true;
