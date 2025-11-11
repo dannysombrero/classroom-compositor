@@ -148,22 +148,40 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
 
   return (
     <div style={containerStyle}>
-      <div style={panelShellStyle}>
-        <section style={layersSectionStyle}>
+      <div style={{
+        ...panelShellStyle,
+        height: isExpanded ? '100%' : 'auto',
+      }}>
+        <section style={{
+          ...layersSectionStyle,
+          flex: isExpanded ? '0 0 65%' : 'none',
+          borderBottom: isExpanded ? '2px solid rgba(255, 255, 255, 0.12)' : 'none',
+        }}>
           <div style={layersHeaderStyle}>
+            <span style={{ fontSize: '13px', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+              Objects & Layers
+            </span>
             <button
               type="button"
               onClick={() => setIsExpanded(!isExpanded)}
               style={{
                 ...iconButtonStyle,
-                fontSize: '14px',
-                marginRight: '8px',
+                fontSize: '12px',
               }}
               aria-label={isExpanded ? 'Minimize panel' : 'Expand panel'}
             >
-              {isExpanded ? '−' : '+'}
+              {isExpanded ? '▲' : '▼'}
             </button>
-            <div style={menuTriggerWrapperStyle}>
+          </div>
+          {isExpanded && (
+            <>
+              <div style={{
+                ...layersHeaderStyle,
+                borderTop: '1px solid rgba(255, 255, 255, 0.06)',
+                borderBottom: 'none',
+                padding: '8px 14px',
+              }}>
+                <div style={menuTriggerWrapperStyle}>
               <button
                 type="button"
                 onClick={() => setMenuOpen((open) => !open)}
@@ -243,7 +261,6 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
               </div>
             )}
           </div>
-          {isExpanded && (
           <div style={layersScrollStyle} className="invisible-scrollbar">
           {orderedLayers.length === 0 ? (
             <div
@@ -439,7 +456,8 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
             })
           )}
         </div>
-          )}
+              </>
+            )}
         </section>
         {isExpanded && (
         <section style={propertiesSectionOuterStyle}>
@@ -473,11 +491,9 @@ const panelShellStyle: CSSProperties = {
 };
 
 const layersSectionStyle: CSSProperties = {
-  flex: '0 0 65%',
   display: 'flex',
   flexDirection: 'column',
   minHeight: 0,
-  borderBottom: '2px solid rgba(255, 255, 255, 0.12)', // Stronger visual separation
 };
 
 const layersHeaderStyle: CSSProperties = {
