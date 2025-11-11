@@ -565,8 +565,8 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                       style={{
                         position: 'absolute',
                         top: 0,
-                        left: `${12 + indentPx}px`,
-                        right: '12px',
+                        left: `${14 + indentPx}px`,
+                        right: '14px',
                         height: '2px',
                         background: 'rgba(0, 166, 255, 0.95)',
                         zIndex: 10,
@@ -579,8 +579,8 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                       style={{
                         position: 'absolute',
                         bottom: 0,
-                        left: `${12 + indentPx}px`,
-                        right: '12px',
+                        left: `${14 + indentPx}px`,
+                        right: '14px',
                         height: '2px',
                         background: 'rgba(0, 166, 255, 0.95)',
                         zIndex: 10,
@@ -610,9 +610,9 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                         ? 'rgba(0, 166, 255, 0.25)'
                         : background,
                       color: '#f5f5f5',
-                      padding: '10px 12px',
-                      paddingLeft: `${12 + indentPx}px`,
-                      paddingRight: '12px',
+                      padding: '10px 14px',
+                      paddingLeft: `${14 + indentPx}px`,
+                      paddingRight: '14px',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
@@ -748,7 +748,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                   <div
                     style={{
                       position: 'absolute',
-                      right: '12px',
+                      right: '14px',
                       top: '50%',
                       transform: 'translateY(-50%)',
                       display: 'flex',
