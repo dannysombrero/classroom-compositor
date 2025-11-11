@@ -119,23 +119,19 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
         return;
       }
 
-      // ONLY apply adaptive FPS when continuously rendering video layers
-      // NEVER skip frames during user interaction (small dirty rects)
+      // Record frame timing for performance monitoring, but don't skip frames
+      // when streaming. Skipping frames causes the canvas stream to freeze/go black
+      // because captureStream() has nothing new to capture.
       const isFullCanvasRender = dirtyRect.width === (currentScene?.width || 1920) &&
                                  dirtyRect.height === (currentScene?.height || 1080);
 
       if (hasLiveVideoSources && isFullCanvasRender) {
-        // Apply adaptive FPS only for continuous full-canvas video rendering
+        // Record frame timing for adaptive FPS monitoring
         const perfMonitor = perfMonitorRef.current;
-        const shouldRender = perfMonitor.recordFrame(timestamp);
-
-        if (!shouldRender || perfMonitor.shouldSkipFrame()) {
-          // Skip this frame for performance, but keep trying
-          if (dirtyRef.current) {
-            requestRender();
-          }
-          return;
-        }
+        perfMonitor.recordFrame(timestamp);
+        // Note: We record the frame but don't skip rendering, as that would break streaming.
+        // The performance monitor adjusts targetFPS, which can be used to adjust
+        // the render pump interval in the future.
       }
 
       drawScene(currentScene, ctx, { skipLayerIds, dirtyRect });

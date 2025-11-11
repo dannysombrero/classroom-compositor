@@ -1033,12 +1033,12 @@ function PresenterPage() {
         {canvasLayout && (
           <CanvasSelectionOverlay
             layout={canvasLayout}
-            scene={currentScene}
+            
             skipLayerIds={editingTextId ? [editingTextId] : undefined}
           />
         )}
         {canvasLayout && currentScene && groupTransformIds.length > 0 && (
-          <GroupTransformControls layout={canvasLayout} scene={currentScene} layerIds={groupTransformIds} />
+          <GroupTransformControls layout={canvasLayout}  layerIds={groupTransformIds} />
         )}
       </div>
 
@@ -1094,7 +1094,7 @@ function PresenterPage() {
           <TransformControls
             layout={canvasLayout}
             layer={selectedLayer}
-            scene={currentScene}
+            
             onRequestEdit={selectedLayer.type === "text" ? () => setEditingTextId(selectedLayer.id) : undefined}
           />
         )}
@@ -1141,7 +1141,7 @@ function PresenterPage() {
       />
 
       <ConfidencePreview
-        scene={currentScene}
+        
         visible={isConfidencePreviewVisible}
         onClose={() => {
           setIsConfidencePreviewVisible(false);

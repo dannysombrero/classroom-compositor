@@ -1,9 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
+import { useAppStore } from '../app/store';
 import type { Scene } from '../types/scene';
 import { drawScene } from '../renderer/canvasRenderer';
 
 interface ConfidencePreviewProps {
-  scene: Scene | null;
   visible: boolean;
   onClose: () => void;
 }
@@ -11,22 +11,38 @@ interface ConfidencePreviewProps {
 /**
  * Confidence preview that renders the scene directly to a small canvas.
  * No encoding/decoding - just direct canvas rendering like OBS does.
- * Much more efficient than encoding→decoding→re-encoding cycle.
+ * Subscribes to store changes for immediate updates during user interaction.
  */
-export function ConfidencePreview({ scene, visible, onClose }: ConfidencePreviewProps) {
+export function ConfidencePreview({ visible, onClose }: ConfidencePreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
+  const isRenderingRef = useRef(false);
 
-  useEffect(() => {
+  // Subscribe to scene changes from the store for immediate updates
+  const scene = useAppStore((state) => state.getCurrentScene());
+
+  const renderPreview = useCallback(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !visible || !scene) {
-      // Cancel animation frame when not visible
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-        animationFrameRef.current = null;
-      }
+    if (!canvas || !visible || !scene || isRenderingRef.current) {
       return;
     }
+
+    isRenderingRef.current = true;
+
+    try {
+      const ctx = canvas.getContext('2d', { alpha: false });
+      if (!ctx) return;
+
+      // Direct render - no encoding/decoding!
+      drawScene(scene, ctx);
+    } finally {
+      isRenderingRef.current = false;
+    }
+  }, [scene, visible]);
+
+  // Set up canvas dimensions
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !visible || !scene) return;
 
     // Set up preview canvas at low resolution (320x180)
     const previewWidth = 320;
@@ -48,34 +64,23 @@ export function ConfidencePreview({ scene, visible, onClose }: ConfidencePreview
     // Set transform for scaled rendering
     ctx.setTransform(dpr * scaleX, 0, 0, dpr * scaleY, 0, 0);
 
-    let lastFrameTime = 0;
-    const targetFPS = 15; // Lower FPS for preview to save CPU
-    const frameDuration = 1000 / targetFPS;
+    // Initial render
+    renderPreview();
+  }, [scene, visible, renderPreview]);
 
-    // Render loop - draw scene directly to preview canvas
-    const renderFrame = (timestamp: number) => {
-      if (!visible) return;
+  // Subscribe to store updates for immediate rendering during interaction
+  useEffect(() => {
+    if (!visible) return;
 
-      const elapsed = timestamp - lastFrameTime;
-      if (elapsed >= frameDuration) {
-        // Direct render - no encoding/decoding!
-        drawScene(scene, ctx);
-        lastFrameTime = timestamp;
-      }
-
-      animationFrameRef.current = requestAnimationFrame(renderFrame);
-    };
-
-    // Start rendering
-    lastFrameTime = performance.now();
-    animationFrameRef.current = requestAnimationFrame(renderFrame);
+    // Subscribe to any store changes
+    const unsubscribe = useAppStore.subscribe(() => {
+      renderPreview();
+    });
 
     return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
+      unsubscribe();
     };
-  }, [scene, visible]);
+  }, [visible, renderPreview]);
 
   if (!visible) {
     return null;
