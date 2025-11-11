@@ -908,22 +908,23 @@ function PresenterPage() {
             style={{
               display: "inline-flex",
               alignItems: "center",
-              gap: 8,
+              gap: 'clamp(6px, 1vw, 12px)',
               background: "#e11d48",
               color: "white",
               border: "none",
-              borderRadius: 8,
-              padding: "6px 12px",
+              borderRadius: 'clamp(6px, 1vw, 10px)',
+              padding: 'clamp(8px, 1.2vh, 12px) clamp(16px, 2vw, 24px)',
               cursor: "pointer",
               fontWeight: 700,
+              fontSize: 'clamp(13px, 1.5vw, 16px)',
             }}
             title="Start a live session and generate a join code"
           >
             <span
               style={{
                 display: "inline-flex",
-                width: 8,
-                height: 8,
+                width: 'clamp(8px, 1vw, 12px)',
+                height: 'clamp(8px, 1vw, 12px)',
                 borderRadius: 999,
                 background: "white",
               }}
@@ -935,20 +936,21 @@ function PresenterPage() {
             <span
               style={{
                 display: "inline-flex",
-                width: 8,
-                height: 8,
+                width: 'clamp(8px, 1vw, 12px)',
+                height: 'clamp(8px, 1vw, 12px)',
                 borderRadius: 999,
                 background: "#ef4444",
                 boxShadow: "0 0 0 6px rgba(239,68,68,0.2)",
-                marginRight: 2,
+                marginRight: 'clamp(2px, 0.5vw, 4px)',
               }}
               title="Live"
             />
-            <span style={{ opacity: 0.85, marginRight: 6 }}>Live</span>
+            <span style={{ opacity: 0.85, marginRight: 'clamp(6px, 1vw, 10px)', fontSize: 'clamp(13px, 1.5vw, 16px)' }}>Live</span>
             <code
               style={{
                 fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
                 fontWeight: 700,
+                fontSize: 'clamp(13px, 1.5vw, 16px)',
               }}
               title="Join code"
             >
@@ -958,13 +960,14 @@ function PresenterPage() {
             <button
               onClick={copyJoinInfo}
               style={{
-                marginLeft: 8,
+                marginLeft: 'clamp(8px, 1.2vw, 12px)',
                 background: "transparent",
                 color: "#eaeaea",
                 border: "1px solid rgba(255,255,255,0.2)",
-                borderRadius: 6,
-                padding: "4px 8px",
+                borderRadius: 'clamp(4px, 0.8vw, 8px)',
+                padding: 'clamp(6px, 1vh, 10px) clamp(10px, 1.5vw, 16px)',
                 cursor: "pointer",
+                fontSize: 'clamp(12px, 1.4vw, 15px)',
               }}
               title="Copy /join link"
             >
@@ -974,13 +977,13 @@ function PresenterPage() {
             {copied && (
               <span
                 style={{
-                  marginLeft: 8,
-                  padding: "2px 6px",
-                  borderRadius: 6,
+                  marginLeft: 'clamp(8px, 1.2vw, 12px)',
+                  padding: 'clamp(4px, 0.8vh, 8px) clamp(8px, 1.2vw, 12px)',
+                  borderRadius: 'clamp(4px, 0.8vw, 8px)',
                   background: "rgba(34,197,94,0.15)",
                   border: "1px solid rgba(34,197,94,0.35)",
                   color: "#86efac",
-                  fontSize: 11,
+                  fontSize: 'clamp(11px, 1.3vw, 14px)',
                 }}
               >
                 Copied!
@@ -990,13 +993,13 @@ function PresenterPage() {
             {liveError && (
               <span
                 style={{
-                  marginLeft: 8,
-                  padding: "2px 6px",
-                  borderRadius: 6,
+                  marginLeft: 'clamp(8px, 1.2vw, 12px)',
+                  padding: 'clamp(4px, 0.8vh, 8px) clamp(8px, 1.2vw, 12px)',
+                  borderRadius: 'clamp(4px, 0.8vw, 8px)',
                   background: "rgba(239,68,68,0.15)",
                   border: "1px solid rgba(239,68,68,0.35)",
                   color: "#fecaca",
-                  fontSize: 11,
+                  fontSize: 'clamp(11px, 1.3vw, 14px)',
                 }}
               >
                 {liveError}
