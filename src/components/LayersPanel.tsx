@@ -605,6 +605,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                     onDragEnd={handleDragEnd}
                     style={{
                       width: '100%',
+                      boxSizing: 'border-box',
                       border: 'none',
                       background: isDraggedOver && dragPosition === 'into'
                         ? 'rgba(0, 166, 255, 0.25)'
