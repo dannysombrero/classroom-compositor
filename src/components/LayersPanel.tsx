@@ -628,10 +628,10 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                       alignItems: 'flex-start',
                       textAlign: 'left',
                       gap: '2px',
-                      flex: 1,
+                      flex: '1 1 auto',
                       minWidth: 0,
-                      maxWidth: 'calc(100% - 80px)', // Reserve space for lock and visibility icons
-                      marginRight: '8px',
+                      maxWidth: 'calc(100% - 70px)', // Reserve 70px for icons
+                      overflow: 'hidden',
                     }}
                   >
                     <span
@@ -749,8 +749,11 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '10px',
+                      gap: '8px',
                       flexShrink: 0,
+                      flexBasis: '60px',
+                      justifyContent: 'flex-end',
+                      minWidth: '60px',
                     }}
                   >
                     <button

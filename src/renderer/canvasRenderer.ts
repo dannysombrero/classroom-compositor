@@ -87,18 +87,34 @@ export function drawScene(
   // Fill canvas with background (color or image)
   const background = options.background || { type: 'color', value: '#ffffff' };
 
+  // Use dirty rect if available, otherwise full canvas
+  const fillX = dirtyRect?.x ?? 0;
+  const fillY = dirtyRect?.y ?? 0;
+  const fillWidth = dirtyRect?.width ?? scene.width;
+  const fillHeight = dirtyRect?.height ?? scene.height;
+
   if (background.type === 'color') {
     ctx.fillStyle = background.value;
-    ctx.fillRect(0, 0, scene.width, scene.height);
+    ctx.fillRect(fillX, fillY, fillWidth, fillHeight);
   } else if (background.type === 'image' || background.type === 'url') {
     // Fill with white first as fallback
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, scene.width, scene.height);
+    ctx.fillRect(fillX, fillY, fillWidth, fillHeight);
 
     // Try to draw the cached image
     const img = loadBackgroundImage(background.value);
     if (img && img.complete && img.naturalWidth > 0) {
-      ctx.drawImage(img, 0, 0, scene.width, scene.height);
+      if (dirtyRect) {
+        // Only draw the portion of the image that covers the dirty rect
+        ctx.drawImage(
+          img,
+          fillX, fillY, fillWidth, fillHeight, // Source rect
+          fillX, fillY, fillWidth, fillHeight  // Dest rect
+        );
+      } else {
+        // Draw full image
+        ctx.drawImage(img, 0, 0, scene.width, scene.height);
+      }
     }
   }
   

@@ -167,6 +167,11 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
     requestRender();
   }, [requestRender]);
 
+  // Mark dirty when background settings change
+  useEffect(() => {
+    markDirty();
+  }, [backgroundType, backgroundValue, markDirty]);
+
   // Update canvas size based on scene dimensions or default
   useEffect(() => {
     const canvas = canvasRef.current;
