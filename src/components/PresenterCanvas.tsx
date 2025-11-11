@@ -50,6 +50,7 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
   const previousSceneRef = useRef<Scene | null>(null);
   const previousSkipKeyRef = useRef<string>('');
   const perfMonitorRef = useRef<PerformanceMonitor>(new PerformanceMonitor(30, 15, 30));
+  const previousBackgroundRef = useRef<string>(`${backgroundType}:${backgroundValue}`);
 
   const scene = useAppStore((state) => state.getCurrentScene());
   const sceneSize = useMemo(() => getCanvasSize(scene), [scene?.width, scene?.height]);
@@ -110,9 +111,14 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
       const previousScene = previousSceneRef.current;
       const skipKey = (skipLayerIds ?? []).join('|');
       const skipChanged = previousSkipKeyRef.current !== skipKey;
+
+      // Check if background changed
+      const currentBackground = `${backgroundType}:${backgroundValue}`;
+      const backgroundChanged = previousBackgroundRef.current !== currentBackground;
+
       const dirtyRect = hasLiveVideoSources
         ? fullCanvasRect(currentScene ?? previousScene)
-        : skipChanged
+        : skipChanged || backgroundChanged
           ? fullCanvasRect(currentScene ?? previousScene)
           : computeDirtyRect(previousScene, currentScene);
 
@@ -153,6 +159,7 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
       dirtyRef.current = false;
       previousSceneRef.current = currentScene ?? null;
       previousSkipKeyRef.current = skipKey;
+      previousBackgroundRef.current = currentBackground;
 
       if (dirtyRef.current) {
         requestRender();
@@ -160,7 +167,7 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
     };
 
     animationFrameRef.current = requestAnimationFrame(renderFrame);
-  }, [skipLayerIds, hasLiveVideoSources]);
+  }, [skipLayerIds, hasLiveVideoSources, backgroundType, backgroundValue]);
 
   const markDirty = useCallback(() => {
     dirtyRef.current = true;

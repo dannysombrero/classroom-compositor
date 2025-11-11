@@ -630,7 +630,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                       gap: '2px',
                       flex: '1 1 auto',
                       minWidth: 0,
-                      maxWidth: 'calc(100% - 70px)', // Reserve 70px for icons
+                      maxWidth: 'calc(100% - 100px)', // Reserve 100px for icons
                       overflow: 'hidden',
                     }}
                   >
@@ -751,9 +751,9 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                       alignItems: 'center',
                       gap: '8px',
                       flexShrink: 0,
-                      flexBasis: '60px',
+                      flexBasis: '80px',
                       justifyContent: 'flex-end',
-                      minWidth: '60px',
+                      minWidth: '80px',
                     }}
                   >
                     <button
@@ -771,6 +771,9 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                         alignItems: 'center',
                         justifyContent: 'center',
                         opacity: layer.locked ? 1 : 0.65,
+                        width: '20px',
+                        height: '20px',
+                        flexShrink: 0,
                       }}
                       aria-label={layer.locked ? 'Unlock layer' : 'Lock layer'}
                     >
@@ -814,6 +817,9 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
+                        width: '20px',
+                        height: '20px',
+                        flexShrink: 0,
                       }}
                       aria-label={layer.visible ? 'Hide layer' : 'Show layer'}
                     >
