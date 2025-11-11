@@ -37,13 +37,31 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
     return layers.find((layer) => layer.id === selection[0]) ?? null;
   }, [layers, selection]);
 
-  const orderedLayers = useMemo(() => {
-    // Filter to only show top-level layers (no parentId) and sort by z-order
-    // Highest z first for UI readability (top-most layer at top)
-    return [...layers]
+  // Build a hierarchical display list with top-level layers and their children
+  const displayList = useMemo(() => {
+    const topLevelLayers = [...layers]
       .filter((layer) => !layer.parentId)
       .sort((a, b) => b.z - a.z);
-  }, [layers]);
+
+    const result: Array<{ layer: Layer; depth: number }> = [];
+
+    for (const layer of topLevelLayers) {
+      result.push({ layer, depth: 0 });
+
+      // If it's a group and expanded, add its children
+      if (layer.type === 'group' && expandedGroups.has(layer.id)) {
+        const children = layers
+          .filter((child) => child.parentId === layer.id)
+          .sort((a, b) => b.z - a.z);
+
+        for (const child of children) {
+          result.push({ layer: child, depth: 1 });
+        }
+      }
+    }
+
+    return result;
+  }, [layers, expandedGroups]);
 
   const toggleVisibility = (layerId: string, visible: boolean) => {
     updateLayer(
@@ -62,6 +80,18 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
     requestCurrentStreamFrame();
   };
 
+  const toggleGroupExpanded = (groupId: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) {
+        next.delete(groupId);
+      } else {
+        next.add(groupId);
+      }
+      return next;
+    });
+  };
+
   const isSelected = (layerId: string) => selection.includes(layerId);
 
   const handleRowClick = (event: ReactMouseEvent<HTMLButtonElement>, layerId: string) => {
@@ -78,7 +108,9 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
   };
 
   const handleReorder = (draggedId: string, targetId: string | null, placeBefore: boolean) => {
-    const currentOrder = orderedLayers.map((layer) => layer.id);
+    // Get only top-level layers for reordering
+    const topLevelLayers = layers.filter((layer) => !layer.parentId).sort((a, b) => b.z - a.z);
+    const currentOrder = topLevelLayers.map((layer) => layer.id);
     const draggedIndex = currentOrder.indexOf(draggedId);
     if (draggedIndex === -1) return;
 
@@ -276,7 +308,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
             )}
           </div>
           <div style={layersScrollStyle} className="invisible-scrollbar">
-          {orderedLayers.length === 0 ? (
+          {displayList.length === 0 ? (
             <div
               style={{
                 padding: '24px 16px',
@@ -288,7 +320,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
               No layers yet. Click + to add a source.
             </div>
           ) : (
-            orderedLayers.map((layer) => {
+            displayList.map(({ layer, depth }) => {
               const isDragTarget = dragOverId === layer.id && draggingId !== null;
               const isDragging = draggingId === layer.id;
               const background = isDragging
@@ -298,6 +330,10 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                 : isDragTarget
                 ? 'rgba(255, 255, 255, 0.08)'
                 : 'transparent';
+
+              const isGroup = layer.type === 'group';
+              const isExpanded = isGroup && expandedGroups.has(layer.id);
+              const indentPx = depth * 20;
 
               return (
                 <div
@@ -322,6 +358,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                     background,
                     color: '#f5f5f5',
                     padding: '10px 12px',
+                    paddingLeft: `${12 + indentPx}px`,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
@@ -347,6 +384,31 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                         gap: '6px',
                       }}
                     >
+                      {isGroup && (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            toggleGroupExpanded(layer.id);
+                          }}
+                          style={{
+                            border: 'none',
+                            background: 'transparent',
+                            cursor: 'pointer',
+                            padding: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: 'rgba(255, 255, 255, 0.7)',
+                            fontSize: '12px',
+                            width: '16px',
+                            height: '16px',
+                          }}
+                          aria-label={isExpanded ? 'Collapse group' : 'Expand group'}
+                        >
+                          {isExpanded ? '▼' : '▶'}
+                        </button>
+                      )}
                       {layer.name}
                       {layer.locked && (
                         <span
