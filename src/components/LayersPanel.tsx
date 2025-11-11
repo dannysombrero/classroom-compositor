@@ -630,7 +630,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                       gap: '2px',
                       flex: '1 1 auto',
                       minWidth: 0,
-                      maxWidth: 'calc(100% - 100px)', // Reserve 100px for icons
+                      maxWidth: 'calc(100% - 110px)', // Reserve 110px for icons and gap
                       overflow: 'hidden',
                     }}
                   >
@@ -751,9 +751,10 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                       alignItems: 'center',
                       gap: '8px',
                       flexShrink: 0,
-                      flexBasis: '80px',
+                      flex: '0 0 90px',
                       justifyContent: 'flex-end',
-                      minWidth: '80px',
+                      minWidth: '90px',
+                      maxWidth: '90px',
                     }}
                   >
                     <button
@@ -771,16 +772,18 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                         alignItems: 'center',
                         justifyContent: 'center',
                         opacity: layer.locked ? 1 : 0.65,
-                        width: '20px',
-                        height: '20px',
+                        width: '24px',
+                        height: '24px',
+                        minWidth: '24px',
+                        minHeight: '24px',
                         flexShrink: 0,
                       }}
                       aria-label={layer.locked ? 'Unlock layer' : 'Lock layer'}
                     >
                       <svg
                         xmlns="http://www.w3.org/2000/svg"
-                        width="18"
-                        height="18"
+                        width="20"
+                        height="20"
                         viewBox="0 0 24 24"
                         fill="none"
                         stroke="rgba(255, 255, 255, 0.85)"
@@ -817,16 +820,18 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        width: '20px',
-                        height: '20px',
+                        width: '24px',
+                        height: '24px',
+                        minWidth: '24px',
+                        minHeight: '24px',
                         flexShrink: 0,
                       }}
                       aria-label={layer.visible ? 'Hide layer' : 'Show layer'}
                     >
                       <svg
                         xmlns="http://www.w3.org/2000/svg"
-                        width="18"
-                        height="18"
+                        width="20"
+                        height="20"
                         viewBox="0 0 24 24"
                         fill="none"
                         stroke={layer.visible ? 'rgba(255, 230, 125, 0.95)' : 'rgba(255, 255, 255, 0.3)'}
