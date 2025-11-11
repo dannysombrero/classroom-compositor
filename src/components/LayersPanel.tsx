@@ -19,7 +19,6 @@ interface LayersPanelProps {
  */
 export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAddImage, onAddShape }: LayersPanelProps) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(true);
   const updateLayer = useAppStore((state) => state.updateLayer);
   const removeLayer = useAppStore((state) => state.removeLayer);
   const reorderLayers = useAppStore((state) => state.reorderLayers);
@@ -148,37 +147,9 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
 
   return (
     <div style={containerStyle}>
-      <div style={{
-        ...panelShellStyle,
-        height: isExpanded ? '100%' : 'auto',
-      }}>
-        <section style={{
-          ...layersSectionStyle,
-          flex: isExpanded ? '0 0 65%' : 'none',
-          borderBottom: isExpanded ? '2px solid rgba(255, 255, 255, 0.12)' : 'none',
-        }}>
-          <div style={{ ...layersHeaderStyle, justifyContent: 'flex-end' }}>
-            <button
-              type="button"
-              onClick={() => setIsExpanded(!isExpanded)}
-              style={{
-                ...iconButtonStyle,
-                fontSize: '12px',
-              }}
-              aria-label={isExpanded ? 'Minimize panel' : 'Expand panel'}
-            >
-              {isExpanded ? '▲' : '▼'}
-            </button>
-          </div>
-          {isExpanded && (
-            <>
-              <div style={{
-                ...layersHeaderStyle,
-                borderTop: '1px solid rgba(255, 255, 255, 0.06)',
-                borderBottom: 'none',
-                padding: '8px 14px',
-              }}>
-                <div style={menuTriggerWrapperStyle}>
+      <div style={panelShellStyle}>
+        <section style={layersSectionStyle}>
+          <div style={layersHeaderStyle}>
               <button
                 type="button"
                 onClick={() => setMenuOpen((open) => !open)}
@@ -453,17 +424,13 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
             })
           )}
         </div>
-              </>
-            )}
         </section>
-        {isExpanded && (
         <section style={propertiesSectionOuterStyle}>
           <div style={propertiesHeaderStyle}>Properties</div>
           <div style={propertiesContentStyle} className="invisible-scrollbar">
             <LayerPropertiesPanel layer={selectedLayer ?? null} />
           </div>
         </section>
-        )}
       </div>
     </div>
   );
@@ -488,9 +455,11 @@ const panelShellStyle: CSSProperties = {
 };
 
 const layersSectionStyle: CSSProperties = {
+  flex: '0 0 65%',
   display: 'flex',
   flexDirection: 'column',
   minHeight: 0,
+  borderBottom: '2px solid rgba(255, 255, 255, 0.12)',
 };
 
 const layersHeaderStyle: CSSProperties = {

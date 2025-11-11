@@ -96,7 +96,7 @@ function PresenterPage() {
     width: LAYERS_PANEL_WIDTH,
     height: LAYERS_PANEL_EXPANDED_HEIGHT
   });
-  const [isLayersPanelCollapsed, setLayersPanelCollapsed] = useState(false);
+  const [isPanelMinimized, setIsPanelMinimized] = useState(false);
   const [canvasLayout, setCanvasLayout] = useState<CanvasLayout | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [isPresentationMode, setIsPresentationMode] = useState(false);
@@ -1060,10 +1060,17 @@ function PresenterPage() {
       <FloatingPanel
         title="Objects & Layers"
         position={panelPosition}
-        size={panelSize}
+        size={isPanelMinimized ? { width: panelSize.width, height: 44 } : panelSize}
         minSize={{ width: 280, height: 200 }}
         onPositionChange={setPanelPosition}
-        onSizeChange={setPanelSize}
+        onSizeChange={(newSize) => {
+          if (!isPanelMinimized) {
+            setPanelSize(newSize);
+          }
+        }}
+        minimizable
+        minimized={isPanelMinimized}
+        onToggleMinimize={() => setIsPanelMinimized(!isPanelMinimized)}
       >
         <LayersPanel
           layers={sceneLayers}
