@@ -53,6 +53,7 @@ export function LayerPropertiesPanel({ layer }: LayerPropertiesPanelProps) {
   const supportsFill = layer?.type === 'shape';
   const supportsText = layer?.type === 'text';
   const supportsImage = layer?.type === 'image';
+  const supportsScreen = layer?.type === 'screen';
   const supportsCamera = layer?.type === 'camera';
 
   const textValues = useMemo(() => {
@@ -79,6 +80,19 @@ export function LayerPropertiesPanel({ layer }: LayerPropertiesPanelProps) {
     setImageWidthInput(Math.round(imageValues.transform.scale.x * 100).toString());
     setImageHeightInput(Math.round(imageValues.transform.scale.y * 100).toString());
   }, [imageValues?.id, imageValues?.transform.scale.x, imageValues?.transform.scale.y, imageValues?.scaleLocked]);
+
+  const screenValues = useMemo(() => {
+    if (layer?.type !== 'screen') return null;
+    return layer;
+  }, [layer]);
+  const [screenWidthInput, setScreenWidthInput] = useState('');
+  const [screenHeightInput, setScreenHeightInput] = useState('');
+
+  useEffect(() => {
+    if (!screenValues) return;
+    setScreenWidthInput(Math.round(screenValues.transform.scale.x * 100).toString());
+    setScreenHeightInput(Math.round(screenValues.transform.scale.y * 100).toString());
+  }, [screenValues?.id, screenValues?.transform.scale.x, screenValues?.transform.scale.y, screenValues?.scaleLocked]);
 
   const shapeFillAlpha = shapeValues ? extractAlpha(shapeValues.fillColor) : 1;
 
@@ -148,18 +162,20 @@ export function LayerPropertiesPanel({ layer }: LayerPropertiesPanelProps) {
                 const percent = Math.min(raw, IMAGE_SCALE_MAX_PERCENT);
                 const scaleValue = percent / 100;
                 const locked = imageValues.scaleLocked ?? true;
+                const currentRatio = imageValues.transform.scale.x / imageValues.transform.scale.y;
+                const newScaleY = locked ? scaleValue / currentRatio : imageValues.transform.scale.y;
                 updateLayer(imageValues.id, {
                   transform: {
                     ...imageValues.transform,
                     scale: {
                       x: scaleValue,
-                      y: locked ? scaleValue : imageValues.transform.scale.y,
+                      y: newScaleY,
                     },
                   },
                 });
                 setImageWidthInput(percent.toString());
                 if (locked) {
-                  setImageHeightInput(percent.toString());
+                  setImageHeightInput(Math.round(newScaleY * 100).toString());
                 }
                 requestCurrentStreamFrame();
               }}
@@ -180,17 +196,19 @@ export function LayerPropertiesPanel({ layer }: LayerPropertiesPanelProps) {
                 setImageWidthInput(clamped.toString());
                 const locked = imageValues.scaleLocked ?? true;
                 const scaleValue = clamped / 100;
+                const currentRatio = imageValues.transform.scale.x / imageValues.transform.scale.y;
+                const newScaleY = locked ? scaleValue / currentRatio : imageValues.transform.scale.y;
                 updateLayer(imageValues.id, {
                   transform: {
                     ...imageValues.transform,
                     scale: {
                       x: scaleValue,
-                      y: locked ? scaleValue : imageValues.transform.scale.y,
+                      y: newScaleY,
                     },
                   },
                 });
                 if (locked) {
-                  setImageHeightInput(clamped.toString());
+                  setImageHeightInput(Math.round(newScaleY * 100).toString());
                 }
                 requestCurrentStreamFrame();
               }}
@@ -219,18 +237,20 @@ export function LayerPropertiesPanel({ layer }: LayerPropertiesPanelProps) {
                 const percent = Math.min(raw, IMAGE_SCALE_MAX_PERCENT);
                 const scaleValue = percent / 100;
                 const locked = imageValues.scaleLocked ?? true;
+                const currentRatio = imageValues.transform.scale.x / imageValues.transform.scale.y;
+                const newScaleX = locked ? scaleValue * currentRatio : imageValues.transform.scale.x;
                 updateLayer(imageValues.id, {
                   transform: {
                     ...imageValues.transform,
                     scale: {
-                      x: locked ? scaleValue : imageValues.transform.scale.x,
+                      x: newScaleX,
                       y: scaleValue,
                     },
                   },
                 });
                 setImageHeightInput(percent.toString());
                 if (locked) {
-                  setImageWidthInput(percent.toString());
+                  setImageWidthInput(Math.round(newScaleX * 100).toString());
                 }
                 requestCurrentStreamFrame();
               }}
@@ -251,17 +271,19 @@ export function LayerPropertiesPanel({ layer }: LayerPropertiesPanelProps) {
                 setImageHeightInput(clamped.toString());
                 const locked = imageValues.scaleLocked ?? true;
                 const scaleValue = clamped / 100;
+                const currentRatio = imageValues.transform.scale.x / imageValues.transform.scale.y;
+                const newScaleX = locked ? scaleValue * currentRatio : imageValues.transform.scale.x;
                 updateLayer(imageValues.id, {
                   transform: {
                     ...imageValues.transform,
                     scale: {
-                      x: locked ? scaleValue : imageValues.transform.scale.x,
+                      x: newScaleX,
                       y: scaleValue,
                     },
                   },
                 });
                 if (locked) {
-                  setImageWidthInput(clamped.toString());
+                  setImageWidthInput(Math.round(newScaleX * 100).toString());
                 }
                 requestCurrentStreamFrame();
               }}
@@ -269,6 +291,179 @@ export function LayerPropertiesPanel({ layer }: LayerPropertiesPanelProps) {
           </label>
         </div>
       )}
+
+      {supportsScreen && screenValues && (
+        <div style={panelStyle.section}>
+          <div style={panelStyle.labelRow}>
+            <span>Scale lock</span>
+            <button
+              type="button"
+              onClick={() => {
+                const next = !(screenValues.scaleLocked ?? true);
+                updateLayer(screenValues.id, { scaleLocked: next });
+                requestCurrentStreamFrame();
+              }}
+              style={{
+                ...panelStyle.lockToggle,
+                ...((screenValues.scaleLocked ?? true) ? panelStyle.lockToggleActive : null),
+              }}
+            >
+              {(screenValues.scaleLocked ?? true) ? '🔒 linked' : '🔓 free'}
+            </button>
+          </div>
+          <label style={panelStyle.labelRow}>
+            <span>Width %</span>
+            <input
+              type="number"
+              min={IMAGE_SCALE_MIN_PERCENT}
+              max={IMAGE_SCALE_MAX_PERCENT}
+              value={screenWidthInput}
+              onChange={(event) => {
+                const input = event.target.value;
+                setScreenWidthInput(input);
+                if (input.trim() === '') {
+                  return;
+                }
+                const raw = Number(input);
+                if (Number.isNaN(raw)) {
+                  return;
+                }
+                if (raw < IMAGE_SCALE_MIN_PERCENT) {
+                  return;
+                }
+                const percent = Math.min(raw, IMAGE_SCALE_MAX_PERCENT);
+                const scaleValue = percent / 100;
+                const locked = screenValues.scaleLocked ?? true;
+                const currentRatio = screenValues.transform.scale.x / screenValues.transform.scale.y;
+                const newScaleY = locked ? scaleValue / currentRatio : screenValues.transform.scale.y;
+                updateLayer(screenValues.id, {
+                  transform: {
+                    ...screenValues.transform,
+                    scale: {
+                      x: scaleValue,
+                      y: newScaleY,
+                    },
+                  },
+                });
+                setScreenWidthInput(percent.toString());
+                if (locked) {
+                  setScreenHeightInput(Math.round(newScaleY * 100).toString());
+                }
+                requestCurrentStreamFrame();
+              }}
+              style={panelStyle.numberInput}
+              onBlur={() => {
+                if (screenWidthInput.trim() === '') {
+                  const fallback = clampPercent(Math.round(screenValues.transform.scale.x * 100));
+                  setScreenWidthInput(fallback.toString());
+                  return;
+                }
+                const raw = Number(screenWidthInput);
+                if (Number.isNaN(raw)) {
+                  const fallback = clampPercent(Math.round(screenValues.transform.scale.x * 100));
+                  setScreenWidthInput(fallback.toString());
+                  return;
+                }
+                const clamped = clampPercent(raw);
+                setScreenWidthInput(clamped.toString());
+                const locked = screenValues.scaleLocked ?? true;
+                const scaleValue = clamped / 100;
+                const currentRatio = screenValues.transform.scale.x / screenValues.transform.scale.y;
+                const newScaleY = locked ? scaleValue / currentRatio : screenValues.transform.scale.y;
+                updateLayer(screenValues.id, {
+                  transform: {
+                    ...screenValues.transform,
+                    scale: {
+                      x: scaleValue,
+                      y: newScaleY,
+                    },
+                  },
+                });
+                if (locked) {
+                  setScreenHeightInput(Math.round(newScaleY * 100).toString());
+                }
+                requestCurrentStreamFrame();
+              }}
+            />
+          </label>
+          <label style={panelStyle.labelRow}>
+            <span>Height %</span>
+            <input
+              type="number"
+              min={IMAGE_SCALE_MIN_PERCENT}
+              max={IMAGE_SCALE_MAX_PERCENT}
+              value={screenHeightInput}
+              onChange={(event) => {
+                const input = event.target.value;
+                setScreenHeightInput(input);
+                if (input.trim() === '') {
+                  return;
+                }
+                const raw = Number(input);
+                if (Number.isNaN(raw)) {
+                  return;
+                }
+                if (raw < IMAGE_SCALE_MIN_PERCENT) {
+                  return;
+                }
+                const percent = Math.min(raw, IMAGE_SCALE_MAX_PERCENT);
+                const scaleValue = percent / 100;
+                const locked = screenValues.scaleLocked ?? true;
+                const currentRatio = screenValues.transform.scale.x / screenValues.transform.scale.y;
+                const newScaleX = locked ? scaleValue * currentRatio : screenValues.transform.scale.x;
+                updateLayer(screenValues.id, {
+                  transform: {
+                    ...screenValues.transform,
+                    scale: {
+                      x: newScaleX,
+                      y: scaleValue,
+                    },
+                  },
+                });
+                setScreenHeightInput(percent.toString());
+                if (locked) {
+                  setScreenWidthInput(Math.round(newScaleX * 100).toString());
+                }
+                requestCurrentStreamFrame();
+              }}
+              style={panelStyle.numberInput}
+              onBlur={() => {
+                if (screenHeightInput.trim() === '') {
+                  const fallback = clampPercent(Math.round(screenValues.transform.scale.y * 100));
+                  setScreenHeightInput(fallback.toString());
+                  return;
+                }
+                const raw = Number(screenHeightInput);
+                if (Number.isNaN(raw)) {
+                  const fallback = clampPercent(Math.round(screenValues.transform.scale.y * 100));
+                  setScreenHeightInput(fallback.toString());
+                  return;
+                }
+                const clamped = clampPercent(raw);
+                setScreenHeightInput(clamped.toString());
+                const locked = screenValues.scaleLocked ?? true;
+                const scaleValue = clamped / 100;
+                const currentRatio = screenValues.transform.scale.x / screenValues.transform.scale.y;
+                const newScaleX = locked ? scaleValue * currentRatio : screenValues.transform.scale.x;
+                updateLayer(screenValues.id, {
+                  transform: {
+                    ...screenValues.transform,
+                    scale: {
+                      x: newScaleX,
+                      y: scaleValue,
+                    },
+                  },
+                });
+                if (locked) {
+                  setScreenWidthInput(Math.round(newScaleX * 100).toString());
+                }
+                requestCurrentStreamFrame();
+              }}
+            />
+          </label>
+        </div>
+      )}
+
       {supportsText && textValues && (
         <div style={panelStyle.section}>
           <label style={panelStyle.label}>
@@ -494,7 +689,7 @@ export function LayerPropertiesPanel({ layer }: LayerPropertiesPanelProps) {
         </div>
       )}
 
-      {!supportsText && !supportsFill && !supportsImage && !supportsCamera && (
+      {!supportsText && !supportsFill && !supportsImage && !supportsScreen && !supportsCamera && (
         <div style={panelStyle.emptySecondary}>No editable properties for this layer yet.</div>
       )}
     </div>

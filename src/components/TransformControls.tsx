@@ -273,27 +273,26 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
         return;
       }
 
-      if (currentLayer.type === 'image') {
-        const locked = currentLayer.scaleLocked ?? true;
+      if (currentLayer.type === 'image' || currentLayer.type === 'shape' || currentLayer.type === 'screen') {
+        const locked = currentLayer.type === 'image' || currentLayer.type === 'shape' || currentLayer.type === 'screen'
+          ? (currentLayer.scaleLocked ?? true)
+          : true;
         const minScaleX = Math.max(MIN_SIZE / baseSize.width, IMAGE_SCALE_MIN);
         const minScaleY = Math.max(MIN_SIZE / baseSize.height, IMAGE_SCALE_MIN);
         newScaleX = Math.min(IMAGE_SCALE_MAX, Math.max(newScaleX, minScaleX));
         newScaleY = Math.min(IMAGE_SCALE_MAX, Math.max(newScaleY, minScaleY));
         if (locked) {
-          const uniformScale = Math.min(newScaleX, newScaleY);
-          newScaleX = uniformScale;
-          newScaleY = uniformScale;
-        }
-      } else if (currentLayer.type === 'shape') {
-        const locked = currentLayer.scaleLocked ?? true;
-        const minScaleX = Math.max(MIN_SIZE / baseSize.width, IMAGE_SCALE_MIN);
-        const minScaleY = Math.max(MIN_SIZE / baseSize.height, IMAGE_SCALE_MIN);
-        newScaleX = Math.min(IMAGE_SCALE_MAX, Math.max(newScaleX, minScaleX));
-        newScaleY = Math.min(IMAGE_SCALE_MAX, Math.max(newScaleY, minScaleY));
-        if (locked) {
-          const uniformScale = Math.min(newScaleX, newScaleY);
-          newScaleX = uniformScale;
-          newScaleY = uniformScale;
+          // Maintain current aspect ratio instead of forcing uniform scale
+          const currentRatio = currentLayer.transform.scale.x / currentLayer.transform.scale.y;
+          // Use the dimension with larger scale as the driver
+          if (Math.abs(newScaleX) >= Math.abs(newScaleY)) {
+            newScaleY = newScaleX / currentRatio;
+          } else {
+            newScaleX = newScaleY * currentRatio;
+          }
+          // Re-clamp after ratio adjustment
+          newScaleX = Math.min(IMAGE_SCALE_MAX, Math.max(newScaleX, minScaleX));
+          newScaleY = Math.min(IMAGE_SCALE_MAX, Math.max(newScaleY, minScaleY));
         }
       }
 

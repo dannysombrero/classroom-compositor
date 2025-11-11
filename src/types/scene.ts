@@ -43,6 +43,8 @@ export interface ScreenLayer extends BaseLayer {
   type: 'screen';
   /** MediaStream track ID for screen capture */
   streamId?: string;
+  /** Maintain uniform scaling when resizing */
+  scaleLocked?: boolean;
 }
 
 /**
