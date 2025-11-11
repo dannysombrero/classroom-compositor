@@ -108,7 +108,7 @@ function PresenterPage() {
   const controlStripTimerRef = useRef<number | null>(null);
   const clipboardRef = useRef<Layer[] | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [canvasBackgroundType, setCanvasBackgroundType] = useState<'color' | 'image' | 'url'>('color');
+  const [canvasBackgroundType, setCanvasBackgroundType] = useState<'color' | 'image'>('color');
   const [canvasBackgroundValue, setCanvasBackgroundValue] = useState<string>('#ffffff');
 
   const [cameraTrackForEffects, setCameraTrackForEffects] = useState<MediaStreamTrack | null>(null);
@@ -1148,7 +1148,7 @@ function PresenterPage() {
             </label>
             <select
               value={canvasBackgroundType}
-              onChange={(e) => setCanvasBackgroundType(e.target.value as 'color' | 'image' | 'url')}
+              onChange={(e) => setCanvasBackgroundType(e.target.value as 'color' | 'image')}
               style={{
                 width: '100%',
                 padding: 8,
@@ -1161,7 +1161,6 @@ function PresenterPage() {
             >
               <option value="color">Solid Color</option>
               <option value="image">Image Upload</option>
-              <option value="url">Image URL</option>
             </select>
           </div>
 
@@ -1180,29 +1179,6 @@ function PresenterPage() {
                   borderRadius: 6,
                   border: '1px solid rgba(255,255,255,0.15)',
                   cursor: 'pointer',
-                }}
-              />
-            </div>
-          )}
-
-          {canvasBackgroundType === 'url' && (
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', marginBottom: 8, color: '#aaa', fontSize: 13 }}>
-                Image URL
-              </label>
-              <input
-                type="text"
-                value={canvasBackgroundValue}
-                onChange={(e) => setCanvasBackgroundValue(e.target.value)}
-                placeholder="https://example.com/image.jpg"
-                style={{
-                  width: '100%',
-                  padding: 8,
-                  borderRadius: 6,
-                  background: 'rgba(255,255,255,0.08)',
-                  border: '1px solid rgba(255,255,255,0.15)',
-                  color: '#eaeaea',
-                  fontSize: 13,
                 }}
               />
             </div>

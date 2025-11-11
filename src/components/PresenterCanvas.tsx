@@ -20,9 +20,9 @@ interface PresenterCanvasProps {
   onLayoutChange?: (layout: CanvasLayout) => void;
   /** Layer IDs to omit during render (e.g., when editing text inline) */
   skipLayerIds?: string[];
-  /** Background type: color, image, or url */
-  backgroundType?: 'color' | 'image' | 'url';
-  /** Background value: hex color, data URL, or image URL */
+  /** Background type: color or image */
+  backgroundType?: 'color' | 'image';
+  /** Background value: hex color or data URL */
   backgroundValue?: string;
 }
 

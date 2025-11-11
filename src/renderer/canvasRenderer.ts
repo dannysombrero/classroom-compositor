@@ -46,7 +46,7 @@ interface DrawSceneOptions {
   skipLayerIds?: string[];
   dirtyRect?: { x: number; y: number; width: number; height: number };
   background?: {
-    type: 'color' | 'image' | 'url';
+    type: 'color' | 'image';
     value: string;
   };
 }
@@ -96,7 +96,7 @@ export function drawScene(
   if (background.type === 'color') {
     ctx.fillStyle = background.value;
     ctx.fillRect(fillX, fillY, fillWidth, fillHeight);
-  } else if (background.type === 'image' || background.type === 'url') {
+  } else if (background.type === 'image') {
     // Fill with white first as fallback
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(fillX, fillY, fillWidth, fillHeight);
