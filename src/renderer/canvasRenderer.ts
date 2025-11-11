@@ -12,6 +12,30 @@ import {
   drawGroupLayer,
 } from './drawLayer';
 
+// Cache for background images to avoid reloading every frame
+const backgroundImageCache = new Map<string, HTMLImageElement>();
+
+function loadBackgroundImage(src: string): HTMLImageElement | null {
+  if (backgroundImageCache.has(src)) {
+    return backgroundImageCache.get(src)!;
+  }
+
+  const img = new Image();
+  img.src = src;
+
+  if (img.complete && img.naturalWidth > 0) {
+    backgroundImageCache.set(src, img);
+    return img;
+  }
+
+  // Set up onload to cache it for next frame
+  img.onload = () => {
+    backgroundImageCache.set(src, img);
+  };
+
+  return null; // Not loaded yet
+}
+
 /**
  * Draw a complete scene to a canvas context.
  * 
@@ -21,6 +45,10 @@ import {
 interface DrawSceneOptions {
   skipLayerIds?: string[];
   dirtyRect?: { x: number; y: number; width: number; height: number };
+  background?: {
+    type: 'color' | 'image' | 'url';
+    value: string;
+  };
 }
 
 export function drawScene(
@@ -56,15 +84,23 @@ export function drawScene(
     return;
   }
 
-  // Fill canvas with a visible background (lighter than page background)
-  // This ensures we can see the canvas even when there are no layers
-  ctx.fillStyle = '#2a2a2a';
-  ctx.fillRect(0, 0, scene.width, scene.height);
-  
-  // Draw a visible border to show canvas bounds
-  ctx.strokeStyle = '#4a4a4a';
-  ctx.lineWidth = 3;
-  ctx.strokeRect(2, 2, scene.width - 4, scene.height - 4);
+  // Fill canvas with background (color or image)
+  const background = options.background || { type: 'color', value: '#ffffff' };
+
+  if (background.type === 'color') {
+    ctx.fillStyle = background.value;
+    ctx.fillRect(0, 0, scene.width, scene.height);
+  } else if (background.type === 'image' || background.type === 'url') {
+    // Fill with white first as fallback
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, scene.width, scene.height);
+
+    // Try to draw the cached image
+    const img = loadBackgroundImage(background.value);
+    if (img && img.complete && img.naturalWidth > 0) {
+      ctx.drawImage(img, 0, 0, scene.width, scene.height);
+    }
+  }
   
   // Draw corner markers to show it's working (when empty)
   if (scene.layers.length === 0) {

@@ -630,6 +630,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                       gap: '2px',
                       flex: 1,
                       minWidth: 0,
+                      maxWidth: 'calc(100% - 80px)', // Reserve space for lock and visibility icons
                       marginRight: '8px',
                     }}
                   >

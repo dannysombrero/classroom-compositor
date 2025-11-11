@@ -138,7 +138,14 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
         // the render pump interval in the future.
       }
 
-      drawScene(currentScene, ctx, { skipLayerIds, dirtyRect });
+      drawScene(currentScene, ctx, {
+        skipLayerIds,
+        dirtyRect,
+        background: {
+          type: backgroundType,
+          value: backgroundValue,
+        },
+      });
       // NOTE: requestCurrentStreamFrame() removed - captureStream(fps) automatically
       // captures frames as the canvas is drawn. Calling requestFrame() on every render
       // was causing performance issues by forcing frame capture too frequently.
@@ -341,11 +348,6 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
             maxHeight: '100%',
             width: 'auto',
             height: 'auto',
-            backgroundColor: backgroundType === 'color' ? backgroundValue : 'transparent',
-            backgroundImage: backgroundType === 'image' || backgroundType === 'url' ? `url(${backgroundValue})` : 'none',
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-            backgroundRepeat: 'no-repeat',
           }}
         />
       </div>
