@@ -55,11 +55,11 @@ type GroupDragState =
       historyApplied: boolean;
     };
 
-const handles: Array<{ key: ResizeHandle; left: string; top: string }> = [
-  { key: 'top-left', left: '-8px', top: '-8px' },
-  { key: 'top-right', left: 'calc(100% - 8px)', top: '-8px' },
-  { key: 'bottom-right', left: 'calc(100% - 8px)', top: 'calc(100% - 8px)' },
-  { key: 'bottom-left', left: '-8px', top: 'calc(100% - 8px)' },
+const handles: Array<{ key: ResizeHandle; left: string; top: string; cursor: string }> = [
+  { key: 'top-left', left: '-8px', top: '-8px', cursor: 'nwse-resize' },
+  { key: 'top-right', left: 'calc(100% - 8px)', top: '-8px', cursor: 'nesw-resize' },
+  { key: 'bottom-right', left: 'calc(100% - 8px)', top: 'calc(100% - 8px)', cursor: 'nwse-resize' },
+  { key: 'bottom-left', left: '-8px', top: 'calc(100% - 8px)', cursor: 'nesw-resize' },
 ];
 
 function computeLayerBounds(layer: Layer, scene: Scene) {
@@ -461,31 +461,26 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
       }}
       onPointerDown={startMove}
     >
-      {handles.map((handle) => {
-        const cursor = handle.key === 'top-left' || handle.key === 'bottom-right'
-          ? 'nwse-resize'
-          : 'nesw-resize';
-        return (
-          <button
-            key={handle.key}
-            onPointerDown={(event) => startResize(event, handle.key)}
-            style={{
-              position: 'absolute',
-              left: handle.left,
-              top: handle.top,
-              width: '16px',
-              height: '16px',
-              borderRadius: '4px',
-              border: '2px solid rgba(5, 120, 200, 0.9)',
-              background: 'rgba(0, 166, 255, 0.85)',
-              transform: 'translate(-50%, -50%)',
-              cursor,
-              padding: 0,
-            }}
-            aria-label={`Resize from ${handle.key}`}
-          />
-        );
-      })}
+      {handles.map((handle) => (
+        <button
+          key={handle.key}
+          onPointerDown={(event) => startResize(event, handle.key)}
+          style={{
+            position: 'absolute',
+            left: handle.left,
+            top: handle.top,
+            width: '16px',
+            height: '16px',
+            borderRadius: '4px',
+            border: '2px solid rgba(5, 120, 200, 0.9)',
+            background: 'rgba(0, 166, 255, 0.85)',
+            transform: 'translate(-50%, -50%)',
+            cursor: handle.cursor,
+            padding: 0,
+          }}
+          aria-label={`Resize from ${handle.key}`}
+        />
+      ))}
     </div>
   );
 }

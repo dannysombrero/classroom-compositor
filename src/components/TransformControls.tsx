@@ -78,11 +78,11 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
     zIndex: 16,
   };
 
-  const handles: Array<{ key: ResizeHandle; left: string; top: string }> = [
-    { key: 'top-left', left: '-8px', top: '-8px' },
-    { key: 'top-right', left: `calc(100% - 8px)`, top: '-8px' },
-    { key: 'bottom-right', left: `calc(100% - 8px)`, top: `calc(100% - 8px)` },
-    { key: 'bottom-left', left: '-8px', top: `calc(100% - 8px)` },
+  const handles: Array<{ key: ResizeHandle; left: string; top: string; cursor: string }> = [
+    { key: 'top-left', left: '-8px', top: '-8px', cursor: 'nwse-resize' },
+    { key: 'top-right', left: `calc(100% - 8px)`, top: '-8px', cursor: 'nesw-resize' },
+    { key: 'bottom-right', left: `calc(100% - 8px)`, top: `calc(100% - 8px)`, cursor: 'nwse-resize' },
+    { key: 'bottom-left', left: '-8px', top: `calc(100% - 8px)`, cursor: 'nesw-resize' },
   ];
 
   const computeCenterFromHandle = useCallback(
@@ -344,17 +344,6 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
     }
   };
 
-  const getCursorForHandle = (handleKey: ResizeHandle): string => {
-    switch (handleKey) {
-      case 'top-left':
-      case 'bottom-right':
-        return 'nwse-resize';
-      case 'top-right':
-      case 'bottom-left':
-        return 'nesw-resize';
-    }
-  };
-
   return (
     <div style={boxStyle} onPointerDown={startMove} onDoubleClick={handleDoubleClick}>
       {handles.map((handle) => (
@@ -370,7 +359,7 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
             borderRadius: '4px',
             border: '1px solid rgba(255, 255, 255, 0.75)',
             background: 'rgba(0, 166, 255, 0.95)',
-            cursor: getCursorForHandle(handle.key),
+            cursor: handle.cursor,
             pointerEvents: 'auto',
             transform: 'translate(-50%, -50%)',
             padding: 0,

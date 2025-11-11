@@ -11,6 +11,7 @@ import { requestCurrentStreamFrame } from '../utils/viewerStream';
 import type { Layer, Scene } from '../types/scene';
 import { getLayerBaseSize } from '../utils/layerGeometry';
 import { hasActiveSource } from '../media/sourceManager';
+import { PerformanceMonitor } from '../utils/performanceMonitor';
 
 interface PresenterCanvasProps {
   /** Whether to fit canvas to container */
@@ -44,6 +45,7 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
   const dirtyRef = useRef<boolean>(true);
   const previousSceneRef = useRef<Scene | null>(null);
   const previousSkipKeyRef = useRef<string>('');
+  const perfMonitorRef = useRef<PerformanceMonitor>(new PerformanceMonitor(30, 15, 30));
 
   const scene = useAppStore((state) => state.getCurrentScene());
   const sceneSize = useMemo(() => getCanvasSize(scene), [scene?.width, scene?.height]);
@@ -80,8 +82,9 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
       return;
     }
 
-    const renderFrame = () => {
+    const renderFrame = (timestamp: number) => {
       animationFrameRef.current = null;
+
       if (!dirtyRef.current) {
         return;
       }
@@ -114,6 +117,21 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
         previousSceneRef.current = currentScene ?? null;
         previousSkipKeyRef.current = skipKey;
         return;
+      }
+
+      // Record frame timing for performance monitoring, but don't skip frames
+      // when streaming. Skipping frames causes the canvas stream to freeze/go black
+      // because captureStream() has nothing new to capture.
+      const isFullCanvasRender = dirtyRect.width === (currentScene?.width || 1920) &&
+                                 dirtyRect.height === (currentScene?.height || 1080);
+
+      if (hasLiveVideoSources && isFullCanvasRender) {
+        // Record frame timing for adaptive FPS monitoring
+        const perfMonitor = perfMonitorRef.current;
+        perfMonitor.recordFrame(timestamp);
+        // Note: We record the frame but don't skip rendering, as that would break streaming.
+        // The performance monitor adjusts targetFPS, which can be used to adjust
+        // the render pump interval in the future.
       }
 
       drawScene(currentScene, ctx, { skipLayerIds, dirtyRect });

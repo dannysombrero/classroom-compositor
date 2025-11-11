@@ -42,10 +42,11 @@ export function drawScene(
 
   if (!scene) {
     // Clear canvas if no scene
-    // Use default scene dimensions (1920x1080) to match the transform coordinate space
+    // Use fallback dimensions (1920x1080) for safety when scene is not yet initialized
+    // Note: New scenes are created with viewport-optimized dimensions via calculateOptimalSceneDimensions()
     const defaultWidth = 1920;
     const defaultHeight = 1080;
-    
+
     // Fill with dark background to show canvas is working
     ctx.fillStyle = '#0a0a0a';
     ctx.fillRect(0, 0, defaultWidth, defaultHeight);
@@ -151,9 +152,12 @@ export function drawScene(
 
 /**
  * Get the logical canvas size for a scene.
+ * Returns the scene's actual dimensions, or fallback if scene is null.
+ * Note: New scenes are created with viewport-optimized dimensions.
  */
 export function getCanvasSize(scene: Scene | null): { width: number; height: number } {
   if (!scene) {
+    // Fallback for edge cases (scene not yet initialized)
     return { width: 1920, height: 1080 };
   }
   return { width: scene.width, height: scene.height };

@@ -23,6 +23,7 @@ import {
 import { useAppStore } from "../app/store";
 import { loadMostRecentScene } from "../app/persistence";
 import { createId } from "../utils/id";
+import { calculateOptimalSceneDimensions, calculateViewerWindowDimensions } from "../utils/sceneResolution";
 import {
   createScreenLayer,
   createCameraLayer,
@@ -447,6 +448,16 @@ function PresenterPage() {
 
     // Set up ended handler ONCE when stream is created
     const track = stream.getVideoTracks()[0];
+
+    // Request initial frame to kickstart the stream
+    if (track && typeof (track as any).requestFrame === 'function') {
+      try {
+        (track as any).requestFrame();
+        console.log("✅ [ensureStream] Requested initial frame to kickstart stream");
+      } catch (error) {
+        console.warn("⚠️ [ensureStream] Failed to request initial frame:", error);
+      }
+    }
     if (track) {
       const handleEnded = () => {
         console.log("🛑 [ensureStream] Canvas track ended");
@@ -496,7 +507,12 @@ function PresenterPage() {
       showControlStrip();
       return;
     }
-    const viewer = window.open("/viewer", "classroom-compositor-viewer", "width=1920,height=1080");
+    // Calculate viewer window dimensions based on current scene size
+    const currentScene = getCurrentScene();
+    const windowDimensions = currentScene
+      ? calculateViewerWindowDimensions({ width: currentScene.width, height: currentScene.height })
+      : "width=1920,height=1080";
+    const viewer = window.open("/viewer", "classroom-compositor-viewer", windowDimensions);
     if (!viewer) {
       console.error("Failed to open viewer window (popup blocked?)");
       return;
@@ -758,11 +774,15 @@ function PresenterPage() {
             currentSceneId: mostRecent.id,
           }));
         } else {
-          createScene();
+          // Create new scene with optimal dimensions for presenter's display
+          const { width, height } = calculateOptimalSceneDimensions();
+          createScene('Untitled Scene', width, height);
         }
       } catch (error) {
         console.error("Failed to load most recent scene", error);
-        createScene();
+        // Create new scene with optimal dimensions for presenter's display
+        const { width, height } = calculateOptimalSceneDimensions();
+        createScene('Untitled Scene', width, height);
       } finally {
         setIsSceneLoading(false);
       }
@@ -815,7 +835,11 @@ function PresenterPage() {
       // 2) Get or create canvas stream (will reuse if already exists!)
       const displayStream = ensureCanvasStreamExists() || undefined;
 
-      // 3) Attach the track to WebRTC BEFORE creating the offer
+      // 3) Wait a brief moment to ensure canvas has rendered at least one frame
+      // This prevents the track from starting muted with no video data
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // 4) Attach the track to WebRTC BEFORE creating the offer
       if (displayStream) {
         const track = displayStream.getVideoTracks()[0];
         if (track) {
@@ -834,6 +858,7 @@ function PresenterPage() {
             console.log("📹 [handleGoLive] Canvas track pre-attached to sender", {
               trackId: track.id,
               readyState: track.readyState,
+              muted: track.muted,
             });
           } catch (err) {
             console.warn("⚠️ [handleGoLive] replaceHostVideoTrack failed pre-offer", err);
@@ -842,7 +867,7 @@ function PresenterPage() {
         console.log("✅ [handleGoLive] Canvas stream ready for WebRTC");
       }
 
-      // 4) Start WebRTC host with the canvas stream
+      // 5) Start WebRTC host with the canvas stream
       hostingRef.current = true;
       hostRef.current = await startHost(s.id, {
         displayStream,
@@ -1143,7 +1168,7 @@ function PresenterPage() {
       />
 
       <ConfidencePreview
-        stream={streamRef.current}
+        
         visible={isConfidencePreviewVisible}
         onClose={() => {
           setIsConfidencePreviewVisible(false);
