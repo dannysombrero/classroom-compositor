@@ -1,14 +1,78 @@
 /* src/global.css */
+
+/* Theme CSS Variables - Updated by theme system */
+:root {
+  /* Colors - Default to Warm Educator palette */
+  --color-primary: #8b5cf6;
+  --color-primary-hover: #7c3aed;
+  --color-primary-light: rgba(139, 92, 246, 0.15);
+  --color-secondary: #f59e0b;
+  --color-secondary-hover: #d97706;
+  --color-secondary-light: rgba(245, 158, 11, 0.15);
+  --color-success: #10b981;
+  --color-success-hover: #059669;
+  --color-success-light: rgba(16, 185, 129, 0.15);
+  --color-warning: #f59e0b;
+  --color-warning-hover: #d97706;
+  --color-warning-light: rgba(245, 158, 11, 0.15);
+  --color-danger: #ef4444;
+  --color-danger-hover: #dc2626;
+  --color-danger-light: rgba(239, 68, 68, 0.15);
+  --color-background: #0f1117;
+  --color-background-alt: #0b0b0f;
+  --color-surface: #1a1d29;
+  --color-surface-hover: #22262f;
+  --color-surface-active: #2a2e3a;
+  --color-text: #e5e7eb;
+  --color-text-muted: #9ca3af;
+  --color-text-subtle: #6b7280;
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-hover: rgba(255, 255, 255, 0.12);
+  --color-border-focus: rgba(139, 92, 246, 0.5);
+
+  /* Typography - Default to Plus Jakarta Sans */
+  --font-family: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  /* Spacing */
+  --spacing-1: 0.25rem;
+  --spacing-2: 0.5rem;
+  --spacing-3: 0.75rem;
+  --spacing-4: 1rem;
+  --spacing-6: 1.5rem;
+  --spacing-8: 2rem;
+
+  /* Shadows */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.15);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.35);
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-full: 9999px;
+}
+
 /* Base */
 html, body, #root {
     height: 100%;
     margin: 0;
-    background: #0b0b0f;
-    color: #e5e7eb;
+    background: var(--color-background-alt);
+    color: var(--color-text);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: var(--font-family) !important;
   }
+
+/* Force font family on all elements */
+* {
+  font-family: inherit;
+}
+
+h1, h2, h3, h4, h5, h6, p, span, div, button, input, textarea, select {
+  font-family: var(--font-family);
+}
   video { background: #000; }
   button { font-family: inherit; cursor: pointer; }
   
@@ -51,15 +115,57 @@ html, body, #root {
 
 .row { display:flex; gap:12px; align-items:center; }
 .input {
-  background:#0a0c10; color:#e5e7eb; border:1px solid rgba(255,255,255,0.1);
-  border-radius: 8px; padding: 10px 12px; font-size: 14px; outline: none;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  font-size: 14px;
+  outline: none;
+  transition: all 0.2s;
 }
-.input:focus { border-color: rgba(99,102,241,0.8); box-shadow: 0 0 0 3px rgba(99,102,241,0.12); }
+.input:focus {
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 3px var(--color-primary-light);
+}
 
 .btn {
-  background:#1f2330; color:#e5e7eb; border:1px solid rgba(255,255,255,0.1);
-  padding:10px 14px; border-radius:8px; font-size:14px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  transition: all 0.2s;
 }
-.btn:hover { background:#232837; }
+.btn:hover {
+  background: var(--color-surface-hover);
+  border-color: var(--color-border-hover);
+}
+
+/* Themed button variants */
+.btn-primary {
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+.btn-primary:hover {
+  background: var(--color-primary-hover);
+  box-shadow: var(--shadow-md);
+}
+
+.btn-secondary {
+  background: var(--color-secondary);
+  color: white;
+  border: none;
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+.btn-secondary:hover {
+  background: var(--color-secondary-hover);
+  box-shadow: var(--shadow-md);
+}
 
 .help { font-size:12px; opacity: .65; }
