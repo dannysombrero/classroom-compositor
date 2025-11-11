@@ -336,7 +336,7 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
             maxHeight: '100%',
             width: 'auto',
             height: 'auto',
-            backgroundColor: '#1a1a1a', // Temporary background to see canvas bounds
+            backgroundColor: '#ffffff', // White background for whiteboard effect
           }}
         />
       </div>
