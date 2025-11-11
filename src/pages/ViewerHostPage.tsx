@@ -13,8 +13,16 @@ import { useEffect, useRef } from 'react';
  */
 export function ViewerHostPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  const sourceStreamRef = useRef<MediaStream | null>(null);
+  const playbackStreamRef = useRef<MediaStream | null>(null);
   const isSettingStreamRef = useRef<boolean>(false);
+
+  const stopPlaybackStream = () => {
+    const stream = playbackStreamRef.current;
+    if (!stream) return;
+    stream.getTracks().forEach((track) => track.stop());
+    playbackStreamRef.current = null;
+  };
 
   useEffect(() => {
     console.log('Viewer: Setting up message listener');
@@ -80,7 +88,7 @@ export function ViewerHostPage() {
         }
         
         // If no stream in message and we don't already have one, request it from opener
-        if (!stream && !streamRef.current && window.opener && !isSettingStreamRef.current) {
+        if (!stream && !sourceStreamRef.current && window.opener && !isSettingStreamRef.current) {
           console.log('Viewer: Requesting stream from opener');
           window.opener.postMessage({ type: 'request-stream' }, window.location.origin);
         }
@@ -130,7 +138,7 @@ export function ViewerHostPage() {
         // Check if stream is valid (has MediaStream interface)
         if (stream && typeof stream.getVideoTracks === 'function') {
           // Only set stream if it's different from current one
-          if (streamRef.current === stream && video.srcObject === stream) {
+          if (sourceStreamRef.current === stream && playbackStreamRef.current && video.srcObject === playbackStreamRef.current) {
             console.log('Viewer: Stream already set, skipping');
             return;
           }
@@ -142,7 +150,7 @@ export function ViewerHostPage() {
           }
 
           isSettingStreamRef.current = true;
-          streamRef.current = stream;
+          sourceStreamRef.current = stream;
           
           const tracks = stream.getVideoTracks();
           console.log('Viewer: Setting video srcObject, tracks:', tracks.length);
@@ -157,13 +165,17 @@ export function ViewerHostPage() {
             });
           }
           
-          // Stop current stream if different
-          if (video.srcObject && video.srcObject !== stream) {
-            const oldStream = video.srcObject as MediaStream;
-            oldStream.getTracks().forEach(track => track.stop());
+          stopPlaybackStream();
+          const playbackStream = stream.clone();
+          const playbackTrack = playbackStream.getVideoTracks()[0];
+          if (playbackTrack) {
+            playbackTrack.addEventListener('ended', () => {
+              console.warn('Viewer: Cloned video track ended');
+            });
           }
+          playbackStreamRef.current = playbackStream;
           
-          video.srcObject = stream;
+          video.srcObject = playbackStream;
           video
             .play()
             .then(() => {
@@ -178,7 +190,7 @@ export function ViewerHostPage() {
                 console.log('Viewer: Play interrupted (stream switch), will retry');
                 // Retry after a brief delay
                 setTimeout(() => {
-                  if (video.srcObject === stream) {
+                  if (video.srcObject === playbackStream) {
                     video.play()
                       .then(() => {
                         console.log('Viewer: Stream playing successfully (after retry)');
@@ -196,9 +208,9 @@ export function ViewerHostPage() {
         } else {
           console.warn('Viewer: No valid stream available. Stream:', stream);
           // Only retry if we don't have a stream at all
-          if (!streamRef.current && window.opener && !isSettingStreamRef.current) {
+          if (!sourceStreamRef.current && window.opener && !isSettingStreamRef.current) {
             setTimeout(() => {
-              if (!streamRef.current) {
+              if (!sourceStreamRef.current) {
                 window.opener!.postMessage({ type: 'request-stream' }, window.location.origin);
               }
             }, 1000);
@@ -206,6 +218,8 @@ export function ViewerHostPage() {
         }
       } else if (event.data?.type === 'stream-ended') {
         // Stream ended, show placeholder or message
+        stopPlaybackStream();
+        sourceStreamRef.current = null;
         video.srcObject = null;
         console.log('Viewer: Stream ended');
       } else if (event.data?.type === 'viewer-ready') {
@@ -231,6 +245,8 @@ export function ViewerHostPage() {
 
     return () => {
       window.removeEventListener('message', handleMessage);
+      stopPlaybackStream();
+      sourceStreamRef.current = null;
     };
   }, []);
 

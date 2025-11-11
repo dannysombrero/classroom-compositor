@@ -32,7 +32,9 @@ export function captureCanvasStream(
     // Use captureStream if available (Chrome, Firefox, Edge)
     if ('captureStream' in canvas) {
       const stream: MediaStream = (canvas as any).captureStream(fps);
-      requestStreamFrame(stream);
+      // NOTE: Removed requestStreamFrame() call - captureStream(fps) will automatically
+      // capture frames as the canvas is drawn at the specified fps. Forcing frame requests
+      // can cause performance issues.
       return stream;
     }
 
@@ -81,9 +83,8 @@ export function getCurrentStream(): MediaStream | null {
  */
 export function setCurrentStream(stream: MediaStream | null): void {
   globalStreamRef = stream;
-  if (stream) {
-    requestStreamFrame(stream);
-  }
+  // NOTE: Removed requestStreamFrame() call - the canvas captureStream automatically
+  // captures frames as the canvas is drawn. No need to force frame requests.
 }
 
 /**

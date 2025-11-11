@@ -1,0 +1,335 @@
+import { useEffect, useRef, useState } from "react";
+import { useVideoEffectsStore } from "../stores/videoEffects";
+import { MediaPipeSegmenter } from "../adapters/mediapipe";
+
+function log(...args: any[]) {
+  console.log("%c[Effects]", "color:#0ff", ...args);
+}
+
+/**
+ * Background effects hook (diagnostic build)
+ * - Logs clearly which path is taken
+ * - Draws a magenta border on processed frames (easy visual confirmation)
+ * - Keeps one output track; slider updates are live without replacing tracks
+ * - Modes:
+ *    - OFF / non-blur: passthrough raw
+ *    - engine !== "mediapipe": full-frame blur (mock)
+ *    - engine === "mediapipe": background-only blur (subject sharp)
+ */
+export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
+  const [processed, setProcessed] = useState<MediaStreamTrack | null>(null);
+
+  const loopRef = useRef<number | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const srcStreamRef = useRef<MediaStream | null>(null);
+
+  const outCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const outCtxRef = useRef<CanvasRenderingContext2D | null>(null);
+
+  const blurCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const blurCtxRef = useRef<CanvasRenderingContext2D | null>(null);
+
+  const fgCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const fgCtxRef = useRef<CanvasRenderingContext2D | null>(null);
+
+  const outStreamRef = useRef<MediaStream | null>(null);
+  const currentTrackRef = useRef<MediaStreamTrack | null>(null);
+
+  const segmenterRef = useRef<MediaPipeSegmenter | null>(null);
+  const backgroundImageRef = useRef<HTMLImageElement | null>(null);
+
+  const { enabled, mode, engine, blurRadius, background } = useVideoEffectsStore();
+
+  // Live slider value (don’t rebuild pipeline when it changes)
+  const blurRef = useRef<number>(blurRadius);
+  useEffect(() => {
+    blurRef.current = blurRadius;
+    log("blurRadius changed ->", blurRadius);
+  }, [blurRadius]);
+
+  const teardown = () => {
+    if (loopRef.current != null) {
+      cancelAnimationFrame(loopRef.current);
+      loopRef.current = null;
+    }
+    if (processed && processed !== rawTrack) {
+      try { processed.stop?.(); } catch {}
+    }
+    if (outStreamRef.current) {
+      outStreamRef.current.getTracks().forEach((t) => { try { t.stop(); } catch {} });
+      outStreamRef.current = null;
+    }
+    if (videoRef.current) {
+      try { (videoRef.current as HTMLVideoElement).srcObject = null; } catch {}
+      videoRef.current = null;
+    }
+    srcStreamRef.current = null;
+
+    outCanvasRef.current = null;
+    outCtxRef.current = null;
+    blurCanvasRef.current = null;
+    blurCtxRef.current = null;
+    fgCanvasRef.current = null;
+    fgCtxRef.current = null;
+
+    if (segmenterRef.current) {
+      try { segmenterRef.current.close(); } catch {}
+      segmenterRef.current = null;
+    }
+
+    currentTrackRef.current = null;
+    setProcessed(null);
+  };
+
+  useEffect(() => {
+    // Always teardown before (re)starting
+    teardown();
+
+    if (!rawTrack) {
+      log("No rawTrack -> passthrough null");
+      return;
+    }
+
+    log("Hook init:", { enabled, mode, engine, rawId: rawTrack.id });
+
+    // Effects off or unsupported mode -> passthrough
+    if (!enabled || (mode !== "blur" && mode !== "replace")) {
+      setProcessed(rawTrack);
+      currentTrackRef.current = rawTrack;
+      log("Mode OFF or unsupported -> passthrough", { trackId: rawTrack.id });
+      return;
+    }
+
+    // Build once
+    const video = document.createElement("video");
+    videoRef.current = video;
+    video.muted = true;
+    video.playsInline = true;
+    const srcStream = new MediaStream([rawTrack]);
+    srcStreamRef.current = srcStream;
+    video.srcObject = srcStream;
+
+    // Output canvas
+    const outCanvas = document.createElement("canvas");
+    outCanvasRef.current = outCanvas;
+    const outCtx = outCanvas.getContext("2d");
+    if (!outCtx) {
+      setProcessed(rawTrack);
+      currentTrackRef.current = rawTrack;
+      log("2D context unavailable -> passthrough");
+      return;
+    }
+    outCtxRef.current = outCtx;
+
+    // Staging canvases
+    const blurCanvas = document.createElement("canvas");
+    blurCanvasRef.current = blurCanvas;
+    const blurCtx = blurCanvas.getContext("2d");
+    blurCtxRef.current = blurCtx;
+
+    const fgCanvas = document.createElement("canvas");
+    fgCanvasRef.current = fgCanvas;
+    const fgCtx = fgCanvas.getContext("2d");
+    fgCtxRef.current = fgCtx;
+
+    // Output stream ONCE
+    const outStream = outCanvas.captureStream?.(30) ?? null;
+    outStreamRef.current = outStream;
+    const outTrack = outStream?.getVideoTracks?.()[0] ?? null;
+
+    if (outTrack) {
+      setProcessed(outTrack);
+      currentTrackRef.current = outTrack;
+      log("Created processed output track", { processedId: outTrack.id });
+    } else {
+      setProcessed(rawTrack);
+      currentTrackRef.current = rawTrack;
+      log("captureStream not available -> passthrough");
+    }
+
+    // MediaPipe required for replace mode, or if explicitly selected for blur
+    const useMP = mode === "replace" || engine === "mediapipe";
+    if (useMP) {
+      log("Initializing MediaPipe segmenter…");
+      const seg = new MediaPipeSegmenter();
+      segmenterRef.current = seg;
+      seg.init()
+        .then(() => {
+          log("MediaPipe ready.");
+          if (videoRef.current) seg.setVideo(videoRef.current);
+        })
+        .catch((e) => {
+          log("MediaPipe init FAILED, falling back:", e);
+          segmenterRef.current = null;
+        });
+    } else {
+      log("Engine is mock -> full-frame effect path");
+    }
+
+    // Load background image if provided for replace mode
+    if (mode === "replace" && background) {
+      log("Loading background image:", background);
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        log("Background image loaded successfully");
+        backgroundImageRef.current = img;
+      };
+      img.onerror = (e) => {
+        log("Background image failed to load:", e);
+        backgroundImageRef.current = null;
+      };
+      img.src = background;
+    }
+
+    const draw = () => {
+      const v = videoRef.current;
+      const octx = outCtxRef.current;
+      const oc = outCanvasRef.current;
+      const bc = blurCanvasRef.current;
+      const bctx = blurCtxRef.current;
+      const fc = fgCanvasRef.current;
+      const fctx = fgCtxRef.current;
+
+      if (!v || !octx || !oc) {
+        loopRef.current = requestAnimationFrame(draw);
+        return;
+      }
+
+      const vw = v.videoWidth | 0;
+      const vh = v.videoHeight | 0;
+      if (!vw || !vh) {
+        loopRef.current = requestAnimationFrame(draw);
+        return;
+      }
+
+      // Resize canvases as needed
+      if (oc.width !== vw || oc.height !== vh) { oc.width = vw; oc.height = vh; }
+      if (bc && (bc.width !== vw || bc.height !== vh)) { bc.width = vw; bc.height = vh; }
+      if (fc && (fc.width !== vw || fc.height !== vh)) { fc.width = vw; fc.height = vh; }
+
+      const px = Math.max(0, Math.min(48, blurRef.current | 0));
+
+      if (mode === "replace") {
+        // BACKGROUND REPLACEMENT MODE
+        const maskCanvas = segmenterRef.current?.getLatestMask() ?? null;
+
+        if (!maskCanvas || !fc || !fctx) {
+          // Fallback: no segmentation available, show original video
+          octx.clearRect(0, 0, oc.width, oc.height);
+          octx.drawImage(v, 0, 0, oc.width, oc.height);
+        } else {
+          // Clear output canvas
+          octx.clearRect(0, 0, oc.width, oc.height);
+
+          // Draw replacement background (image or solid color)
+          const bgImg = backgroundImageRef.current;
+          if (bgImg && bgImg.complete) {
+            // Draw background image (cover fit)
+            const imgAspect = bgImg.width / bgImg.height;
+            const canvasAspect = oc.width / oc.height;
+            let drawWidth, drawHeight, drawX, drawY;
+
+            if (imgAspect > canvasAspect) {
+              drawHeight = oc.height;
+              drawWidth = drawHeight * imgAspect;
+              drawX = (oc.width - drawWidth) / 2;
+              drawY = 0;
+            } else {
+              drawWidth = oc.width;
+              drawHeight = drawWidth / imgAspect;
+              drawX = 0;
+              drawY = (oc.height - drawHeight) / 2;
+            }
+
+            octx.drawImage(bgImg, drawX, drawY, drawWidth, drawHeight);
+          } else {
+            // Default: green screen effect (solid green background)
+            octx.fillStyle = "#00ff00";
+            octx.fillRect(0, 0, oc.width, oc.height);
+          }
+
+          // Extract foreground (person) with mask
+          fctx.clearRect(0, 0, fc.width, fc.height);
+          fctx.drawImage(v, 0, 0, fc.width, fc.height);
+          fctx.globalCompositeOperation = "destination-in";
+          fctx.drawImage(maskCanvas, 0, 0, fc.width, fc.height);
+          fctx.globalCompositeOperation = "source-over";
+
+          // Composite foreground over replacement background
+          octx.drawImage(fc, 0, 0, oc.width, oc.height);
+        }
+      } else if (!useMP) {
+        // MOCK: full-frame blur directly to output
+        octx.filter = px ? `blur(${px}px)` : "none";
+        octx.drawImage(v, 0, 0, oc.width, oc.height);
+        octx.filter = "none";
+      } else {
+        // MEDIAPIPE: blur background, overlay sharp foreground masked by segmentation
+        if (!bc || !bctx || !fc || !fctx) {
+          // Fallback to full-frame blur if staging contexts missing
+          octx.filter = px ? `blur(${px}px)` : "none";
+          octx.drawImage(v, 0, 0, oc.width, oc.height);
+          octx.filter = "none";
+        } else {
+          // 1) blurred background
+          bctx.filter = px ? `blur(${px}px)` : "none";
+          bctx.drawImage(v, 0, 0, bc.width, bc.height);
+          bctx.filter = "none";
+
+          // Start with blurred background
+          octx.clearRect(0, 0, oc.width, oc.height);
+          octx.drawImage(bc, 0, 0, oc.width, oc.height);
+
+          // 2) sharp foreground masked by segmentation
+          const maskCanvas = segmenterRef.current?.getLatestMask() ?? null;
+
+          if (maskCanvas) {
+            // Build sharp FG layer
+            fctx.clearRect(0, 0, fc.width, fc.height);
+            fctx.drawImage(v, 0, 0, fc.width, fc.height);
+
+            // Keep only FG pixels
+            fctx.globalCompositeOperation = "destination-in";
+            fctx.drawImage(maskCanvas, 0, 0, fc.width, fc.height);
+            fctx.globalCompositeOperation = "source-over";
+
+            // Composite FG over blurred BG
+            octx.drawImage(fc, 0, 0, oc.width, oc.height);
+          }
+          // IMPORTANT: if no mask, we do NOT draw sharp fg at all,
+          // leaving the blurred frame visible (so fallback looks blurred).
+        }
+      }
+
+      // DIAGNOSTIC border
+      octx.save();
+      octx.strokeStyle = "magenta";
+      octx.lineWidth = 8;
+      octx.strokeRect(0, 0, oc.width, oc.height);
+      octx.restore();
+
+      loopRef.current = requestAnimationFrame(draw);
+    };
+
+    const handleLoaded = () => {
+      void video.play().then(() => {
+        draw();
+        log("Video playing; draw loop started.");
+      }).catch(() => {
+        draw();
+        log("Video play blocked (autoplay), draw loop still started.");
+      });
+    };
+
+    video.addEventListener("loadedmetadata", handleLoaded);
+    video.addEventListener("loadeddata", handleLoaded);
+
+    return () => {
+      log("Tearing down effects pipeline.");
+      teardown();
+    };
+  }, [rawTrack, enabled, mode, engine, background]);
+
+  return processed;
+}

@@ -1,0 +1,45 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    // Allow the host and viewers to negotiate within a session namespace.
+    match /sessions/{sessionId} {
+      // Allow reading and writing the session document itself
+      allow read, write: if true;
+
+      // Host ready signal (new architecture)
+      match /host_ready/{docId} {
+        allow read, write: if true;
+      }
+
+      // Offers & answers singletons
+      match /offers/{docId} {
+        allow read, write: if true;
+      }
+      match /answers/{docId} {
+        allow read, write: if true;
+      }
+
+      // ICE candidate fanouts - shared host collection
+      match /candidates_host/{candId} {
+        allow read, write: if true;
+      }
+
+      // 🔧 Support per-viewer candidate collections: candidates_viewer_{viewerId}
+      // This wildcard matches any subcollection under the session
+      match /{collection}/{docId} {
+        allow read, write: if true;
+      }
+
+      // Optional: code mapping collection if you use it
+      match /codes/{codeId} {
+        allow read, write: if true;
+      }
+    }
+
+    // Join codes collection for session lookup
+    match /joinCodes/{codeId} {
+      allow read, write: if true;
+    }
+  }
+}

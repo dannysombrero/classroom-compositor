@@ -1,6 +1,6 @@
 /**
  * Manages live MediaStream sources (screen share and webcam) for layers.
- * 
+ *
  * Stores streams and backing <video> elements outside of the Zustand store so
  * state remains serializable while draw routines can fetch the latest frame.
  */
@@ -11,6 +11,7 @@ interface ActiveSource {
   stream: MediaStream;
   video: HTMLVideoElement;
   type: SourceType;
+  rawTrack: MediaStreamTrack | null;
 }
 
 const sources = new Map<string, ActiveSource>();
@@ -23,8 +24,6 @@ async function createVideoElement(stream: MediaStream): Promise<HTMLVideoElement
   video.autoplay = true;
   video.muted = true;
   video.playsInline = true;
-  video.setAttribute('playsinline', '');
-  video.setAttribute('muted', '');
   video.srcObject = stream;
 
   try {
@@ -45,9 +44,14 @@ async function registerSource(
   stopSource(layerId);
 
   const video = await createVideoElement(stream);
-  sources.set(layerId, { stream, video, type });
-
-  return { stream, video, type };
+  const active: ActiveSource = {
+    stream,
+    video,
+    type,
+    rawTrack: stream.getVideoTracks()[0] ?? null,
+  };
+  sources.set(layerId, active);
+  return active;
 }
 
 /**
@@ -56,9 +60,7 @@ async function registerSource(
 export async function startScreenCapture(layerId: string): Promise<ActiveSource | null> {
   try {
     const stream = await navigator.mediaDevices.getDisplayMedia({
-      video: {
-        frameRate: 30,
-      },
+      video: { frameRate: 30 },
       audio: false,
     });
 
@@ -75,9 +77,7 @@ export async function startScreenCapture(layerId: string): Promise<ActiveSource 
 export async function startCameraCapture(layerId: string): Promise<ActiveSource | null> {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: 'user',
-      },
+      video: { facingMode: 'user' },
       audio: false,
     });
 
@@ -89,17 +89,63 @@ export async function startCameraCapture(layerId: string): Promise<ActiveSource 
 }
 
 /**
+ * Replace ONLY the video track in the active stream for a layer.
+ *
+ * Important:
+ * - We DO NOT stop() the old video track here, because another pipeline
+ *   (e.g., the fake-blur/ML engine) may still be reading from it.
+ * - We just remove it from the rendering stream and add the new processed track.
+ */
+export function replaceVideoTrack(layerId: string, newTrack: MediaStreamTrack): boolean {
+  const active = sources.get(layerId);
+  if (!active) return false;
+
+  const { stream, video } = active;
+
+  try {
+    // Remove existing video tracks from the stream (do not stop them).
+    const oldVideoTracks = stream.getVideoTracks();
+    for (const t of oldVideoTracks) {
+      try {
+        stream.removeTrack(t);
+      } catch {
+        /* ignore */
+      }
+    }
+
+    // Add the processed track
+    stream.addTrack(newTrack);
+
+    // Re-bind to ensure element reflects the new track (helps in some browsers)
+    video.srcObject = stream;
+
+    // Try to play again in case autoplay was interrupted
+    void video.play().catch(() => { /* ignore */ });
+
+    return true;
+  } catch (err) {
+    console.warn('replaceVideoTrack: failed to replace track', err);
+    return false;
+  }
+}
+
+/**
  * Stop an active capture and release its resources.
  */
 export function stopSource(layerId: string): void {
   const existing = sources.get(layerId);
   if (!existing) return;
 
-  existing.stream.getTracks().forEach((track) => track.stop());
-  existing.video.pause();
-  existing.video.srcObject = null;
-  existing.video.removeAttribute('src');
-  existing.video.remove();
+  existing.stream.getTracks().forEach((track) => {
+    try { track.stop(); } catch { /* ignore */ }
+  });
+  if (existing.rawTrack && !existing.stream.getTracks().includes(existing.rawTrack)) {
+    try { existing.rawTrack.stop(); } catch { /* ignore */ }
+  }
+  try {
+    existing.video.srcObject = null;
+  } catch { /* ignore */ }
+
   sources.delete(layerId);
 }
 
@@ -115,4 +161,13 @@ export function getVideoForLayer(layerId: string): HTMLVideoElement | null {
  */
 export function hasActiveSource(layerId: string): boolean {
   return sources.has(layerId);
+}
+
+/**
+ * Retrieve the active video track for a layer, if one exists.
+ */
+export function getActiveVideoTrack(layerId: string): MediaStreamTrack | null {
+  const active = sources.get(layerId);
+  if (!active) return null;
+  return active.rawTrack ?? active.stream.getVideoTracks?.()[0] ?? null;
 }
