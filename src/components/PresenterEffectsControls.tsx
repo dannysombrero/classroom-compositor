@@ -49,7 +49,6 @@ export function PresenterEffectsControls() {
           value={engine}
           onChange={(e) => setEngine(e.target.value as EffectEngine)}
         >
-          <option value="mock">Mock</option>
           <option value="mediapipe">MediaPipe</option>
           <option value="onnx">ONNX</option>
         </select>

@@ -89,7 +89,6 @@ export function CameraEffectsSection({ heading }: CameraEffectsSectionProps) {
           }}
           style={styles.select}
         >
-          <option value="mock">Mock</option>
           <option value="mediapipe">MediaPipe</option>
           <option value="onnx">ONNX</option>
         </select>
