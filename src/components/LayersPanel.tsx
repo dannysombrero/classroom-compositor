@@ -30,6 +30,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
   const getCurrentScene = useAppStore((state) => state.getCurrentScene);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [dragPosition, setDragPosition] = useState<'before' | 'after' | 'into' | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renamingValue, setRenamingValue] = useState<string>('');
@@ -264,8 +265,34 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
   const handleDragOver = (event: DragEvent<HTMLButtonElement>, layerId: string) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
-    if (dragOverId !== layerId) {
+
+    const targetLayer = layers.find((l) => l.id === layerId);
+    if (!targetLayer) return;
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const mouseY = event.clientY;
+    const relativeY = mouseY - rect.top;
+    const height = rect.height;
+
+    // Determine position based on mouse location
+    let position: 'before' | 'after' | 'into';
+    if (targetLayer.type === 'group') {
+      // For groups: top third = before, middle = into, bottom third = after
+      if (relativeY < height * 0.33) {
+        position = 'before';
+      } else if (relativeY > height * 0.67) {
+        position = 'after';
+      } else {
+        position = 'into';
+      }
+    } else {
+      // For non-groups: top half = before, bottom half = after
+      position = relativeY < height / 2 ? 'before' : 'after';
+    }
+
+    if (dragOverId !== layerId || dragPosition !== position) {
       setDragOverId(layerId);
+      setDragPosition(position);
     }
   };
 
@@ -274,6 +301,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
     if (!draggingId || draggingId === targetId) {
       setDraggingId(null);
       setDragOverId(null);
+      setDragPosition(null);
       return;
     }
 
@@ -283,11 +311,12 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
     if (!draggedLayer || !targetLayer) {
       setDraggingId(null);
       setDragOverId(null);
+      setDragPosition(null);
       return;
     }
 
-    // If dropping onto a group (and not its child), add to group
-    if (targetLayer.type === 'group' && draggedLayer.parentId !== targetId) {
+    // If dropping "into" a group, add to group
+    if (dragPosition === 'into' && targetLayer.type === 'group' && draggedLayer.parentId !== targetId) {
       // Remove from old parent's children array if it had one
       if (draggedLayer.parentId) {
         const oldParent = layers.find((l) => l.id === draggedLayer.parentId);
@@ -324,19 +353,20 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
       setSelection([draggingId]);
       requestCurrentStreamFrame();
     } else {
-      // Normal reorder behavior
-      const rect = event.currentTarget.getBoundingClientRect();
-      const placeBefore = event.clientY < rect.top + rect.height / 2;
+      // Normal reorder behavior (before/after)
+      const placeBefore = dragPosition === 'before';
       handleReorder(draggingId, targetId, placeBefore);
     }
 
     setDraggingId(null);
     setDragOverId(null);
+    setDragPosition(null);
   };
 
   const handleDragEnd = () => {
     setDraggingId(null);
     setDragOverId(null);
+    setDragPosition(null);
   };
 
   const handleDeleteSelection = () => {
@@ -498,38 +528,70 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
               const isGroup = layer.type === 'group';
               const isExpanded = isGroup && expandedGroups.has(layer.id);
               const indentPx = depth * 20;
+              const isDraggedOver = dragOverId === layer.id && draggingId !== null && draggingId !== layer.id;
 
               return (
-                <div
-                  key={layer.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={(event) => handleRowClick(event, layer.id)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      handleRowClick(event as any, layer.id);
-                    }
-                  }}
-                  draggable
-                  onDragStart={(event) => handleDragStart(event, layer.id)}
-                  onDragOver={(event) => handleDragOver(event, layer.id)}
-                  onDrop={(event) => handleDrop(event, layer.id)}
-                  onDragEnd={handleDragEnd}
-                  style={{
-                    width: '100%',
-                    border: 'none',
-                    background,
-                    color: '#f5f5f5',
-                    padding: '10px 12px',
-                    paddingLeft: `${12 + indentPx}px`,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    cursor: 'pointer',
-                    borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
-                  }}
-                >
+                <div key={layer.id} style={{ position: 'relative' }}>
+                  {/* Drop indicator line */}
+                  {isDraggedOver && dragPosition === 'before' && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: `${12 + indentPx}px`,
+                        right: '12px',
+                        height: '2px',
+                        background: 'rgba(0, 166, 255, 0.95)',
+                        zIndex: 10,
+                        pointerEvents: 'none',
+                      }}
+                    />
+                  )}
+                  {isDraggedOver && dragPosition === 'after' && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        bottom: 0,
+                        left: `${12 + indentPx}px`,
+                        right: '12px',
+                        height: '2px',
+                        background: 'rgba(0, 166, 255, 0.95)',
+                        zIndex: 10,
+                        pointerEvents: 'none',
+                      }}
+                    />
+                  )}
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={(event) => handleRowClick(event, layer.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        handleRowClick(event as any, layer.id);
+                      }
+                    }}
+                    draggable
+                    onDragStart={(event) => handleDragStart(event, layer.id)}
+                    onDragOver={(event) => handleDragOver(event, layer.id)}
+                    onDrop={(event) => handleDrop(event, layer.id)}
+                    onDragEnd={handleDragEnd}
+                    style={{
+                      width: '100%',
+                      border: 'none',
+                      background: isDraggedOver && dragPosition === 'into'
+                        ? 'rgba(0, 166, 255, 0.25)'
+                        : background,
+                      color: '#f5f5f5',
+                      padding: '10px 12px',
+                      paddingLeft: `${12 + indentPx}px`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      cursor: 'pointer',
+                      borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                    }}
+                  >
                   <div
                     style={{
                       display: 'flex',
@@ -736,6 +798,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                       </svg>
                     </button>
                   </div>
+                </div>
                 </div>
               );
             })
