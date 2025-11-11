@@ -45,10 +45,17 @@ export function FloatingPanel({
 
       const viewportWidth = window.innerWidth;
       const viewportHeight = window.innerHeight;
-      const { offsetWidth, offsetHeight } = panel;
+      const rect = panel.getBoundingClientRect();
 
-      const clampedX = Math.min(Math.max(0, nextX), viewportWidth - offsetWidth);
-      const clampedY = Math.min(Math.max(0, nextY), viewportHeight - offsetHeight);
+      // Use actual rendered dimensions instead of state dimensions
+      const panelWidth = rect.width;
+      const panelHeight = rect.height;
+
+      // Ensure at least 40px of the panel is visible (for grabbing)
+      const minVisible = 40;
+      const clampedX = Math.min(Math.max(-panelWidth + minVisible, nextX), viewportWidth - minVisible);
+      const clampedY = Math.max(0, Math.min(nextY, viewportHeight - minVisible));
+
       onPositionChange({ x: clampedX, y: clampedY });
     },
     [onPositionChange]
@@ -116,10 +123,11 @@ export function FloatingPanel({
     const panel = panelRef.current;
     if (!panel) return;
     const rect = panel.getBoundingClientRect();
+    // Use position state to calculate offset, ensuring consistency
     dragStartRef.current = {
       pointerId: event.pointerId,
-      offsetX: event.clientX - rect.left,
-      offsetY: event.clientY - rect.top,
+      offsetX: event.clientX - position.x,
+      offsetY: event.clientY - position.y,
     };
     setIsDragging(true);
     (event.target as HTMLElement).setPointerCapture(event.pointerId);

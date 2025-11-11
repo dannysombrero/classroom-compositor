@@ -297,14 +297,17 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
     useImperativeHandle(ref, () => canvasRef.current!, []);
 
     return (
-      <div 
-        ref={containerRef} 
-        style={{ 
-          width: '100%', 
-          height: '100%', 
+      <div
+        ref={containerRef}
+        style={{
+          width: '100%',
+          height: '100%',
           position: 'relative',
           minWidth: '100px',
           minHeight: '100px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
         }}
       >
         <canvas
@@ -313,6 +316,8 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
             display: 'block',
             maxWidth: '100%',
             maxHeight: '100%',
+            width: 'auto',
+            height: 'auto',
             backgroundColor: '#1a1a1a', // Temporary background to see canvas bounds
           }}
         />
