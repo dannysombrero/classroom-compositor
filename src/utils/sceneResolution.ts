@@ -12,22 +12,28 @@ export interface SceneDimensions {
  * Calculate optimal scene dimensions based on the presenter's viewport.
  *
  * Strategy:
- * - Uses the presenter's native monitor resolution
+ * - Respects presenter's aspect ratio (handles 16:9, 16:10, 21:9, ultrawides)
+ * - Caps at 1920×1080 for smooth streaming and reasonable bandwidth
  * - Accounts for UI chrome (panels, toolbars, etc.)
- * - NO CAP on maximum dimensions - use full native resolution for best quality
- * - Canvas scales down in browser to fit, but stream is at full resolution
- * - Future: Add quality presets for presenter to lower if network struggles
+ * - Canvas scales nicely in browser regardless of cap
  *
- * @returns Scene dimensions matching presenter's native display (minus UI chrome)
+ * Why cap at 1080p?
+ * - Higher resolution = more pixels = slower rendering = choppy stream
+ * - 1080p cap ensures smooth 30fps streaming on all hardware
+ * - Viewer latency and smoothness more important than max quality
+ *
+ * @returns Scene dimensions optimized for smooth streaming
  */
 export function calculateOptimalSceneDimensions(): SceneDimensions {
+  const MAX_WIDTH = 1920;
+  const MAX_HEIGHT = 1080;
+
   // Account for typical UI chrome (panels, toolbars, etc.)
   // LayersPanel is ~280px, control strips ~100px, margins ~40px
   const UI_WIDTH_OFFSET = 350;  // Horizontal UI space
   const UI_HEIGHT_OFFSET = 150; // Vertical UI space (control strips, margins)
 
   // Get presenter's effective viewport, accounting for UI chrome
-  // Use native screen resolution for best quality
   const viewportWidth = Math.max(1280, window.innerWidth - UI_WIDTH_OFFSET);
   const viewportHeight = Math.max(720, window.innerHeight - UI_HEIGHT_OFFSET);
   const presenterAspect = viewportWidth / viewportHeight;
@@ -35,10 +41,18 @@ export function calculateOptimalSceneDimensions(): SceneDimensions {
   let sceneWidth: number;
   let sceneHeight: number;
 
-  // Calculate scene size based on viewport, maintaining aspect ratio
-  // No maximum cap - use full native resolution
-  sceneWidth = viewportWidth;
-  sceneHeight = viewportHeight;
+  // Calculate scene size, respecting aspect ratio but capped for performance
+  if (presenterAspect >= 16 / 9) {
+    // Wider than 16:9 (ultrawide monitors, etc.)
+    // Cap by width
+    sceneWidth = Math.min(MAX_WIDTH, viewportWidth);
+    sceneHeight = Math.round(sceneWidth / presenterAspect);
+  } else {
+    // Standard or taller than 16:9
+    // Cap by height
+    sceneHeight = Math.min(MAX_HEIGHT, viewportHeight);
+    sceneWidth = Math.round(sceneHeight * presenterAspect);
+  }
 
   // Ensure minimum viable dimensions (prevent tiny canvases)
   const MIN_WIDTH = 1280;
