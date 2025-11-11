@@ -22,11 +22,15 @@ export interface SceneDimensions {
 export function calculateOptimalSceneDimensions(): SceneDimensions {
   const MAX_WIDTH = 1920;
   const MAX_HEIGHT = 1080;
-  const VIEWPORT_USAGE = 0.9; // Use 90% of viewport for canvas
 
-  // Get presenter's effective viewport
-  const viewportWidth = window.innerWidth * VIEWPORT_USAGE;
-  const viewportHeight = window.innerHeight * VIEWPORT_USAGE;
+  // Account for typical UI chrome (panels, toolbars, etc.)
+  // LayersPanel is ~280px, control strips ~100px, margins ~40px
+  const UI_WIDTH_OFFSET = 350;  // Horizontal UI space
+  const UI_HEIGHT_OFFSET = 150; // Vertical UI space (control strips, margins)
+
+  // Get presenter's effective viewport, accounting for UI chrome
+  const viewportWidth = Math.max(1280, window.innerWidth - UI_WIDTH_OFFSET);
+  const viewportHeight = Math.max(720, window.innerHeight - UI_HEIGHT_OFFSET);
   const presenterAspect = viewportWidth / viewportHeight;
 
   let sceneWidth: number;
