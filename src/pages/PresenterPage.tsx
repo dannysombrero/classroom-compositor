@@ -1141,7 +1141,7 @@ function PresenterPage() {
       />
 
       <ConfidencePreview
-        stream={streamRef.current}
+        scene={currentScene}
         visible={isConfidencePreviewVisible}
         onClose={() => {
           setIsConfidencePreviewVisible(false);

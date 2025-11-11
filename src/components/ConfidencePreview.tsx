@@ -1,37 +1,26 @@
 import { useEffect, useRef } from 'react';
+import type { Scene } from '../types/scene';
+import { drawScene } from '../renderer/canvasRenderer';
 
 interface ConfidencePreviewProps {
-  stream: MediaStream | null;
+  scene: Scene | null;
   visible: boolean;
   onClose: () => void;
 }
 
-export function ConfidencePreview({ stream, visible, onClose }: ConfidencePreviewProps) {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const lowResCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const lowResStreamRef = useRef<MediaStream | null>(null);
+/**
+ * Confidence preview that renders the scene directly to a small canvas.
+ * No encoding/decoding - just direct canvas rendering like OBS does.
+ * Much more efficient than encoding→decoding→re-encoding cycle.
+ */
+export function ConfidencePreview({ scene, visible, onClose }: ConfidencePreviewProps) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    if (!visible || !stream) {
-      // Clean up
-      try {
-        video.pause();
-      } catch (error) {
-        console.warn('ConfidencePreview: failed to pause video', error);
-      }
-      video.srcObject = null;
-
-      // Stop low-res stream
-      if (lowResStreamRef.current) {
-        lowResStreamRef.current.getTracks().forEach(track => track.stop());
-        lowResStreamRef.current = null;
-      }
-
-      // Cancel animation frame
+    const canvas = canvasRef.current;
+    if (!canvas || !visible || !scene) {
+      // Cancel animation frame when not visible
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
         animationFrameRef.current = null;
@@ -39,73 +28,54 @@ export function ConfidencePreview({ stream, visible, onClose }: ConfidencePrevie
       return;
     }
 
-    // Create a low-resolution canvas for the preview (320x180 @ 15fps)
-    // This dramatically reduces CPU usage vs decoding full 1920x1080 @ 30fps
-    if (!lowResCanvasRef.current) {
-      lowResCanvasRef.current = document.createElement('canvas');
-      lowResCanvasRef.current.width = 320;
-      lowResCanvasRef.current.height = 180;
-    }
+    // Set up preview canvas at low resolution (320x180)
+    const previewWidth = 320;
+    const previewHeight = 180;
+    const dpr = window.devicePixelRatio || 1;
 
-    const lowResCanvas = lowResCanvasRef.current;
-    const ctx = lowResCanvas.getContext('2d', { alpha: false });
+    canvas.width = previewWidth * dpr;
+    canvas.height = previewHeight * dpr;
+    canvas.style.width = `${previewWidth}px`;
+    canvas.style.height = `${previewHeight}px`;
+
+    const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) return;
 
-    // Create a temporary video element to decode the source stream
-    const sourceVideo = document.createElement('video');
-    sourceVideo.srcObject = stream;
-    sourceVideo.muted = true;
-    sourceVideo.playsInline = true;
+    // Calculate scale to fit scene in preview
+    const scaleX = previewWidth / scene.width;
+    const scaleY = previewHeight / scene.height;
 
-    let isDrawing = false;
+    // Set transform for scaled rendering
+    ctx.setTransform(dpr * scaleX, 0, 0, dpr * scaleY, 0, 0);
+
     let lastFrameTime = 0;
     const targetFPS = 15; // Lower FPS for preview to save CPU
     const frameDuration = 1000 / targetFPS;
 
-    // Draw frames to low-res canvas at reduced rate
-    const drawFrame = (timestamp: number) => {
-      if (!visible || !isDrawing) return;
+    // Render loop - draw scene directly to preview canvas
+    const renderFrame = (timestamp: number) => {
+      if (!visible) return;
 
       const elapsed = timestamp - lastFrameTime;
       if (elapsed >= frameDuration) {
-        ctx.drawImage(sourceVideo, 0, 0, 320, 180);
+        // Direct render - no encoding/decoding!
+        drawScene(scene, ctx);
         lastFrameTime = timestamp;
       }
 
-      animationFrameRef.current = requestAnimationFrame(drawFrame);
+      animationFrameRef.current = requestAnimationFrame(renderFrame);
     };
 
-    // Start drawing when source video is ready
-    sourceVideo.addEventListener('loadeddata', () => {
-      sourceVideo.play().catch((err) => {
-        console.warn('ConfidencePreview: failed to play source video', err);
-      });
-
-      // Capture the low-res canvas as a stream
-      const lowResStream = lowResCanvas.captureStream(targetFPS);
-      lowResStreamRef.current = lowResStream;
-
-      // Display the low-res stream in the preview video
-      video.srcObject = lowResStream;
-      video.play().catch((err) => {
-        console.warn('ConfidencePreview: failed to play preview', err);
-      });
-
-      // Start the drawing loop
-      isDrawing = true;
-      lastFrameTime = performance.now();
-      animationFrameRef.current = requestAnimationFrame(drawFrame);
-    });
+    // Start rendering
+    lastFrameTime = performance.now();
+    animationFrameRef.current = requestAnimationFrame(renderFrame);
 
     return () => {
-      isDrawing = false;
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
-      sourceVideo.pause();
-      sourceVideo.srcObject = null;
     };
-  }, [stream, visible]);
+  }, [scene, visible]);
 
   if (!visible) {
     return null;
@@ -158,11 +128,9 @@ export function ConfidencePreview({ stream, visible, onClose }: ConfidencePrevie
         </button>
       </div>
       <div style={{ flex: 1, background: '#000', position: 'relative' }}>
-        {stream ? (
-          <video
-            ref={videoRef}
-            playsInline
-            muted
+        {scene ? (
+          <canvas
+            ref={canvasRef}
             style={{
               width: '100%',
               height: '100%',
@@ -181,7 +149,7 @@ export function ConfidencePreview({ stream, visible, onClose }: ConfidencePrevie
               fontSize: '13px',
             }}
           >
-            Waiting for stream…
+            Waiting for scene…
           </div>
         )}
       </div>
