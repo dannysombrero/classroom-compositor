@@ -19,6 +19,7 @@ interface LayersPanelProps {
  */
 export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAddImage, onAddShape }: LayersPanelProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(true);
   const updateLayer = useAppStore((state) => state.updateLayer);
   const removeLayer = useAppStore((state) => state.removeLayer);
   const reorderLayers = useAppStore((state) => state.reorderLayers);
@@ -150,6 +151,18 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
       <div style={panelShellStyle}>
         <section style={layersSectionStyle}>
           <div style={layersHeaderStyle}>
+            <button
+              type="button"
+              onClick={() => setIsExpanded(!isExpanded)}
+              style={{
+                ...iconButtonStyle,
+                fontSize: '14px',
+                marginRight: '8px',
+              }}
+              aria-label={isExpanded ? 'Minimize panel' : 'Expand panel'}
+            >
+              {isExpanded ? '−' : '+'}
+            </button>
             <div style={menuTriggerWrapperStyle}>
               <button
                 type="button"
@@ -230,6 +243,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
               </div>
             )}
           </div>
+          {isExpanded && (
           <div style={layersScrollStyle} className="invisible-scrollbar">
           {orderedLayers.length === 0 ? (
             <div
@@ -425,13 +439,16 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
             })
           )}
         </div>
+          )}
         </section>
+        {isExpanded && (
         <section style={propertiesSectionOuterStyle}>
           <div style={propertiesHeaderStyle}>Properties</div>
           <div style={propertiesContentStyle} className="invisible-scrollbar">
             <LayerPropertiesPanel layer={selectedLayer ?? null} />
           </div>
         </section>
+        )}
       </div>
     </div>
   );

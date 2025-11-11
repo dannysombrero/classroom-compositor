@@ -65,26 +65,27 @@ export function ConfidencePreview({ stream, visible, onClose }: ConfidencePrevie
     >
       <div
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '8px 12px',
-          fontSize: '12px',
-          letterSpacing: '0.08em',
-          textTransform: 'uppercase',
-          color: 'rgba(255, 255, 255, 0.65)',
+          position: 'absolute',
+          top: '8px',
+          right: '8px',
+          zIndex: 1,
         }}
       >
-        Confidence Preview
         <button
           type="button"
           onClick={onClose}
           style={{
             border: 'none',
-            background: 'transparent',
-            color: 'rgba(255, 255, 255, 0.75)',
-            fontSize: '12px',
+            background: 'rgba(0, 0, 0, 0.5)',
+            color: 'rgba(255, 255, 255, 0.9)',
+            fontSize: '16px',
             cursor: 'pointer',
+            width: '28px',
+            height: '28px',
+            borderRadius: '6px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
           }}
         >
           ✕

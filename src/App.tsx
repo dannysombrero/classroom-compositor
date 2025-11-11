@@ -85,14 +85,7 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <div className="h-full flex flex-col">
-        <PresenterPage />
-        <div className="mt-auto border-t">
-          <div className="flex items-center justify-between px-3 py-2">
-            <BottomBarLiveLite hostId="host-123" />
-          </div>
-        </div>
-      </div>
+      <PresenterPage />
     </ErrorBoundary>
   );
 }
