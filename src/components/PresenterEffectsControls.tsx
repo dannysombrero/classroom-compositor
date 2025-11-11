@@ -3,8 +3,8 @@ import { useVideoEffectsStore, type EffectMode, type EffectQuality, type EffectE
 
 export function PresenterEffectsControls() {
   const {
-    enabled, mode, quality, engine, background,
-    setEnabled, setMode, setQuality, setEngine, setBackground,
+    enabled, mode, quality, engine,
+    setEnabled, setMode, setQuality, setEngine,
   } = useVideoEffectsStore();
 
   return (
