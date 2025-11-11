@@ -31,6 +31,8 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renamingValue, setRenamingValue] = useState<string>('');
 
   const selectedLayer = useMemo(() => {
     if (selection.length === 0) return null;
@@ -152,6 +154,28 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
       }
       return next;
     });
+  };
+
+  const startRename = (layerId: string, currentName: string) => {
+    setRenamingId(layerId);
+    setRenamingValue(currentName);
+  };
+
+  const saveRename = () => {
+    if (renamingId && renamingValue.trim()) {
+      updateLayer(
+        renamingId,
+        { name: renamingValue.trim() },
+        { recordHistory: true, persist: true }
+      );
+    }
+    setRenamingId(null);
+    setRenamingValue('');
+  };
+
+  const cancelRename = () => {
+    setRenamingId(null);
+    setRenamingValue('');
   };
 
   const isSelected = (layerId: string) => selection.includes(layerId);
@@ -545,7 +569,45 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                           {isExpanded ? '▼' : '▶'}
                         </button>
                       )}
-                      {layer.name}
+                      {renamingId === layer.id ? (
+                        <input
+                          type="text"
+                          value={renamingValue}
+                          onChange={(e) => setRenamingValue(e.target.value)}
+                          onBlur={saveRename}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              saveRename();
+                            } else if (e.key === 'Escape') {
+                              cancelRename();
+                            }
+                            e.stopPropagation();
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          autoFocus
+                          style={{
+                            background: 'rgba(0, 0, 0, 0.4)',
+                            border: '1px solid rgba(0, 166, 255, 0.6)',
+                            color: '#f5f5f5',
+                            borderRadius: '3px',
+                            padding: '2px 6px',
+                            fontSize: '13px',
+                            fontWeight: 600,
+                            outline: 'none',
+                            minWidth: '100px',
+                          }}
+                        />
+                      ) : (
+                        <span
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            startRename(layer.id, layer.name);
+                          }}
+                          style={{ cursor: 'text' }}
+                        >
+                          {layer.name}
+                        </span>
+                      )}
                       {layer.locked && (
                         <span
                           style={{
