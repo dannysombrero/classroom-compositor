@@ -83,8 +83,11 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
   };
 
   const requestRender = useCallback(() => {
+    // Cancel any pending frame from previous render callback closure
+    // This ensures we always use the latest skipLayerIds and other dependencies
     if (animationFrameRef.current !== null) {
-      return;
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
     }
 
     const renderFrame = (timestamp: number) => {
