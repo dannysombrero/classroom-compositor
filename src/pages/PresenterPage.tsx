@@ -136,7 +136,27 @@ function PresenterPage() {
 
   const selectionLength = selectionIds.length;
   const selectedGroup = selectedLayer && selectedLayer.type === "group" ? selectedLayer : null;
-  const activeGroupChildIds = selectedGroup ? selectedGroup.children : [];
+
+  // Recursively collect all descendants of a group (including nested groups' children)
+  const getAllDescendants = useCallback((groupId: string, layers: Layer[]): string[] => {
+    const group = layers.find((l) => l.id === groupId && l.type === 'group');
+    if (!group || group.type !== 'group') return [];
+
+    const result: string[] = [];
+    for (const childId of group.children) {
+      result.push(childId);
+      const child = layers.find((l) => l.id === childId);
+      if (child && child.type === 'group') {
+        result.push(...getAllDescendants(childId, layers));
+      }
+    }
+    return result;
+  }, []);
+
+  const activeGroupChildIds = selectedGroup && currentScene
+    ? getAllDescendants(selectedGroup.id, currentScene.layers)
+    : [];
+
   const groupTransformIds =
     selectedGroup && activeGroupChildIds.length > 0
       ? activeGroupChildIds

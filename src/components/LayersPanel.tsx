@@ -39,7 +39,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
     return layers.find((layer) => layer.id === selection[0]) ?? null;
   }, [layers, selection]);
 
-  // Build a hierarchical display list with top-level layers and their children
+  // Build a hierarchical display list with top-level layers and their children (recursive for nested groups)
   const displayList = useMemo(() => {
     const topLevelLayers = [...layers]
       .filter((layer) => !layer.parentId)
@@ -47,19 +47,23 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
 
     const result: Array<{ layer: Layer; depth: number }> = [];
 
-    for (const layer of topLevelLayers) {
-      result.push({ layer, depth: 0 });
+    const addLayerAndChildren = (layer: Layer, depth: number) => {
+      result.push({ layer, depth });
 
-      // If it's a group and expanded, add its children
+      // If it's a group and expanded, add its children recursively
       if (layer.type === 'group' && expandedGroups.has(layer.id)) {
         const children = layers
           .filter((child) => child.parentId === layer.id)
           .sort((a, b) => b.z - a.z);
 
         for (const child of children) {
-          result.push({ layer: child, depth: 1 });
+          addLayerAndChildren(child, depth + 1);
         }
       }
+    };
+
+    for (const layer of topLevelLayers) {
+      addLayerAndChildren(layer, 0);
     }
 
     return result;
