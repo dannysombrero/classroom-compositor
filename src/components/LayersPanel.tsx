@@ -630,7 +630,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                       gap: '2px',
                       flex: '1 1 auto',
                       minWidth: 0,
-                      maxWidth: 'calc(100% - 130px)', // Reserve 130px for icons
+                      paddingRight: '60px', // Space for absolutely positioned icons
                       overflow: 'hidden',
                     }}
                   >
@@ -747,15 +747,13 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                   </div>
                   <div
                     style={{
+                      position: 'absolute',
+                      right: '12px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '4px',
-                      flexShrink: 0,
-                      flex: '0 0 100px',
-                      justifyContent: 'flex-end',
-                      minWidth: '100px',
-                      maxWidth: '100px',
-                      paddingRight: '4px',
+                      gap: '6px',
                     }}
                   >
                     <button
