@@ -629,15 +629,45 @@ function PresenterPage() {
     requestCurrentStreamFrame();
   }, []);
 
+  // Helper function to generate copy name with proper numbering
+  const generateCopyName = useCallback((originalName: string, existingNames: string[]): string => {
+    const baseName = originalName || "Layer";
+
+    // Try "Copy" first
+    const copyName = `${baseName} Copy`;
+    if (!existingNames.includes(copyName)) {
+      return copyName;
+    }
+
+    // Try "Copy 1", "Copy 2", etc.
+    let counter = 1;
+    while (true) {
+      const numberedName = `${baseName} Copy ${counter}`;
+      if (!existingNames.includes(numberedName)) {
+        return numberedName;
+      }
+      counter++;
+      // Safety limit to prevent infinite loop
+      if (counter > 1000) {
+        return `${baseName} Copy ${Date.now()}`;
+      }
+    }
+  }, []);
+
   const duplicateLayers = useCallback(() => {
     const layers = getSelectedLayers();
     if (layers.length === 0) return;
     const state = useAppStore.getState();
+    const scene = state.getCurrentScene();
+    if (!scene) return;
+    const existingNames = scene.layers.map(l => l.name);
     const newIds: string[] = [];
     layers.forEach((layer, index) => {
       const clone: Layer = JSON.parse(JSON.stringify(layer));
       clone.id = createId("layer");
-      clone.name = `${layer.name || "Layer"} Copy`;
+      clone.name = generateCopyName(layer.name, existingNames);
+      // Add the new name to existing names for next iteration
+      existingNames.push(clone.name);
       clone.transform = {
         ...layer.transform,
         pos: { x: layer.transform.pos.x + 24 + index * 12, y: layer.transform.pos.y + 24 + index * 12 },
@@ -647,7 +677,7 @@ function PresenterPage() {
     });
     state.setSelection(newIds);
     requestCurrentStreamFrame();
-  }, [getSelectedLayers]);
+  }, [getSelectedLayers, generateCopyName]);
 
   const copyLayersToClipboard = useCallback(() => {
     const layers = getSelectedLayers();
@@ -659,11 +689,16 @@ function PresenterPage() {
     const clipboard = clipboardRef.current;
     if (!clipboard || clipboard.length === 0) return;
     const state = useAppStore.getState();
+    const scene = state.getCurrentScene();
+    if (!scene) return;
+    const existingNames = scene.layers.map(l => l.name);
     const newIds: string[] = [];
     clipboard.forEach((layer, index) => {
       const clone: Layer = JSON.parse(JSON.stringify(layer));
       clone.id = createId("layer");
-      clone.name = `${layer.name || "Layer"} Paste`;
+      clone.name = generateCopyName(layer.name, existingNames);
+      // Add the new name to existing names for next iteration
+      existingNames.push(clone.name);
       clone.transform = {
         ...layer.transform,
         pos: { x: layer.transform.pos.x + 32 + index * 12, y: layer.transform.pos.y + 32 + index * 12 },
@@ -673,7 +708,7 @@ function PresenterPage() {
     });
     state.setSelection(newIds);
     requestCurrentStreamFrame();
-  }, []);
+  }, [generateCopyName]);
 
   const toggleVisibilityForSelection = useCallback(() => {
     const layers = getSelectedLayers();
