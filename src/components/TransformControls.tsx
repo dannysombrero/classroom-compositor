@@ -344,6 +344,17 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
     }
   };
 
+  const getCursorForHandle = (handleKey: ResizeHandle): string => {
+    switch (handleKey) {
+      case 'top-left':
+      case 'bottom-right':
+        return 'nwse-resize';
+      case 'top-right':
+      case 'bottom-left':
+        return 'nesw-resize';
+    }
+  };
+
   return (
     <div style={boxStyle} onPointerDown={startMove} onDoubleClick={handleDoubleClick}>
       {handles.map((handle) => (
@@ -359,7 +370,7 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
             borderRadius: '4px',
             border: '1px solid rgba(255, 255, 255, 0.75)',
             background: 'rgba(0, 166, 255, 0.95)',
-            cursor: 'nwse-resize',
+            cursor: getCursorForHandle(handle.key),
             pointerEvents: 'auto',
             transform: 'translate(-50%, -50%)',
             padding: 0,

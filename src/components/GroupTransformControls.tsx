@@ -461,26 +461,31 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
       }}
       onPointerDown={startMove}
     >
-      {handles.map((handle) => (
-        <button
-          key={handle.key}
-          onPointerDown={(event) => startResize(event, handle.key)}
-          style={{
-            position: 'absolute',
-            left: handle.left,
-            top: handle.top,
-            width: '16px',
-            height: '16px',
-            borderRadius: '4px',
-            border: '2px solid rgba(5, 120, 200, 0.9)',
-            background: 'rgba(0, 166, 255, 0.85)',
-            transform: 'translate(-50%, -50%)',
-            cursor: 'nwse-resize',
-            padding: 0,
-          }}
-          aria-label={`Resize from ${handle.key}`}
-        />
-      ))}
+      {handles.map((handle) => {
+        const cursor = handle.key === 'top-left' || handle.key === 'bottom-right'
+          ? 'nwse-resize'
+          : 'nesw-resize';
+        return (
+          <button
+            key={handle.key}
+            onPointerDown={(event) => startResize(event, handle.key)}
+            style={{
+              position: 'absolute',
+              left: handle.left,
+              top: handle.top,
+              width: '16px',
+              height: '16px',
+              borderRadius: '4px',
+              border: '2px solid rgba(5, 120, 200, 0.9)',
+              background: 'rgba(0, 166, 255, 0.85)',
+              transform: 'translate(-50%, -50%)',
+              cursor,
+              padding: 0,
+            }}
+            aria-label={`Resize from ${handle.key}`}
+          />
+        );
+      })}
     </div>
   );
 }
