@@ -92,6 +92,10 @@ function PresenterPage() {
   const [isAddingCamera, setIsAddingCamera] = useState(false);
   const layerIdsRef = useRef<string[]>([]);
   const [panelPosition, setPanelPosition] = useState({ x: 24, y: 24 });
+  const [panelSize, setPanelSize] = useState({
+    width: LAYERS_PANEL_WIDTH,
+    height: LAYERS_PANEL_EXPANDED_HEIGHT
+  });
   const [isLayersPanelCollapsed, setLayersPanelCollapsed] = useState(false);
   const [canvasLayout, setCanvasLayout] = useState<CanvasLayout | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
@@ -1054,16 +1058,12 @@ function PresenterPage() {
       )}
 
       <FloatingPanel
-        title="Objects & Layers"
+        title=""
         position={panelPosition}
-        size={{
-          width: LAYERS_PANEL_WIDTH,
-          height: isLayersPanelCollapsed ? LAYERS_PANEL_COLLAPSED_HEIGHT : LAYERS_PANEL_EXPANDED_HEIGHT,
-        }}
+        size={panelSize}
+        minSize={{ width: 280, height: 200 }}
         onPositionChange={setPanelPosition}
-        collapsible
-        collapsed={isLayersPanelCollapsed}
-        onToggleCollapse={() => setLayersPanelCollapsed((prev) => !prev)}
+        onSizeChange={setPanelSize}
       >
         <LayersPanel
           layers={sceneLayers}
