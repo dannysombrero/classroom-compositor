@@ -157,10 +157,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
           flex: isExpanded ? '0 0 65%' : 'none',
           borderBottom: isExpanded ? '2px solid rgba(255, 255, 255, 0.12)' : 'none',
         }}>
-          <div style={layersHeaderStyle}>
-            <span style={{ fontSize: '13px', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-              Objects & Layers
-            </span>
+          <div style={{ ...layersHeaderStyle, justifyContent: 'flex-end' }}>
             <button
               type="button"
               onClick={() => setIsExpanded(!isExpanded)}

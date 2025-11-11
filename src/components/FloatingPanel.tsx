@@ -160,22 +160,24 @@ export function FloatingPanel({
         overflow: 'hidden',
       }}
     >
-      <div
-        onPointerDown={startDrag}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          padding: '8px 12px',
-          cursor: isDragging ? 'grabbing' : 'grab',
-          borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
-          fontSize: '13px',
-          letterSpacing: '0.02em',
-          fontWeight: 600,
-          textTransform: 'uppercase',
-        }}
-      >
-        {title}
-      </div>
+      {title && (
+        <div
+          onPointerDown={startDrag}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            padding: '8px 12px',
+            cursor: isDragging ? 'grabbing' : 'grab',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+            fontSize: '13px',
+            letterSpacing: '0.02em',
+            fontWeight: 600,
+            textTransform: 'uppercase',
+          }}
+        >
+          {title}
+        </div>
+      )}
       <div
         style={{
           flex: 1,

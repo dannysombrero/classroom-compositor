@@ -1058,7 +1058,7 @@ function PresenterPage() {
       )}
 
       <FloatingPanel
-        title=""
+        title="Objects & Layers"
         position={panelPosition}
         size={panelSize}
         minSize={{ width: 280, height: 200 }}
