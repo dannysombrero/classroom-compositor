@@ -1092,7 +1092,6 @@ function PresenterPage() {
         selectedLayer.type !== "group" &&
         !selectedLayer.locked &&
         selectedLayer.type !== "camera" &&
-        selectedLayer.type !== "screen" &&
         !isEditingSelectedText && (
           <TransformControls
             layout={canvasLayout}
