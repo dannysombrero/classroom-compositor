@@ -85,18 +85,6 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
     const renderFrame = (timestamp: number) => {
       animationFrameRef.current = null;
 
-      // Check if we should skip this frame for performance
-      const perfMonitor = perfMonitorRef.current;
-      const shouldRender = perfMonitor.recordFrame(timestamp);
-
-      if (!shouldRender || perfMonitor.shouldSkipFrame()) {
-        // Skip this frame to maintain performance
-        if (dirtyRef.current) {
-          requestRender(); // Try again next frame
-        }
-        return;
-      }
-
       if (!dirtyRef.current) {
         return;
       }
@@ -129,6 +117,25 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
         previousSceneRef.current = currentScene ?? null;
         previousSkipKeyRef.current = skipKey;
         return;
+      }
+
+      // ONLY apply adaptive FPS when continuously rendering video layers
+      // NEVER skip frames during user interaction (small dirty rects)
+      const isFullCanvasRender = dirtyRect.width === (currentScene?.width || 1920) &&
+                                 dirtyRect.height === (currentScene?.height || 1080);
+
+      if (hasLiveVideoSources && isFullCanvasRender) {
+        // Apply adaptive FPS only for continuous full-canvas video rendering
+        const perfMonitor = perfMonitorRef.current;
+        const shouldRender = perfMonitor.recordFrame(timestamp);
+
+        if (!shouldRender || perfMonitor.shouldSkipFrame()) {
+          // Skip this frame for performance, but keep trying
+          if (dirtyRef.current) {
+            requestRender();
+          }
+          return;
+        }
       }
 
       drawScene(currentScene, ctx, { skipLayerIds, dirtyRect });
