@@ -108,13 +108,39 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
   };
 
   const handleReorder = (draggedId: string, targetId: string | null, placeBefore: boolean) => {
+    const draggedLayer = layers.find((l) => l.id === draggedId);
+    if (!draggedLayer) return;
+
+    // If dragged layer has a parent, we're moving it out of the group to top level
+    if (draggedLayer.parentId) {
+      // Remove from parent's children array
+      const parent = layers.find((l) => l.id === draggedLayer.parentId);
+      if (parent && parent.type === 'group') {
+        const newChildren = parent.children.filter((id) => id !== draggedId);
+        updateLayer(
+          parent.id,
+          { children: newChildren },
+          { recordHistory: false, persist: false }
+        );
+      }
+
+      // Clear parentId
+      updateLayer(
+        draggedId,
+        { parentId: null },
+        { recordHistory: false, persist: false }
+      );
+    }
+
     // Get only top-level layers for reordering
     const topLevelLayers = layers.filter((layer) => !layer.parentId).sort((a, b) => b.z - a.z);
     const currentOrder = topLevelLayers.map((layer) => layer.id);
-    const draggedIndex = currentOrder.indexOf(draggedId);
-    if (draggedIndex === -1) return;
 
-    currentOrder.splice(draggedIndex, 1);
+    // If draggedId is not in currentOrder yet (was a child), add it
+    const draggedIndex = currentOrder.indexOf(draggedId);
+    if (draggedIndex !== -1) {
+      currentOrder.splice(draggedIndex, 1);
+    }
 
     let insertIndex: number;
     if (targetId && currentOrder.includes(targetId)) {
@@ -161,9 +187,59 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
       return;
     }
 
-    const rect = event.currentTarget.getBoundingClientRect();
-    const placeBefore = event.clientY < rect.top + rect.height / 2;
-    handleReorder(draggingId, targetId, placeBefore);
+    const draggedLayer = layers.find((l) => l.id === draggingId);
+    const targetLayer = layers.find((l) => l.id === targetId);
+
+    if (!draggedLayer || !targetLayer) {
+      setDraggingId(null);
+      setDragOverId(null);
+      return;
+    }
+
+    // If dropping onto a group (and not its child), add to group
+    if (targetLayer.type === 'group' && draggedLayer.parentId !== targetId) {
+      // Remove from old parent's children array if it had one
+      if (draggedLayer.parentId) {
+        const oldParent = layers.find((l) => l.id === draggedLayer.parentId);
+        if (oldParent && oldParent.type === 'group') {
+          const newChildren = oldParent.children.filter((id) => id !== draggingId);
+          updateLayer(
+            oldParent.id,
+            { children: newChildren },
+            { recordHistory: false, persist: false }
+          );
+        }
+      }
+
+      // Add to new parent
+      if (targetLayer.type === 'group') {
+        const newChildren = [...targetLayer.children, draggingId];
+        updateLayer(
+          targetId,
+          { children: newChildren },
+          { recordHistory: false, persist: false }
+        );
+      }
+
+      // Update dragged layer's parentId
+      updateLayer(
+        draggingId,
+        { parentId: targetId },
+        { recordHistory: true, persist: true }
+      );
+
+      // Expand the target group so user can see the result
+      setExpandedGroups((prev) => new Set(prev).add(targetId));
+
+      setSelection([draggingId]);
+      requestCurrentStreamFrame();
+    } else {
+      // Normal reorder behavior
+      const rect = event.currentTarget.getBoundingClientRect();
+      const placeBefore = event.clientY < rect.top + rect.height / 2;
+      handleReorder(draggingId, targetId, placeBefore);
+    }
+
     setDraggingId(null);
     setDragOverId(null);
   };
