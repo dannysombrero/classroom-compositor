@@ -64,19 +64,81 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
   }, [layers, expandedGroups]);
 
   const toggleVisibility = (layerId: string, visible: boolean) => {
+    const layer = layers.find((l) => l.id === layerId);
+    if (!layer) return;
+
+    // Toggle the layer itself
     updateLayer(
       layerId,
       { visible: !visible },
       { recordHistory: true, persist: true }
     );
+
+    // If it's a group, toggle all children
+    if (layer.type === 'group') {
+      const children = layers.filter((l) => l.parentId === layerId);
+      const newVisibility = !visible;
+
+      // If hiding, save current visibility state
+      if (!newVisibility) {
+        const childVisibility: Record<string, boolean> = {};
+        children.forEach((child) => {
+          childVisibility[child.id] = child.visible;
+        });
+        updateLayer(
+          layerId,
+          { childVisibility },
+          { recordHistory: false, persist: false }
+        );
+
+        // Hide all children
+        children.forEach((child) => {
+          updateLayer(
+            child.id,
+            { visible: false },
+            { recordHistory: false, persist: false }
+          );
+        });
+      } else {
+        // Showing: restore saved visibility or default to visible
+        const savedVisibility = layer.type === 'group' ? layer.childVisibility : {};
+        children.forEach((child) => {
+          const shouldBeVisible = savedVisibility?.[child.id] ?? true;
+          updateLayer(
+            child.id,
+            { visible: shouldBeVisible },
+            { recordHistory: false, persist: false }
+          );
+        });
+      }
+    }
   };
 
   const toggleLock = (layerId: string, locked: boolean) => {
+    const layer = layers.find((l) => l.id === layerId);
+    if (!layer) return;
+
+    // Toggle the layer itself
     updateLayer(
       layerId,
       { locked: !locked },
       { recordHistory: true, persist: true }
     );
+
+    // If it's a group, toggle all children
+    if (layer.type === 'group') {
+      const children = layers.filter((l) => l.parentId === layerId);
+      const newLocked = !locked;
+
+      children.forEach((child) => {
+        updateLayer(
+          child.id,
+          { locked: newLocked },
+          { recordHistory: false, persist: false }
+        );
+      });
+    }
+
     requestCurrentStreamFrame();
   };
 
