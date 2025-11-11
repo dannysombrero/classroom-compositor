@@ -150,84 +150,87 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
       <div style={panelShellStyle}>
         <section style={layersSectionStyle}>
           <div style={layersHeaderStyle}>
-            <button
-              type="button"
-              onClick={() => setMenuOpen((open) => !open)}
-              style={iconButtonStyle}
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-            >
-              +
-            </button>
-            <button
-              type="button"
-              onClick={handleDeleteSelection}
-              disabled={selection.length === 0}
-              style={{
-                ...iconButtonStyle,
-                opacity: selection.length === 0 ? 0.35 : 1,
-                cursor: selection.length === 0 ? 'not-allowed' : 'pointer',
-              }}
-              aria-label="Delete selected layers"
-            >
-              −
-            </button>
-          </div>
-          {menuOpen && (
-            <div style={menuPopoverStyle}>
+            <div style={{ display: 'flex', gap: '6px' }}>
               <button
                 type="button"
-                onClick={() => {
-                  closeMenu();
-                  void onAddScreen();
-                }}
-                style={menuItemStyle}
+                onClick={() => setMenuOpen((open) => !open)}
+                style={iconButtonStyle}
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
               >
-                Screen Capture…
+                +
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  closeMenu();
-                  void onAddCamera();
+                onClick={handleDeleteSelection}
+                disabled={selection.length === 0}
+                style={{
+                  ...iconButtonStyle,
+                  opacity: selection.length === 0 ? 0.35 : 1,
+                  cursor: selection.length === 0 ? 'not-allowed' : 'pointer',
                 }}
-                style={menuItemStyle}
+                aria-label="Delete selected layers"
               >
-                Camera…
-              </button>
-              <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.06)' }} />
-              <button
-                type="button"
-                onClick={() => {
-                  closeMenu();
-                  void onAddText();
-                }}
-                style={menuItemStyle}
-              >
-                Text Overlay
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  closeMenu();
-                  void onAddImage();
-                }}
-                style={menuItemStyle}
-              >
-                Image Overlay…
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  closeMenu();
-                  void onAddShape();
-                }}
-                style={menuItemStyle}
-              >
-                Shape Overlay
+                −
               </button>
             </div>
-          )}
+            <div style={{ minWidth: '100px' }}>{/* Space reserved for future folder controls */}</div>
+            {menuOpen && (
+              <div style={menuPopoverStyle}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeMenu();
+                    void onAddScreen();
+                  }}
+                  style={menuItemStyle}
+                >
+                  Screen Capture…
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeMenu();
+                    void onAddCamera();
+                  }}
+                  style={menuItemStyle}
+                >
+                  Camera…
+                </button>
+                <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.06)' }} />
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeMenu();
+                    void onAddText();
+                  }}
+                  style={menuItemStyle}
+                >
+                  Text Overlay
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeMenu();
+                    void onAddImage();
+                  }}
+                  style={menuItemStyle}
+                >
+                  Image Overlay…
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeMenu();
+                    void onAddShape();
+                  }}
+                  style={menuItemStyle}
+                >
+                  Shape Overlay
+                </button>
+              </div>
+            )}
+          </div>
           <div style={layersScrollStyle} className="invisible-scrollbar">
           {orderedLayers.length === 0 ? (
             <div
