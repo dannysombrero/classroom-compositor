@@ -23,6 +23,7 @@ import {
 import { useAppStore } from "../app/store";
 import { loadMostRecentScene } from "../app/persistence";
 import { createId } from "../utils/id";
+import { calculateOptimalSceneDimensions, calculateViewerWindowDimensions } from "../utils/sceneResolution";
 import {
   createScreenLayer,
   createCameraLayer,
@@ -492,7 +493,12 @@ function PresenterPage() {
       showControlStrip();
       return;
     }
-    const viewer = window.open("/viewer", "classroom-compositor-viewer", "width=1920,height=1080");
+    // Calculate viewer window dimensions based on current scene size
+    const currentScene = getCurrentScene();
+    const windowDimensions = currentScene
+      ? calculateViewerWindowDimensions({ width: currentScene.width, height: currentScene.height })
+      : "width=1920,height=1080";
+    const viewer = window.open("/viewer", "classroom-compositor-viewer", windowDimensions);
     if (!viewer) {
       console.error("Failed to open viewer window (popup blocked?)");
       return;
@@ -754,11 +760,15 @@ function PresenterPage() {
             currentSceneId: mostRecent.id,
           }));
         } else {
-          createScene();
+          // Create new scene with optimal dimensions for presenter's display
+          const { width, height } = calculateOptimalSceneDimensions();
+          createScene('Untitled Scene', width, height);
         }
       } catch (error) {
         console.error("Failed to load most recent scene", error);
-        createScene();
+        // Create new scene with optimal dimensions for presenter's display
+        const { width, height } = calculateOptimalSceneDimensions();
+        createScene('Untitled Scene', width, height);
       } finally {
         setIsSceneLoading(false);
       }
