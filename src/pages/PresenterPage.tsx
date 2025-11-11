@@ -831,7 +831,11 @@ function PresenterPage() {
       // 2) Get or create canvas stream (will reuse if already exists!)
       const displayStream = ensureCanvasStreamExists() || undefined;
 
-      // 3) Attach the track to WebRTC BEFORE creating the offer
+      // 3) Wait a brief moment to ensure canvas has rendered at least one frame
+      // This prevents the track from starting muted with no video data
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // 4) Attach the track to WebRTC BEFORE creating the offer
       if (displayStream) {
         const track = displayStream.getVideoTracks()[0];
         if (track) {
@@ -850,6 +854,7 @@ function PresenterPage() {
             console.log("📹 [handleGoLive] Canvas track pre-attached to sender", {
               trackId: track.id,
               readyState: track.readyState,
+              muted: track.muted,
             });
           } catch (err) {
             console.warn("⚠️ [handleGoLive] replaceHostVideoTrack failed pre-offer", err);
@@ -858,7 +863,7 @@ function PresenterPage() {
         console.log("✅ [handleGoLive] Canvas stream ready for WebRTC");
       }
 
-      // 4) Start WebRTC host with the canvas stream
+      // 5) Start WebRTC host with the canvas stream
       hostingRef.current = true;
       hostRef.current = await startHost(s.id, {
         displayStream,

@@ -1013,10 +1013,35 @@ export async function startViewer(
   // 🔧 NEW: Create OFFER (viewer-initiated)
   console.log("🎬 [VIEWER] Creating offer...");
   const offer = await viewerPc.createOffer();
-  console.log("✅ [VIEWER] Offer created, setting as local description...");
+  console.log("✅ [VIEWER] Offer created");
 
+  // IMPORTANT: Set up onicecandidate handler BEFORE setLocalDescription
+  // to ensure we don't miss any ICE candidates generated immediately
+  const tag = Date.now();
+  const myUfrag = getUfrag(offer) || null;
+
+  viewerPc.onicecandidate = (e) => {
+    if (!e.candidate) {
+      console.log("✅ [VIEWER] ICE gathering complete (null candidate)");
+      return;
+    }
+    console.log("🧊 [VIEWER] ICE -> publishing", e.candidate.candidate.substring(0, 60));
+    addDoc(candViewerCol, {
+      candidate: e.candidate.toJSON(),
+      at: Date.now(),
+      from: "viewer",
+      tag,
+      ufrag: myUfrag,
+      viewerId, // Include viewerId for routing
+    }).then(() => {
+      console.log("✅ [VIEWER] candidate published");
+    }).catch((err) => console.warn("[VIEWER] failed to write ICE", err));
+  };
+
+  console.log("✅ [VIEWER] onicecandidate handler set up, setting local description...");
   await viewerPc.setLocalDescription(offer);
   console.log("✅ [VIEWER] setLocalDescription complete (offer)");
+
   // Debug: inbound video stats probe (every 2s)
   try {
     let lastBytes = 0, lastFrames = 0;
@@ -1043,8 +1068,6 @@ export async function startViewer(
   } catch {}
   console.log("🔍 [VIEWER] ICE gathering state:", viewerPc.iceGatheringState);
   console.log("🔍 [VIEWER] Signaling state:", viewerPc.signalingState);
-
-  const myUfrag = getUfrag(offer) || getUfrag(viewerPc.localDescription) || null;
 
   // 🔧 Set up ALL listeners BEFORE publishing offer
   // This ensures we catch all responses from the host
@@ -1140,24 +1163,8 @@ export async function startViewer(
     }
   );
 
-  // 🚀 Set up ICE candidate publishing
-  viewerPc.onicecandidate = (e) => {
-    if (!e.candidate) {
-      console.log("✅ [VIEWER] ICE gathering complete (null candidate)");
-      return;
-    }
-    console.log("🧊 [VIEWER] ICE -> publishing", e.candidate.candidate.substring(0, 60));
-    addDoc(candViewerCol, {
-      candidate: e.candidate.toJSON(),
-      at: Date.now(),
-      from: "viewer",
-      tag,
-      ufrag: myUfrag,
-      viewerId, // Include viewerId for routing
-    }).then(() => {
-      console.log("✅ [VIEWER] candidate published");
-    }).catch((err) => console.warn("[VIEWER] failed to write ICE", err));
-  };
+  // Note: onicecandidate handler was set up earlier, before setLocalDescription
+  // to ensure we don't miss any ICE candidates
 
   // 🔧 NOW publish OFFER (after all listeners are ready)
   try {
