@@ -960,7 +960,7 @@ function PresenterPage() {
         margin: 0,
         padding: 0,
         overflow: "hidden",
-        backgroundColor: "#1a1a1a",
+        backgroundColor: "#2a2a2a",
         position: "relative",
       }}
     >
