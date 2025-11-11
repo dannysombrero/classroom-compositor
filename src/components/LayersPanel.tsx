@@ -4,6 +4,8 @@ import { useAppStore } from '../app/store';
 import { stopSource } from '../media/sourceManager';
 import { requestCurrentStreamFrame } from '../utils/viewerStream';
 import { LayerPropertiesPanel } from './LayerPropertiesPanel';
+import { createGroupLayer } from '../layers/factory';
+import { createId } from '../utils/id';
 
 interface LayersPanelProps {
   layers: Layer[];
@@ -24,8 +26,11 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
   const reorderLayers = useAppStore((state) => state.reorderLayers);
   const setSelection = useAppStore((state) => state.setSelection);
   const selection = useAppStore((state) => state.selection);
+  const addLayer = useAppStore((state) => state.addLayer);
+  const getCurrentScene = useAppStore((state) => state.getCurrentScene);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   const selectedLayer = useMemo(() => {
     if (selection.length === 0) return null;
@@ -143,6 +148,27 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
     requestCurrentStreamFrame();
   };
 
+  const handleCreateGroup = () => {
+    if (selection.length === 0) return;
+    const scene = getCurrentScene();
+    if (!scene) return;
+
+    const groupId = createId();
+    const group = createGroupLayer(groupId, scene.width, scene.height, [...selection]);
+
+    // Update selected layers to have this group as parent
+    selection.forEach((layerId) => {
+      updateLayer(layerId, { parentId: groupId }, { recordHistory: false, persist: false });
+    });
+
+    // Add the group layer
+    addLayer(group);
+
+    // Select the new group
+    setSelection([groupId]);
+    requestCurrentStreamFrame();
+  };
+
   const closeMenu = () => setMenuOpen(false);
 
   return (
@@ -174,7 +200,22 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                 −
               </button>
             </div>
-            <div style={{ minWidth: '100px' }}>{/* Space reserved for future folder controls */}</div>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <button
+                type="button"
+                onClick={handleCreateGroup}
+                disabled={selection.length === 0}
+                style={{
+                  ...iconButtonStyle,
+                  opacity: selection.length === 0 ? 0.35 : 1,
+                  cursor: selection.length === 0 ? 'not-allowed' : 'pointer',
+                }}
+                aria-label="Create group from selection"
+                title="Create group"
+              >
+                📁
+              </button>
+            </div>
             {menuOpen && (
               <div style={menuPopoverStyle}>
                 <button
