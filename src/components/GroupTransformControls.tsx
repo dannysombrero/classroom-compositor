@@ -41,6 +41,7 @@ type GroupDragState =
       pointerId: number;
       origin: { x: number; y: number };
       latest: { x: number; y: number };
+      lockedAxis: 'x' | 'y' | null;
       layers: LayerTransformSnapshot[];
       historySnapshot?: Scene | null;
       historyApplied: boolean;
@@ -178,9 +179,37 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
   }, [layers]);
 
   const applyMove = useCallback(
-    (state: Extract<GroupDragState, { type: 'move' }>, pointerScene: { x: number; y: number }) => {
-      const deltaX = pointerScene.x - state.origin.x;
-      const deltaY = pointerScene.y - state.origin.y;
+    (
+      state: Extract<GroupDragState, { type: 'move' }>,
+      pointerScene: { x: number; y: number },
+      shiftKey: boolean
+    ) => {
+      let deltaX = pointerScene.x - state.origin.x;
+      let deltaY = pointerScene.y - state.origin.y;
+
+      // Handle shift-constrained movement
+      if (shiftKey) {
+        // Determine locked axis if not yet locked
+        if (state.lockedAxis === null) {
+          const absDeltaX = Math.abs(deltaX);
+          const absDeltaY = Math.abs(deltaY);
+
+          // Lock to the axis with more movement (threshold to avoid locking too early)
+          if (absDeltaX > 5 || absDeltaY > 5) {
+            state.lockedAxis = absDeltaX > absDeltaY ? 'x' : 'y';
+          }
+        }
+
+        // Apply axis constraint
+        if (state.lockedAxis === 'x') {
+          deltaY = 0;
+        } else if (state.lockedAxis === 'y') {
+          deltaX = 0;
+        }
+      } else {
+        // Reset locked axis when shift is released
+        state.lockedAxis = null;
+      }
 
       const currentScene = useAppStore.getState().getCurrentScene();
       if (!currentScene) return;
@@ -368,7 +397,7 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
       event.preventDefault();
 
       if (state.type === 'move') {
-        applyMove(state, pointerScene);
+        applyMove(state, pointerScene, event.shiftKey);
       } else if (state.type === 'rotate') {
         applyRotate(state, pointerScene);
       } else {
@@ -402,6 +431,7 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
         pointerId: event.pointerId,
         origin: pointerScene,
         latest: pointerScene,
+        lockedAxis: null,
         layers: buildLayerSnapshots(),
         historySnapshot: cloneSceneForHistory(useAppStore.getState().getCurrentScene()),
         historyApplied: false,

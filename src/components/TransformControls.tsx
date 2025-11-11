@@ -17,6 +17,8 @@ type DragState =
       pointerId: number;
       offsetX: number;
       offsetY: number;
+      startPos: { x: number; y: number };
+      lockedAxis: 'x' | 'y' | null;
       historySnapshot?: Scene | null;
       historyApplied?: boolean;
     }
@@ -123,11 +125,14 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
   const startMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     const pointerScene = pointerToScene(event.clientX, event.clientY);
+    const currentPos = layerRef.current.transform.pos;
     dragStateRef.current = {
       type: 'move',
       pointerId: event.pointerId,
-      offsetX: pointerScene.x - layerRef.current.transform.pos.x,
-      offsetY: pointerScene.y - layerRef.current.transform.pos.y,
+      offsetX: pointerScene.x - currentPos.x,
+      offsetY: pointerScene.y - currentPos.y,
+      startPos: { x: currentPos.x, y: currentPos.y },
+      lockedAxis: null,
       historySnapshot: cloneSceneForHistory(useAppStore.getState().getCurrentScene()),
       historyApplied: false,
     };
@@ -226,10 +231,35 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
       };
 
       if (dragState.type === 'move') {
-        const newPos = {
+        let newPos = {
           x: pointerScene.x - dragState.offsetX,
           y: pointerScene.y - dragState.offsetY,
         };
+
+        // Handle shift-constrained movement
+        if (event.shiftKey) {
+          // Determine locked axis if not yet locked
+          if (dragState.lockedAxis === null) {
+            const deltaX = Math.abs(newPos.x - dragState.startPos.x);
+            const deltaY = Math.abs(newPos.y - dragState.startPos.y);
+
+            // Lock to the axis with more movement (threshold to avoid locking too early)
+            if (deltaX > 5 || deltaY > 5) {
+              dragState.lockedAxis = deltaX > deltaY ? 'x' : 'y';
+            }
+          }
+
+          // Apply axis constraint
+          if (dragState.lockedAxis === 'x') {
+            newPos.y = dragState.startPos.y;
+          } else if (dragState.lockedAxis === 'y') {
+            newPos.x = dragState.startPos.x;
+          }
+        } else {
+          // Reset locked axis when shift is released
+          dragState.lockedAxis = null;
+        }
+
         updateLayer(currentLayer.id, {
           transform: {
             ...currentLayer.transform,
