@@ -20,6 +20,10 @@ interface PresenterCanvasProps {
   onLayoutChange?: (layout: CanvasLayout) => void;
   /** Layer IDs to omit during render (e.g., when editing text inline) */
   skipLayerIds?: string[];
+  /** Background type: color, image, or url */
+  backgroundType?: 'color' | 'image' | 'url';
+  /** Background value: hex color, data URL, or image URL */
+  backgroundValue?: string;
 }
 
 export interface CanvasLayout {
@@ -38,7 +42,7 @@ export interface CanvasLayout {
  * @returns Canvas element with resize logic and render loop
  */
 export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProps>(
-  ({ fitToContainer = true, onLayoutChange, skipLayerIds }, ref) => {
+  ({ fitToContainer = true, onLayoutChange, skipLayerIds, backgroundType = 'color', backgroundValue = '#ffffff' }, ref) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | null>(null);
@@ -337,7 +341,11 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
             maxHeight: '100%',
             width: 'auto',
             height: 'auto',
-            backgroundColor: '#ffffff', // White background for whiteboard effect
+            backgroundColor: backgroundType === 'color' ? backgroundValue : 'transparent',
+            backgroundImage: backgroundType === 'image' || backgroundType === 'url' ? `url(${backgroundValue})` : 'none',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            backgroundRepeat: 'no-repeat',
           }}
         />
       </div>

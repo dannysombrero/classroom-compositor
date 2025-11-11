@@ -107,6 +107,9 @@ function PresenterPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const controlStripTimerRef = useRef<number | null>(null);
   const clipboardRef = useRef<Layer[] | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [canvasBackgroundType, setCanvasBackgroundType] = useState<'color' | 'image' | 'url'>('color');
+  const [canvasBackgroundValue, setCanvasBackgroundValue] = useState<string>('#ffffff');
 
   const [cameraTrackForEffects, setCameraTrackForEffects] = useState<MediaStreamTrack | null>(null);
   const [cameraLayerForEffects, setCameraLayerForEffects] = useState<string | null>(null);
@@ -1091,6 +1094,170 @@ function PresenterPage() {
         {/* 👇 New: inline error feedback */}
       </div>
 
+      {/* Settings button in top right */}
+      <button
+        onClick={() => setSettingsOpen(!settingsOpen)}
+        style={{
+          position: 'fixed',
+          top: 16,
+          right: 16,
+          zIndex: 10001,
+          width: 44,
+          height: 44,
+          borderRadius: '50%',
+          background: 'rgba(20,20,20,0.85)',
+          border: '1px solid rgba(255,255,255,0.15)',
+          color: '#eaeaea',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 20,
+          backdropFilter: 'blur(4px)',
+          boxShadow: '0 6px 24px rgba(0,0,0,0.35)',
+        }}
+        title="Settings"
+      >
+        ⚙️
+      </button>
+
+      {/* Settings Panel */}
+      {settingsOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 70,
+            right: 16,
+            zIndex: 10001,
+            width: 320,
+            background: 'rgba(20,20,20,0.95)',
+            border: '1px solid rgba(255,255,255,0.15)',
+            borderRadius: 12,
+            padding: 20,
+            boxShadow: '0 12px 48px rgba(0,0,0,0.5)',
+            backdropFilter: 'blur(8px)',
+          }}
+        >
+          <h3 style={{ margin: '0 0 16px 0', color: '#eaeaea', fontSize: 16, fontWeight: 600 }}>
+            Canvas Settings
+          </h3>
+
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', marginBottom: 8, color: '#aaa', fontSize: 13 }}>
+              Background Type
+            </label>
+            <select
+              value={canvasBackgroundType}
+              onChange={(e) => setCanvasBackgroundType(e.target.value as 'color' | 'image' | 'url')}
+              style={{
+                width: '100%',
+                padding: 8,
+                borderRadius: 6,
+                background: 'rgba(255,255,255,0.08)',
+                border: '1px solid rgba(255,255,255,0.15)',
+                color: '#eaeaea',
+                fontSize: 13,
+              }}
+            >
+              <option value="color">Solid Color</option>
+              <option value="image">Image Upload</option>
+              <option value="url">Image URL</option>
+            </select>
+          </div>
+
+          {canvasBackgroundType === 'color' && (
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', marginBottom: 8, color: '#aaa', fontSize: 13 }}>
+                Color
+              </label>
+              <input
+                type="color"
+                value={canvasBackgroundValue}
+                onChange={(e) => setCanvasBackgroundValue(e.target.value)}
+                style={{
+                  width: '100%',
+                  height: 40,
+                  borderRadius: 6,
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  cursor: 'pointer',
+                }}
+              />
+            </div>
+          )}
+
+          {canvasBackgroundType === 'url' && (
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', marginBottom: 8, color: '#aaa', fontSize: 13 }}>
+                Image URL
+              </label>
+              <input
+                type="text"
+                value={canvasBackgroundValue}
+                onChange={(e) => setCanvasBackgroundValue(e.target.value)}
+                placeholder="https://example.com/image.jpg"
+                style={{
+                  width: '100%',
+                  padding: 8,
+                  borderRadius: 6,
+                  background: 'rgba(255,255,255,0.08)',
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  color: '#eaeaea',
+                  fontSize: 13,
+                }}
+              />
+            </div>
+          )}
+
+          {canvasBackgroundType === 'image' && (
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', marginBottom: 8, color: '#aaa', fontSize: 13 }}>
+                Upload Image
+              </label>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      setCanvasBackgroundValue(reader.result as string);
+                    };
+                    reader.readAsDataURL(file);
+                  }
+                }}
+                style={{
+                  width: '100%',
+                  padding: 8,
+                  borderRadius: 6,
+                  background: 'rgba(255,255,255,0.08)',
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  color: '#eaeaea',
+                  fontSize: 13,
+                }}
+              />
+            </div>
+          )}
+
+          <button
+            onClick={() => setSettingsOpen(false)}
+            style={{
+              width: '100%',
+              padding: 10,
+              borderRadius: 6,
+              background: 'rgba(0, 166, 255, 0.25)',
+              border: '1px solid rgba(0, 166, 255, 0.8)',
+              color: '#eaeaea',
+              cursor: 'pointer',
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+          >
+            Close
+          </button>
+        </div>
+      )}
+
       {/* Main canvas area */}
       <div
         style={{
@@ -1106,6 +1273,8 @@ function PresenterPage() {
           fitToContainer
           onLayoutChange={handleCanvasLayoutChange}
           skipLayerIds={editingTextId ? [editingTextId] : undefined}
+          backgroundType={canvasBackgroundType}
+          backgroundValue={canvasBackgroundValue}
         />
         {canvasLayout && (
           <CanvasSelectionOverlay
