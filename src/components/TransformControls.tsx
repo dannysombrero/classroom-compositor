@@ -70,9 +70,8 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
     top: `${centerPx.y - halfHeight * layout.scaleY}px`,
     width: `${boundingSize.width * layout.scaleX}px`,
     height: `${boundingSize.height * layout.scaleY}px`,
-    border: '2px solid rgba(0, 166, 255, 0.85)',
-    boxShadow: '0 0 0 1px rgba(0, 166, 255, 0.45)',
-    background: 'rgba(0, 166, 255, 0.08)',
+    border: '2px solid #000000',
+    background: 'transparent',
     cursor: 'move',
     pointerEvents: 'auto',
     zIndex: 16,
@@ -346,6 +345,7 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
 
   return (
     <div style={boxStyle} onPointerDown={startMove} onDoubleClick={handleDoubleClick}>
+      {/* Resize handles */}
       {handles.map((handle) => (
         <button
           key={handle.key}
@@ -354,11 +354,11 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
             position: 'absolute',
             left: handle.left,
             top: handle.top,
-            width: '16px',
-            height: '16px',
-            borderRadius: '4px',
-            border: '1px solid rgba(255, 255, 255, 0.75)',
-            background: 'rgba(0, 166, 255, 0.95)',
+            width: '12px',
+            height: '12px',
+            borderRadius: '50%',
+            border: '2px solid #000000',
+            background: '#ffffff',
             cursor: handle.cursor,
             pointerEvents: 'auto',
             transform: 'translate(-50%, -50%)',
@@ -367,6 +367,42 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
           aria-label={`Resize ${handle.key}`}
         />
       ))}
+      {/* Rotation handle */}
+      <button
+        onPointerDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          // TODO: Implement rotation
+        }}
+        style={{
+          position: 'absolute',
+          left: '50%',
+          top: '-30px',
+          width: '12px',
+          height: '12px',
+          borderRadius: '50%',
+          border: '2px solid #000000',
+          background: '#ffffff',
+          cursor: 'grab',
+          pointerEvents: 'auto',
+          transform: 'translate(-50%, -50%)',
+          padding: 0,
+        }}
+        aria-label="Rotate"
+      />
+      {/* Rotation handle connector line */}
+      <div
+        style={{
+          position: 'absolute',
+          left: '50%',
+          top: '-15px',
+          width: '2px',
+          height: '15px',
+          background: '#000000',
+          transform: 'translateX(-50%)',
+          pointerEvents: 'none',
+        }}
+      />
     </div>
   );
 }

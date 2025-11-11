@@ -464,9 +464,8 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
           top,
           width,
           height,
-          border: isPrimary ? '2px solid rgba(0, 166, 255, 0.95)' : '1px dashed rgba(0, 166, 255, 0.75)',
-          boxShadow: isPrimary ? '0 0 0 1px rgba(0, 166, 255, 0.35)' : '0 0 0 1px rgba(0, 166, 255, 0.25)',
-          backgroundColor: isPrimary ? 'rgba(0, 166, 255, 0.12)' : 'rgba(0, 166, 255, 0.08)',
+          border: isPrimary ? '2px solid #000000' : '1px dashed #000000',
+          backgroundColor: 'transparent',
           pointerEvents: 'none',
           zIndex: 11,
         }}

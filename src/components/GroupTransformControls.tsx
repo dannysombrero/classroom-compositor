@@ -452,15 +452,15 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
         top,
         width,
         height,
-        border: '2px solid rgba(0, 166, 255, 0.85)',
-        boxShadow: '0 0 0 1px rgba(0, 166, 255, 0.45)',
-        background: 'rgba(0, 166, 255, 0.08)',
+        border: '2px solid #000000',
+        background: 'transparent',
         cursor: 'move',
         pointerEvents: 'auto',
         zIndex: 16,
       }}
       onPointerDown={startMove}
     >
+      {/* Resize handles */}
       {handles.map((handle) => (
         <button
           key={handle.key}
@@ -469,11 +469,11 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
             position: 'absolute',
             left: handle.left,
             top: handle.top,
-            width: '16px',
-            height: '16px',
-            borderRadius: '4px',
-            border: '2px solid rgba(5, 120, 200, 0.9)',
-            background: 'rgba(0, 166, 255, 0.85)',
+            width: '12px',
+            height: '12px',
+            borderRadius: '50%',
+            border: '2px solid #000000',
+            background: '#ffffff',
             transform: 'translate(-50%, -50%)',
             cursor: handle.cursor,
             padding: 0,
@@ -481,6 +481,42 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
           aria-label={`Resize from ${handle.key}`}
         />
       ))}
+      {/* Rotation handle */}
+      <button
+        onPointerDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          // TODO: Implement rotation for groups
+        }}
+        style={{
+          position: 'absolute',
+          left: '50%',
+          top: '-30px',
+          width: '12px',
+          height: '12px',
+          borderRadius: '50%',
+          border: '2px solid #000000',
+          background: '#ffffff',
+          cursor: 'grab',
+          pointerEvents: 'auto',
+          transform: 'translate(-50%, -50%)',
+          padding: 0,
+        }}
+        aria-label="Rotate"
+      />
+      {/* Rotation handle connector line */}
+      <div
+        style={{
+          position: 'absolute',
+          left: '50%',
+          top: '-15px',
+          width: '2px',
+          height: '15px',
+          background: '#000000',
+          transform: 'translateX(-50%)',
+          pointerEvents: 'none',
+        }}
+      />
     </div>
   );
 }
