@@ -1017,7 +1017,6 @@ export async function startViewer(
 
   // IMPORTANT: Set up onicecandidate handler BEFORE setLocalDescription
   // to ensure we don't miss any ICE candidates generated immediately
-  const tag = Date.now();
   const myUfrag = getUfrag(offer) || null;
 
   viewerPc.onicecandidate = (e) => {
