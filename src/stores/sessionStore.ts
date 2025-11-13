@@ -31,7 +31,11 @@ type State = {
   goLive: (hostId: string) => Promise<void>;
   endLive: () => Promise<void>;
   streams: Record<string, SessionStreamEntry>;
-  registerStream: (id: string, stream: MediaStream, metadata?: Partial<Omit<SessionStreamEntry, "id" | "createdAt" | "updatedAt">>) => void;
+  registerStream: (
+    id: string,
+    stream: MediaStream,
+    metadata?: Partial<Omit<SessionStreamEntry, "id">>,
+  ) => void;
   releaseStream: (id: string) => void;
   markStreamInUse: (id: string, viewerId: string) => void;
   getStream: (id: string) => MediaStream | null;
