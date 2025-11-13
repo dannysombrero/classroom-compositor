@@ -9,6 +9,7 @@ import { startScreenCapture, startCameraCapture, stopSource } from '../media/sou
 import { createScreenLayer, createCameraLayer } from '../layers/factory';
 import { createId } from '../utils/id';
 import { requestCurrentStreamFrame } from '../utils/viewerStream';
+import { onTrackCleanup } from '../utils/trackReferenceCounter';
 
 export function usePresenterCapture() {
   const { getCurrentScene, addLayer, updateLayer, removeLayer } = useAppStore();
@@ -33,9 +34,17 @@ export function usePresenterCapture() {
       const track = result.stream.getVideoTracks()[0];
       if (track) {
         updateLayer(layerId, { streamId: track.id });
-        track.addEventListener('ended', () => {
+
+        // Create named handler so we can remove it later
+        const handleEnded = () => {
           stopSource(layerId);
           useAppStore.getState().removeLayer(layerId);
+        };
+        track.addEventListener('ended', handleEnded);
+
+        // Register cleanup to remove event listener
+        onTrackCleanup(track, () => {
+          track.removeEventListener('ended', handleEnded);
         });
       }
       requestCurrentStreamFrame();
@@ -67,9 +76,17 @@ export function usePresenterCapture() {
       const track = result.stream.getVideoTracks()[0];
       if (track) {
         updateLayer(layerId, { streamId: track.id });
-        track.addEventListener('ended', () => {
+
+        // Create named handler so we can remove it later
+        const handleEnded = () => {
           stopSource(layerId);
           useAppStore.getState().removeLayer(layerId);
+        };
+        track.addEventListener('ended', handleEnded);
+
+        // Register cleanup to remove event listener
+        onTrackCleanup(track, () => {
+          track.removeEventListener('ended', handleEnded);
         });
       }
       requestCurrentStreamFrame();

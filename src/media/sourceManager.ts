@@ -58,7 +58,10 @@ async function registerSource(
 
     // Register cleanup callback to run when track ref count reaches 0
     onTrackCleanup(track, () => {
+      // Thoroughly clean up video element to prevent memory leaks
+      video.pause();
       video.srcObject = null;
+      video.load(); // Reset video element
       video.remove?.();
       sources.delete(layerId);
     });
