@@ -5,6 +5,12 @@
  * state remains serializable while draw routines can fetch the latest frame.
  */
 
+import {
+  incrementTrackRef,
+  decrementTrackRef,
+  onTrackCleanup
+} from '../utils/trackReferenceCounter';
+
 type SourceType = 'screen' | 'camera';
 
 interface ActiveSource {
@@ -44,11 +50,25 @@ async function registerSource(
   stopSource(layerId);
 
   const video = await createVideoElement(stream);
+  const track = stream.getVideoTracks()[0] ?? null;
+
+  if (track) {
+    // Increment reference count for the track
+    incrementTrackRef(track);
+
+    // Register cleanup callback to run when track ref count reaches 0
+    onTrackCleanup(track, () => {
+      video.srcObject = null;
+      video.remove?.();
+      sources.delete(layerId);
+    });
+  }
+
   const active: ActiveSource = {
     stream,
     video,
     type,
-    rawTrack: stream.getVideoTracks()[0] ?? null,
+    rawTrack: track,
   };
   sources.set(layerId, active);
   return active;
@@ -91,10 +111,8 @@ export async function startCameraCapture(layerId: string): Promise<ActiveSource 
 /**
  * Replace ONLY the video track in the active stream for a layer.
  *
- * Important:
- * - We DO NOT stop() the old video track here, because another pipeline
- *   (e.g., the fake-blur/ML engine) may still be reading from it.
- * - We just remove it from the rendering stream and add the new processed track.
+ * Uses reference counting to ensure old tracks are properly cleaned up
+ * when no longer in use (e.g., by effects pipelines).
  */
 export function replaceVideoTrack(layerId: string, newTrack: MediaStreamTrack): boolean {
   const active = sources.get(layerId);
@@ -103,18 +121,26 @@ export function replaceVideoTrack(layerId: string, newTrack: MediaStreamTrack): 
   const { stream, video } = active;
 
   try {
-    // Remove existing video tracks from the stream (do not stop them).
+    // Increment ref count for the new track
+    incrementTrackRef(newTrack);
+
+    // Remove existing video tracks from the stream
     const oldVideoTracks = stream.getVideoTracks();
     for (const t of oldVideoTracks) {
       try {
         stream.removeTrack(t);
-      } catch {
-        /* ignore */
+        // Decrement ref count for old track (may still be used by effects pipeline)
+        decrementTrackRef(t);
+      } catch (e) {
+        console.warn('Failed to remove/decrement old track:', e);
       }
     }
 
-    // Add the processed track
+    // Add the new processed track
     stream.addTrack(newTrack);
+
+    // Update rawTrack reference
+    active.rawTrack = newTrack;
 
     // Re-bind to ensure element reflects the new track (helps in some browsers)
     video.srcObject = stream;
@@ -131,22 +157,31 @@ export function replaceVideoTrack(layerId: string, newTrack: MediaStreamTrack): 
 
 /**
  * Stop an active capture and release its resources.
+ * Uses reference counting to ensure tracks are only stopped when all refs are released.
  */
 export function stopSource(layerId: string): void {
   const existing = sources.get(layerId);
   if (!existing) return;
 
+  // Decrement ref count for all tracks in the stream
   existing.stream.getTracks().forEach((track) => {
-    try { track.stop(); } catch { /* ignore */ }
+    try {
+      decrementTrackRef(track);
+    } catch (e) {
+      console.warn('Failed to decrement track ref:', e);
+    }
   });
-  if (existing.rawTrack && !existing.stream.getTracks().includes(existing.rawTrack)) {
-    try { existing.rawTrack.stop(); } catch { /* ignore */ }
-  }
-  try {
-    existing.video.srcObject = null;
-  } catch { /* ignore */ }
 
-  sources.delete(layerId);
+  // Decrement ref for raw track if it's different
+  if (existing.rawTrack && !existing.stream.getTracks().includes(existing.rawTrack)) {
+    try {
+      decrementTrackRef(existing.rawTrack);
+    } catch (e) {
+      console.warn('Failed to decrement raw track ref:', e);
+    }
+  }
+
+  // Cleanup will be handled by onTrackCleanup callback when ref count reaches 0
 }
 
 /**
