@@ -12,7 +12,7 @@ const trackCleanupCallbacks = new Map<MediaStreamTrack, (() => void)[]>();
 export function incrementTrackRef(track: MediaStreamTrack): void {
   const currentCount = trackRefCounts.get(track) || 0;
   trackRefCounts.set(track, currentCount + 1);
-  console.debug(`Track ${track.id} ref count: ${currentCount} → ${currentCount + 1}`);
+  console.log(`🔵 Track ${track.id} ref count: ${currentCount} → ${currentCount + 1}`);
 }
 
 /**
@@ -23,13 +23,13 @@ export function decrementTrackRef(track: MediaStreamTrack): void {
   const currentCount = trackRefCounts.get(track) || 0;
 
   if (currentCount <= 0) {
-    console.warn(`Attempted to decrement track ${track.id} with zero refs`);
+    console.warn(`⚠️ Attempted to decrement track ${track.id} with zero refs`);
     return;
   }
 
   const newCount = currentCount - 1;
   trackRefCounts.set(track, newCount);
-  console.debug(`Track ${track.id} ref count: ${currentCount} → ${newCount}`);
+  console.log(`🔴 Track ${track.id} ref count: ${currentCount} → ${newCount}`);
 
   if (newCount === 0) {
     const callbacks = trackCleanupCallbacks.get(track) || [];
@@ -39,7 +39,7 @@ export function decrementTrackRef(track: MediaStreamTrack): void {
 
     trackRefCounts.delete(track);
     trackCleanupCallbacks.delete(track);
-    console.debug(`Track ${track.id} stopped and cleaned up`);
+    console.log(`🛑 Track ${track.id} stopped and cleaned up`);
   }
 }
 
