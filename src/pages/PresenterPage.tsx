@@ -24,15 +24,11 @@ import { useAppStore } from "../app/store";
 import { loadMostRecentScene } from "../app/persistence";
 import { createId } from "../utils/id";
 import {
-  createScreenLayer,
-  createCameraLayer,
   createTextLayer,
   createImageLayer,
   createShapeLayer,
 } from "../layers/factory";
 import {
-  startScreenCapture,
-  startCameraCapture,
   stopSource,
   replaceVideoTrack,
   getActiveVideoTrack,
@@ -52,6 +48,7 @@ import { tinykeys } from "tinykeys";
 import type { KeyBindingMap } from "tinykeys";
 import { useBackgroundEffectTrack } from "../hooks/useBackgroundEffectTrack";
 import { replaceHostVideoTrack } from "../utils/webrtc";
+import { usePresenterCapture } from "../hooks/usePresenterCapture";
 
 const EMPTY_LAYERS: Layer[] = [];
 const LAYERS_PANEL_WIDTH = 280;
@@ -106,6 +103,8 @@ function PresenterPage() {
   const [cameraTrackForEffects, setCameraTrackForEffects] = useState<MediaStreamTrack | null>(null);
   const [cameraLayerForEffects, setCameraLayerForEffects] = useState<string | null>(null);
   const processedCameraTrack = useBackgroundEffectTrack(cameraTrackForEffects);
+
+  const capture = usePresenterCapture();
 
   const sceneLayers: Layer[] = useAppStore((state) => {
     if (!state.currentSceneId) return EMPTY_LAYERS;
@@ -220,71 +219,32 @@ function PresenterPage() {
   // Add layers
   const addScreenCaptureLayer = useCallback(async () => {
     if (isAddingScreen) return;
-    const scene = getCurrentScene();
-    if (!scene) return;
-
-    const layerId = createId("layer");
-    const layer = createScreenLayer(layerId, scene.width, scene.height);
-
     setIsAddingScreen(true);
-    addLayer(layer);
-
     try {
-      const result = await startScreenCapture(layerId);
-      if (!result) {
-        removeLayer(layerId);
-        return;
-      }
-      useAppStore.getState().setSelection([layerId]);
-      const track = result.stream.getVideoTracks()[0];
-      if (track) {
-        updateLayer(layerId, { streamId: track.id });
-        track.addEventListener("ended", () => {
-          stopSource(layerId);
-          useAppStore.getState().removeLayer(layerId);
-        });
-      }
-      requestCurrentStreamFrame();
+      await capture.startScreen();
     } finally {
       setIsAddingScreen(false);
     }
-  }, [addLayer, getCurrentScene, isAddingScreen, removeLayer, updateLayer]);
+  }, [capture, isAddingScreen]);
 
   const addCameraLayer = useCallback(async () => {
     if (isAddingCamera) return;
-    const scene = getCurrentScene();
-    if (!scene) return;
-
-    const layerId = createId("layer");
-    const layer = createCameraLayer(layerId, scene.width, scene.height);
-
     setIsAddingCamera(true);
-    addLayer(layer);
-
     try {
-      const result = await startCameraCapture(layerId);
-      if (!result) {
-        removeLayer(layerId);
-        return;
-      }
-      useAppStore.getState().setSelection([layerId]);
-      const track = result.stream.getVideoTracks()[0];
-      if (track) {
-        updateLayer(layerId, { streamId: track.id });
-        track.addEventListener("ended", () => {
-          stopSource(layerId);
-          useAppStore.getState().removeLayer(layerId);
+      const result = await capture.startCamera();
+      if (result) {
+        setCameraTrackForEffects(result.track);
+        setCameraLayerForEffects(result.layerId);
+        // Clear effects state when track ends
+        result.track.addEventListener('ended', () => {
           setCameraTrackForEffects(null);
           setCameraLayerForEffects(null);
         });
-        setCameraTrackForEffects(track);
-        setCameraLayerForEffects(layerId);
       }
-      requestCurrentStreamFrame();
     } finally {
       setIsAddingCamera(false);
     }
-  }, [addLayer, getCurrentScene, isAddingCamera, removeLayer, updateLayer]);
+  }, [capture, isAddingCamera]);
 
   useEffect(() => {
     if (!selectedCameraLayer) return;
