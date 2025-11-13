@@ -49,6 +49,7 @@ import type { KeyBindingMap } from "tinykeys";
 import { useBackgroundEffectTrack } from "../hooks/useBackgroundEffectTrack";
 import { replaceHostVideoTrack } from "../utils/webrtc";
 import { usePresenterCapture } from "../hooks/usePresenterCapture";
+import { onTrackCleanup } from "../utils/trackReferenceCounter";
 
 const EMPTY_LAYERS: Layer[] = [];
 const LAYERS_PANEL_WIDTH = 280;
@@ -235,10 +236,17 @@ function PresenterPage() {
       if (result) {
         setCameraTrackForEffects(result.track);
         setCameraLayerForEffects(result.layerId);
+
         // Clear effects state when track ends
-        result.track.addEventListener('ended', () => {
+        const handleEffectsEnded = () => {
           setCameraTrackForEffects(null);
           setCameraLayerForEffects(null);
+        };
+        result.track.addEventListener('ended', handleEffectsEnded);
+
+        // Register cleanup to remove event listener
+        onTrackCleanup(result.track, () => {
+          result.track.removeEventListener('ended', handleEffectsEnded);
         });
       }
     } finally {
