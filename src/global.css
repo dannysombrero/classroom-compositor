@@ -1,5 +1,11 @@
 /* src/global.css */
 
+@import "./shadcn-theme.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 /* Theme CSS Variables - Updated by theme system */
 :root {
   /* Colors - Default to Warm Educator palette */
@@ -52,18 +58,37 @@
   --radius-lg: 14px;
   --radius-xl: 18px;
   --radius-full: 9999px;
+  /* Map Tailwind semantic tokens to theme variables */
+  --background: 222 47% 8%;
+  --foreground: 210 40% 98%;
+  --muted: 222 32% 16%;
+  --muted-foreground: 214 32% 74%;
+  --card: 222 45% 11%;
+  --card-foreground: 210 40% 98%;
+  --border: 222 32% 16%;
+  --input: 222 32% 16%;
+  --primary: 258 90% 66%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 41 97% 55%;
+  --secondary-foreground: 222 47% 11%;
+  --accent: 222 47% 20%;
+  --accent-foreground: 210 40% 98%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 210 40% 98%;
+  --ring: 258 90% 66%;
+  --radius: 0.75rem;
 }
 
 /* Base */
 html, body, #root {
-    height: 100%;
-    margin: 0;
-    background: var(--color-background-alt);
-    color: var(--color-text);
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    font-family: var(--font-family) !important;
-  }
+  height: 100%;
+  margin: 0;
+  background: var(--color-background-alt);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-family: var(--font-family) !important;
+}
 
 /* Force font family on all elements */
 * {
@@ -73,8 +98,8 @@ html, body, #root {
 h1, h2, h3, h4, h5, h6, p, span, div, button, input, textarea, select {
   font-family: var(--font-family);
 }
-  video { background: #000; }
-  button { font-family: inherit; cursor: pointer; }
+video { background: #000; }
+button { font-family: inherit; cursor: pointer; }
   
   /* Minimal utility classes your JSX is using */
   .h-full { height: 100%; }

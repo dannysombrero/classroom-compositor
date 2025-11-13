@@ -1,6 +1,8 @@
 /**
  * Utilities for capturing canvas stream and managing viewer window communication.
  */
+import { getRegisteredStream, registerSessionStream, releaseSessionStream } from "../stores/sessionStore";
+import { postSessionMessage, resolveTargetOrigin } from "./sessionMessaging";
 
 /**
  * Default frame rate for canvas capture stream.
@@ -57,11 +59,7 @@ export type ViewerMessage =
   | { type: 'viewer-ready' }
   | { type: 'request-stream' };
 
-/**
- * Global storage for the current stream (accessible to viewer via window.opener).
- * This is a workaround since MediaStream cannot be transferred via postMessage.
- */
-let globalStreamRef: MediaStream | null = null;
+const PRIMARY_STREAM_ID = 'presenter:primary';
 
 function isWindowAlive(target: Window | null | undefined): target is Window {
   try {
@@ -75,14 +73,18 @@ function isWindowAlive(target: Window | null | undefined): target is Window {
  * Get the current stream (for viewer window to access via opener).
  */
 export function getCurrentStream(): MediaStream | null {
-  return globalStreamRef;
+  return getRegisteredStream(PRIMARY_STREAM_ID);
 }
 
 /**
  * Set the current stream.
  */
 export function setCurrentStream(stream: MediaStream | null): void {
-  globalStreamRef = stream;
+  if (stream) {
+    registerSessionStream(PRIMARY_STREAM_ID, stream, { label: 'Primary Presenter Stream' });
+  } else {
+    releaseSessionStream(PRIMARY_STREAM_ID);
+  }
   // NOTE: Removed requestStreamFrame() call - the canvas captureStream automatically
   // captures frames as the canvas is drawn. No need to force frame requests.
 }
@@ -92,7 +94,7 @@ export function setCurrentStream(stream: MediaStream | null): void {
  * Helpful when using dirty rendering so the viewer sees the latest frame.
  */
 export function requestCurrentStreamFrame(): void {
-  requestStreamFrame(globalStreamRef);
+  requestStreamFrame(getCurrentStream());
 }
 
 /**
@@ -121,17 +123,30 @@ export function sendStreamToViewer(
       targetOrigin: resolvedOrigin,
     });
     
-    // Store stream globally so viewer can access it
+    // Store stream globally so viewer can access it later
     setCurrentStream(stream);
-    
-    // Notify viewer that stream is available
-    // The viewer will retrieve it via window.opener
-    const message: ViewerMessage = {
-      type: 'stream',
-      streamAvailable: true,
-    };
-    targetWindow.postMessage(message, resolvedOrigin);
-    
+
+    postSessionMessage(targetWindow, {
+      type: 'stream-announce',
+      streamId: PRIMARY_STREAM_ID,
+      label: 'Primary Presenter Stream',
+      hasStream: true,
+      transferSupported: true,
+    });
+
+    postSessionMessage(
+      targetWindow,
+      {
+        type: 'deliver-stream',
+        streamId: PRIMARY_STREAM_ID,
+        stream,
+      },
+      { origin: resolvedOrigin },
+    );
+
+    const legacyMessage: ViewerMessage = { type: 'stream', streamAvailable: true, stream };
+    targetWindow.postMessage(legacyMessage, resolvedOrigin);
+
     console.log('Stream notification sent successfully');
   } catch (error) {
     console.error('Failed to send stream to viewer:', error);
@@ -147,6 +162,10 @@ export function notifyStreamEnded(window: Window): void {
       return;
     }
     const resolvedOrigin = resolveTargetOrigin(window);
+    postSessionMessage(window, {
+      type: 'stream-ended',
+      streamId: PRIMARY_STREAM_ID,
+    });
     const message: ViewerMessage = { type: 'stream-ended' };
     window.postMessage(message, resolvedOrigin);
   } catch (error) {
@@ -170,39 +189,4 @@ function requestStreamFrame(stream: MediaStream | null): void {
   }
 }
 
-/**
- * Determine the best origin to target when posting messages to the viewer window.
- */
-function resolveTargetOrigin(targetWindow: Window): string {
-  try {
-    const targetOrigin = targetWindow.location?.origin;
-    if (targetOrigin && targetOrigin !== 'null') {
-      return targetOrigin;
-    }
-  } catch (error) {
-    console.warn('Failed to read viewer origin, falling back to presenter origin:', error);
-  }
-
-  if (typeof window !== 'undefined') {
-    return window.location.origin;
-  }
-
-  return '*';
-}
-
-/** 
- * Expose getCurrentStream globally so viewer can access it via window.opener
- * This is a workaround for MediaStream not being transferable via postMessage.
- */
-if (typeof window !== 'undefined') {
-  (window as any).getCurrentStream = getCurrentStream;
-  (window as any).viewerStream = { getCurrentStream };
-  // Also expose stream directly for easier access
-  Object.defineProperty(window, 'currentStream', {
-    get: () => globalStreamRef,
-    set: (value: MediaStream | null) => {
-      globalStreamRef = value;
-    },
-    configurable: true,
-  });
-}
+// Legacy global accessors removed – viewers retrieve streams via postMessage handshake.
