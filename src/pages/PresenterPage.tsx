@@ -20,6 +20,7 @@ import {
   requestCurrentStreamFrame,
   type ViewerMessage,
 } from "../utils/viewerStream";
+import { addSessionMessageListener } from "../utils/sessionMessaging";
 import { useAppStore } from "../app/store";
 import { loadMostRecentScene } from "../app/persistence";
 import { createId } from "../utils/id";
@@ -589,6 +590,29 @@ function PresenterPage() {
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
+  }, [startStreaming]);
+
+  useEffect(() => {
+    const removeSessionListener = addSessionMessageListener((payload, event) => {
+      const sourceWindow = event.source as (Window | null);
+      if (!sourceWindow || sourceWindow !== viewerWindowRef.current) {
+        return;
+      }
+      if (payload.type === "viewer-ready") {
+        if (streamRef.current && viewerWindowRef.current) {
+          sendStreamToViewer(viewerWindowRef.current, streamRef.current);
+        } else if (canvasRef.current) {
+          startStreaming(canvasRef.current);
+        }
+      } else if (payload.type === "request-stream") {
+        if (payload.streamId && streamRef.current && viewerWindowRef.current) {
+          sendStreamToViewer(viewerWindowRef.current, streamRef.current);
+        } else if (canvasRef.current) {
+          startStreaming(canvasRef.current);
+        }
+      }
+    });
+    return () => removeSessionListener();
   }, [startStreaming]);
 
   const ensureCanvasStream = useCallback((): MediaStream | null => {
