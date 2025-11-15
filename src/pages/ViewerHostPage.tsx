@@ -49,6 +49,7 @@ const DEFAULT_STREAM_ID = "presenter:primary";
 export function ViewerHostPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [hasVideoFrames, setHasVideoFrames] = useState(false);
 
   // Extract sessionId from URL query params (e.g., /viewer?sessionId=abc123)
   useEffect(() => {
@@ -65,6 +66,30 @@ export function ViewerHostPage() {
     announceReady,
     requestStream,
   } = useViewerOrchestration({ videoRef, sessionId });
+
+  // Track when video actually has frames to display
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handleLoadedData = () => {
+      setHasVideoFrames(true);
+    };
+
+    const handleResize = () => {
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        setHasVideoFrames(true);
+      }
+    };
+
+    video.addEventListener('loadeddata', handleLoadedData);
+    video.addEventListener('resize', handleResize);
+
+    return () => {
+      video.removeEventListener('loadeddata', handleLoadedData);
+      video.removeEventListener('resize', handleResize);
+    };
+  }, []);
 
   const statusMeta = useMemo(() => STATUS_LABELS[status] ?? STATUS_LABELS.idle, [status]);
 
@@ -166,7 +191,7 @@ export function ViewerHostPage() {
                   background: "#000",
                 }}
               />
-              {status !== "ready" && (
+              {(status !== "ready" || !hasVideoFrames) && (
                 <div
                   style={{
                     position: "absolute",
@@ -186,13 +211,31 @@ export function ViewerHostPage() {
                       textAlign: "center",
                       color: "var(--color-text-muted)",
                       maxWidth: "80%",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.75rem",
                     }}
                   >
-                    {status === "connecting" && "Waiting for presenter…"}
-                    {status === "awaiting-stream" && "Requesting video stream"}
-                    {status === "ended" && "Stream ended by presenter"}
-                    {status === "error" && (error ?? "Unable to connect")}
-                    {status === "idle" && "Viewer ready"}
+                    {(status === "connecting" || status === "awaiting-stream" || (status === "ready" && !hasVideoFrames)) && (
+                      <div
+                        style={{
+                          width: 16,
+                          height: 16,
+                          border: "2px solid rgba(255, 255, 255, 0.3)",
+                          borderTopColor: "#fff",
+                          borderRadius: "50%",
+                          animation: "spin 0.8s linear infinite",
+                        }}
+                      />
+                    )}
+                    <span>
+                      {status === "connecting" && "Waiting for presenter…"}
+                      {status === "awaiting-stream" && "Requesting video stream…"}
+                      {status === "ready" && !hasVideoFrames && "Waiting for first frame…"}
+                      {status === "ended" && "Stream ended by presenter"}
+                      {status === "error" && (error ?? "Unable to connect")}
+                      {status === "idle" && "Viewer ready"}
+                    </span>
                   </div>
                 </div>
               )}
