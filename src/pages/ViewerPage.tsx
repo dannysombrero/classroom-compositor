@@ -15,12 +15,19 @@ export default function ViewerPage() {
   const [connecting, setConnecting] = useState(true);
   const [iceState, setIceState] = useState<string>("new");
   const [hasVideoFrames, setHasVideoFrames] = useState(false);
+  const prevConnectingRef = useRef(connecting);
 
-  // Reset hasVideoFrames when reconnecting
+  // Reset hasVideoFrames when reconnecting (not during initial connection)
   useEffect(() => {
-    if (connecting) {
+    const wasNotConnecting = !prevConnectingRef.current;
+    const isNowConnecting = connecting;
+
+    // Only reset if we transition FROM not-connecting TO connecting (reconnect)
+    if (wasNotConnecting && isNowConnecting) {
       setHasVideoFrames(false);
     }
+
+    prevConnectingRef.current = connecting;
   }, [connecting]);
 
   const tryPlay = () => {

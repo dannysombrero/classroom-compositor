@@ -67,11 +67,22 @@ export function ViewerHostPage() {
     requestStream,
   } = useViewerOrchestration({ videoRef, sessionId });
 
-  // Reset hasVideoFrames when status changes back to connecting/awaiting
+  // Track previous status to detect reconnection scenarios
+  const prevStatusRef = useRef<ViewerConnectionStatus>(status);
+
+  // Reset hasVideoFrames when status goes FROM ready BACK TO connecting (reconnect scenario)
   useEffect(() => {
-    if (status === 'connecting' || status === 'awaiting-stream' || status === 'idle') {
+    const prevStatus = prevStatusRef.current;
+
+    // Only reset if we were previously ready/ended and now going back to connecting
+    if (
+      (prevStatus === 'ready' || prevStatus === 'ended') &&
+      (status === 'connecting' || status === 'awaiting-stream' || status === 'idle')
+    ) {
       setHasVideoFrames(false);
     }
+
+    prevStatusRef.current = status;
   }, [status]);
 
   // Track when video actually has frames to display
