@@ -823,16 +823,10 @@ function PresenterPage() {
   }, [isPresentationMode, showControlStrip]);
 
   const toggleConfidencePreview = useCallback(() => {
-    if (!isConfidencePreviewVisible) {
-      const stream = ensureCanvasStream();
-      if (!stream) {
-        console.warn("Presenter: Cannot show confidence preview without a stream");
-        return;
-      }
-    }
+    // ConfidencePreview doesn't need a stream - it renders directly to canvas
     setIsConfidencePreviewVisible((prev) => !prev);
     showControlStrip();
-  }, [ensureCanvasStream, isConfidencePreviewVisible, showControlStrip]);
+  }, [showControlStrip]);
 
   useEffect(() => {
     const hotkeys: KeyBindingMap = {

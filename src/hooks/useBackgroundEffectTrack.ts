@@ -83,15 +83,30 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
     if (processed && processed !== rawTrack) {
       try { processed.stop?.(); } catch {}
     }
+    // Clean up output stream - stop and remove tracks for GC
     if (outStreamRef.current) {
-      outStreamRef.current.getTracks().forEach((t) => { try { t.stop(); } catch {} });
+      outStreamRef.current.getTracks().forEach((t) => {
+        try {
+          t.stop();
+          outStreamRef.current?.removeTrack(t);
+        } catch {}
+      });
       outStreamRef.current = null;
+    }
+    // Clean up source stream - stop and remove tracks for GC
+    if (srcStreamRef.current) {
+      srcStreamRef.current.getTracks().forEach((t) => {
+        try {
+          t.stop();
+          srcStreamRef.current?.removeTrack(t);
+        } catch {}
+      });
+      srcStreamRef.current = null;
     }
     if (videoRef.current) {
       try { (videoRef.current as HTMLVideoElement).srcObject = null; } catch {}
       videoRef.current = null;
     }
-    srcStreamRef.current = null;
 
     outCanvasRef.current = null;
     outCtxRef.current = null;
