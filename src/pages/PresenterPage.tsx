@@ -521,6 +521,12 @@ function PresenterPage() {
     if (viewerWindowRef.current && !viewerWindowRef.current.closed) {
       console.log("📤 [startStreaming] Sending stream to viewer window");
       sendStreamToViewer(viewerWindowRef.current, stream);
+
+      // Force a frame update to ensure viewer gets initial content
+      setTimeout(() => {
+        requestCurrentStreamFrame();
+        console.log("🎬 [startStreaming] Requested frame update for viewer");
+      }, 50);
     }
   }, [ensureCanvasStreamExists]);
 
