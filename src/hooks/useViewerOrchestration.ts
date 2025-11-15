@@ -88,6 +88,8 @@ export function useViewerOrchestration(options: ViewerOrchestrationOptions): Vie
     current.getTracks().forEach((track) => {
       try {
         track.stop();
+        // Explicitly remove track from stream to help GC
+        current.removeTrack(track);
       } catch (err) {
         console.warn("Failed to stop playback track", err);
       }

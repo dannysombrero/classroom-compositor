@@ -459,7 +459,11 @@ function PresenterPage() {
       }
       // Stream is dead, clean it up
       console.log("⚠️ [ensureStream] Existing stream is dead, cleaning up");
-      streamRef.current.getTracks().forEach((t) => t.stop());
+      const deadStream = streamRef.current;
+      deadStream.getTracks().forEach((t) => {
+        t.stop();
+        deadStream.removeTrack(t);
+      });
       streamRef.current = null;
       setCurrentStream(null);
     }
@@ -580,11 +584,17 @@ function PresenterPage() {
         viewerCheckIntervalRef.current = null;
         setIsViewerOpen(false);
         viewerWindowRef.current = null;
+
         // DON'T stop the stream if we're still live streaming to remote viewers!
         // Only stop if we're not hosting
         if (streamRef.current && !hostRef.current) {
           console.log("🛑 [openViewer] Stopping stream (not live)");
-          streamRef.current.getTracks().forEach((track) => track.stop());
+          const streamToStop = streamRef.current;
+          streamToStop.getTracks().forEach((track) => {
+            track.stop();
+            // Explicitly remove track from stream to help GC
+            streamToStop.removeTrack(track);
+          });
           streamRef.current = null;
           setCurrentStream(null);
         } else if (streamRef.current && hostRef.current) {

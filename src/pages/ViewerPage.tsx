@@ -192,7 +192,11 @@ export default function ViewerPage() {
         try { delete (v as any).__onFirstResize; } catch {}
       }
       if (v?.srcObject) {
-        (v.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
+        const stream = v.srcObject as MediaStream;
+        stream.getTracks().forEach((t) => {
+          t.stop();
+          stream.removeTrack(t);
+        });
         v.srcObject = null;
       }
     };
