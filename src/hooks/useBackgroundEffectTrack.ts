@@ -80,10 +80,8 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
       cancelAnimationFrame(loopRef.current);
       loopRef.current = null;
     }
-    if (processed && processed !== rawTrack) {
-      try { processed.stop?.(); } catch {}
-    }
     // Clean up output stream - stop and remove tracks for GC
+    // This is the stream WE created via outCanvas.captureStream()
     if (outStreamRef.current) {
       outStreamRef.current.getTracks().forEach((t) => {
         try {
@@ -93,14 +91,10 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
       });
       outStreamRef.current = null;
     }
-    // Clean up source stream - stop and remove tracks for GC
+    // Clean up source stream - DON'T stop tracks, we don't own them!
+    // The rawTrack belongs to the camera source manager, not this hook.
+    // Just clear the stream reference.
     if (srcStreamRef.current) {
-      srcStreamRef.current.getTracks().forEach((t) => {
-        try {
-          t.stop();
-          srcStreamRef.current?.removeTrack(t);
-        } catch {}
-      });
       srcStreamRef.current = null;
     }
     if (videoRef.current) {
