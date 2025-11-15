@@ -74,6 +74,12 @@ export function useViewerOrchestration(options: ViewerOrchestrationOptions): Vie
       }
       return next;
     });
+
+    // Clear handshake timer when successfully connected
+    if (next === "ready" && handshakeTimerRef.current) {
+      window.clearTimeout(handshakeTimerRef.current);
+      handshakeTimerRef.current = null;
+    }
   }, [appendDebug]);
 
   const stopPlaybackStream = useCallback(() => {

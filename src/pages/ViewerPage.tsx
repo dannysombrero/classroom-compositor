@@ -114,6 +114,8 @@ export default function ViewerPage() {
 
       const v = videoRef.current;
       if (v) {
+        let lastStreamId: string | null = null;
+
         const onResize = () => {
           console.log("[VIEWER] video resize →", v.videoWidth, "x", v.videoHeight);
           if (v.videoWidth && v.videoHeight) {
@@ -126,17 +128,35 @@ export default function ViewerPage() {
           setHasVideoFrames(true);
         };
         const onEmptied = () => {
-          setHasVideoFrames(false);
+          // Only reset if srcObject is actually null (stream removed)
+          if (!v.srcObject) {
+            setHasVideoFrames(false);
+            lastStreamId = null;
+          }
         };
+        const onLoadStart = () => {
+          // Track the stream ID to detect actual changes
+          const currentStream = v.srcObject as MediaStream | null;
+          const currentId = currentStream?.id;
+
+          // Only reset if this is a genuinely different stream
+          if (currentId && currentId !== lastStreamId) {
+            setHasVideoFrames(false);
+            lastStreamId = currentId;
+          }
+        };
+
         v.addEventListener("resize", onResize);
         v.addEventListener("loadeddata", onLoadedData);
         v.addEventListener("emptied", onEmptied);
+        v.addEventListener("loadstart", onLoadStart);
         v.onloadedmetadata = () => tryPlay();
 
         // Store removers on the element so we can cleanly remove in cleanup
         (v as any).__onResize = onResize;
         (v as any).__onLoadedData = onLoadedData;
         (v as any).__onEmptied = onEmptied;
+        (v as any).__onLoadStart = onLoadStart;
       }
 
       window.addEventListener(
@@ -162,6 +182,10 @@ export default function ViewerPage() {
       if (v && (v as any).__onEmptied) {
         v.removeEventListener("emptied", (v as any).__onEmptied);
         delete (v as any).__onEmptied;
+      }
+      if (v && (v as any).__onLoadStart) {
+        v.removeEventListener("loadstart", (v as any).__onLoadStart);
+        delete (v as any).__onLoadStart;
       }
       if (v && (v as any).__onFirstResize) {
         try { v.removeEventListener("resize", (v as any).__onFirstResize); } catch {}

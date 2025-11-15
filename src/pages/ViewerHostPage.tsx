@@ -90,6 +90,8 @@ export function ViewerHostPage() {
     const video = videoRef.current;
     if (!video) return;
 
+    let lastStreamId: string | null = null;
+
     const handleLoadedData = () => {
       setHasVideoFrames(true);
     };
@@ -101,16 +103,34 @@ export function ViewerHostPage() {
     };
 
     const handleEmptied = () => {
-      // Video source was removed/changed, reset frames state
-      setHasVideoFrames(false);
+      // Only reset if srcObject is actually null (stream removed)
+      // Don't reset if stream is just being replaced with another stream
+      if (!video.srcObject) {
+        setHasVideoFrames(false);
+        lastStreamId = null;
+      }
+    };
+
+    const handleLoadStart = () => {
+      // Track the stream ID to detect actual changes
+      const currentStream = video.srcObject as MediaStream | null;
+      const currentId = currentStream?.id;
+
+      // Only reset if this is a genuinely different stream
+      if (currentId && currentId !== lastStreamId) {
+        setHasVideoFrames(false);
+        lastStreamId = currentId;
+      }
     };
 
     video.addEventListener('emptied', handleEmptied);
+    video.addEventListener('loadstart', handleLoadStart);
     video.addEventListener('loadeddata', handleLoadedData);
     video.addEventListener('resize', handleResize);
 
     return () => {
       video.removeEventListener('emptied', handleEmptied);
+      video.removeEventListener('loadstart', handleLoadStart);
       video.removeEventListener('loadeddata', handleLoadedData);
       video.removeEventListener('resize', handleResize);
     };
