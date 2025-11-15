@@ -229,9 +229,8 @@ export function ViewerHostPage() {
                       />
                     )}
                     <span>
-                      {status === "connecting" && "Waiting for presenter…"}
-                      {status === "awaiting-stream" && "Requesting video stream…"}
-                      {status === "ready" && !hasVideoFrames && "Waiting for first frame…"}
+                      {(status === "connecting" || status === "awaiting-stream") && "Connecting..."}
+                      {status === "ready" && !hasVideoFrames && "Waiting for Stream to Begin..."}
                       {status === "ended" && "Stream ended by presenter"}
                       {status === "error" && (error ?? "Unable to connect")}
                       {status === "idle" && "Viewer ready"}

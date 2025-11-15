@@ -14,6 +14,7 @@ export default function ViewerPage() {
   const [needsTap, setNeedsTap] = useState(false);
   const [connecting, setConnecting] = useState(true);
   const [iceState, setIceState] = useState<string>("new");
+  const [hasVideoFrames, setHasVideoFrames] = useState(false);
 
   const tryPlay = () => {
     const v = videoRef.current;
@@ -103,14 +104,20 @@ export default function ViewerPage() {
           console.log("[VIEWER] video resize →", v.videoWidth, "x", v.videoHeight);
           if (v.videoWidth && v.videoHeight) {
             setConnecting(false);
+            setHasVideoFrames(true);
             if (v.paused) tryPlay();
           }
         };
+        const onLoadedData = () => {
+          setHasVideoFrames(true);
+        };
         v.addEventListener("resize", onResize);
+        v.addEventListener("loadeddata", onLoadedData);
         v.onloadedmetadata = () => tryPlay();
 
-        // Store remover on the element so we can cleanly remove in cleanup
+        // Store removers on the element so we can cleanly remove in cleanup
         (v as any).__onResize = onResize;
+        (v as any).__onLoadedData = onLoadedData;
       }
 
       window.addEventListener(
@@ -129,6 +136,10 @@ export default function ViewerPage() {
         v.removeEventListener("resize", (v as any).__onResize);
         delete (v as any).__onResize;
       }
+      if (v && (v as any).__onLoadedData) {
+        v.removeEventListener("loadeddata", (v as any).__onLoadedData);
+        delete (v as any).__onLoadedData;
+      }
       if (v && (v as any).__onFirstResize) {
         try { v.removeEventListener("resize", (v as any).__onFirstResize); } catch {}
         try { delete (v as any).__onFirstResize; } catch {}
@@ -145,7 +156,7 @@ export default function ViewerPage() {
     tryPlay();
   };
 
-  const showOverlay = connecting || needsTap;
+  const showOverlay = connecting || needsTap || !hasVideoFrames;
 
   return (
     <div style={styles.page}>
@@ -171,8 +182,10 @@ export default function ViewerPage() {
             {showOverlay && (
               <div style={styles.overlayCenter}>
                 <div style={styles.overlayChip}>
-                  {connecting && <span style={styles.spinner} />}
-                  <span>{needsTap ? "Tap to Play" : "Loading stream…"}</span>
+                  {(connecting || !hasVideoFrames) && <span style={styles.spinner} />}
+                  <span>
+                    {needsTap ? "Tap to Play" : connecting ? "Connecting..." : "Waiting for Stream to Begin..."}
+                  </span>
                 </div>
                 {needsTap && (
                   <button onClick={handleTapToPlay} style={styles.btn}>
