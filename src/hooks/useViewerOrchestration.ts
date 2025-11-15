@@ -57,6 +57,10 @@ export function useViewerOrchestration(options: ViewerOrchestrationOptions): Vie
   const playbackStreamRef = useRef<MediaStream | null>(null);
   const handshakeTimerRef = useRef<number | null>(null);
 
+  // Rate limiting to prevent infinite request loops
+  const lastRequestTimeRef = useRef<Record<string, number>>({});
+  const MIN_REQUEST_INTERVAL_MS = 2000; // Don't request same stream more than once per 2 seconds
+
   const appendDebug = useCallback((message: string) => {
     const timestamp = new Date().toISOString();
     debugLogRef.current = [...debugLogRef.current.slice(-49), `${timestamp} • ${message}`];
@@ -157,6 +161,18 @@ export function useViewerOrchestration(options: ViewerOrchestrationOptions): Vie
         appendDebug("cannot request stream without opener");
         return;
       }
+
+      // Rate limiting: prevent requesting same stream too frequently
+      const now = Date.now();
+      const lastRequestTime = lastRequestTimeRef.current[streamId] || 0;
+      const timeSinceLastRequest = now - lastRequestTime;
+
+      if (timeSinceLastRequest < MIN_REQUEST_INTERVAL_MS) {
+        appendDebug(`⏱️ rate limit: skipping request for ${streamId} (${timeSinceLastRequest}ms since last)`);
+        return;
+      }
+
+      lastRequestTimeRef.current[streamId] = now;
       appendDebug(`requesting stream ${streamId}`);
       postSessionMessage(window.opener, {
         type: "request-stream",
@@ -187,11 +203,20 @@ export function useViewerOrchestration(options: ViewerOrchestrationOptions): Vie
           if (payload.stream) {
             attachStream(payload.stream, payload.streamId ?? PRIMARY_STREAM_ID);
           } else {
+            appendDebug(`deliver-stream arrived with no stream property; trying opener`);
             const candidate = getStreamFromOpener(payload.streamId ?? PRIMARY_STREAM_ID);
             if (candidate) {
+              appendDebug(`✅ got stream from opener`);
               attachStream(candidate, payload.streamId ?? PRIMARY_STREAM_ID);
-            } else if (payload.streamId) {
-              requestStream(payload.streamId);
+            } else {
+              appendDebug(`❌ getStreamFromOpener returned null (possible cross-origin issue)`);
+              // Check if we should retry (rate limiting will prevent infinite loops)
+              if (payload.streamId) {
+                requestStream(payload.streamId);
+              } else {
+                setError("Stream delivery failed - check console for cross-origin errors");
+                updateStatus("error");
+              }
             }
           }
           break;
