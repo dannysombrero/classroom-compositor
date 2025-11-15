@@ -150,6 +150,19 @@ export const useSessionStore = create<State>((set, get) => ({
     }
   },
   registerStream(id, stream, metadata) {
+    // Clean up old stream if it exists and is different from new stream
+    const existingStream = streamObjects.get(id);
+    if (existingStream && existingStream !== stream) {
+      existingStream.getTracks().forEach((track) => {
+        try {
+          track.stop();
+          existingStream.removeTrack(track);
+        } catch (err) {
+          console.warn('Failed to clean up old stream track', err);
+        }
+      });
+    }
+
     streamObjects.set(id, stream);
     const now = Date.now();
     set((state) => ({
@@ -167,6 +180,19 @@ export const useSessionStore = create<State>((set, get) => ({
     }));
   },
   releaseStream(id) {
+    // Clean up the stream before removing it
+    const stream = streamObjects.get(id);
+    if (stream) {
+      stream.getTracks().forEach((track) => {
+        try {
+          track.stop();
+          stream.removeTrack(track);
+        } catch (err) {
+          console.warn('Failed to clean up stream track on release', err);
+        }
+      });
+    }
+
     streamObjects.delete(id);
     set((state) => {
       if (!state.streams[id]) return state;
