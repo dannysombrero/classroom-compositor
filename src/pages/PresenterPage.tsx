@@ -86,6 +86,7 @@ function PresenterPage() {
   const viewerWindowRef = useRef<Window | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const hostRef = useRef<{ stop: () => void } | null>(null);
+  const viewerCheckIntervalRef = useRef<number | null>(null);
 
   const [sessionId, setSessionId] = useState<string>("");
 
@@ -217,6 +218,16 @@ function PresenterPage() {
     return () => {
       if (controlStripTimerRef.current !== null) {
         window.clearTimeout(controlStripTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Cleanup viewer check interval on unmount
+  useEffect(() => {
+    return () => {
+      if (viewerCheckIntervalRef.current !== null) {
+        clearInterval(viewerCheckIntervalRef.current);
+        viewerCheckIntervalRef.current = null;
       }
     };
   }, []);
@@ -537,6 +548,13 @@ function PresenterPage() {
       showControlStrip();
       return;
     }
+
+    // Clear any existing interval from previous viewer instances
+    if (viewerCheckIntervalRef.current !== null) {
+      clearInterval(viewerCheckIntervalRef.current);
+      viewerCheckIntervalRef.current = null;
+    }
+
     // Calculate viewer window dimensions based on current scene size
     const currentScene = getCurrentScene();
     const windowDimensions = currentScene
@@ -554,9 +572,12 @@ function PresenterPage() {
     viewer.addEventListener("load", () => {
       if (canvasRef.current) startStreaming(canvasRef.current);
     });
+
+    // Store interval ref for cleanup
     const checkClosed = setInterval(() => {
       if (viewer.closed) {
         clearInterval(checkClosed);
+        viewerCheckIntervalRef.current = null;
         setIsViewerOpen(false);
         viewerWindowRef.current = null;
         // DON'T stop the stream if we're still live streaming to remote viewers!
@@ -571,6 +592,8 @@ function PresenterPage() {
         }
       }
     }, 500);
+    viewerCheckIntervalRef.current = checkClosed;
+
     setTimeout(() => {
       if (canvasRef.current && !viewer.closed) startStreaming(canvasRef.current);
     }, 100);

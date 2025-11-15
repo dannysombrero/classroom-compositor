@@ -158,12 +158,9 @@ export function sendStreamToViewer(
 
     const resolvedOrigin = resolveTargetOrigin(targetWindow);
 
-    console.log('Sending stream to viewer:', {
-      hasStream: !!stream,
-      videoTracks: stream.getVideoTracks().length,
-      targetOrigin: resolvedOrigin,
-    });
-    
+    // Debug logging removed to prevent heap accumulation during rapid open/close cycles
+    // (console.log objects were accumulating in memory during testing)
+
     // Store stream globally so viewer can access it later
     setCurrentStream(stream);
 
