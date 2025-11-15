@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2020",
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
-  "module": "ESNext",
+    "module": "ESNext",
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",
     "strict": true,
@@ -11,5 +11,5 @@
     "noEmit": true,
     "types": ["vite/client"]
   },
-  "exclude": ["node_modules", "dist", "functions", "src/server"]
+  "exclude": ["node_modules", "dist", "functions", "packages", "src/server"]
 }

@@ -1,277 +1,322 @@
-/**
- * ViewerHostPage component - displays the composited output in a separate viewer window.
- * 
- * Receives canvas.captureStream(30) via postMessage and renders it in a full-bleed video element.
- */
+import { useMemo, useRef } from "react";
 
-import { useEffect, useRef } from 'react';
+import {
+  useViewerOrchestration,
+  type ViewerConnectionStatus,
+} from "../hooks/useViewerOrchestration";
+import { Button } from "../components/ui/Button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "../components/ui/Card";
+import { Separator } from "../components/ui/Separator";
 
-/**
- * Viewer page component for the second window that displays the presentation output.
- * 
- * @returns Video element ready for stream input
- */
+const STATUS_LABELS: Record<ViewerConnectionStatus, { title: string; background: string; color: string }> = {
+  idle: { title: "Idle", background: "rgba(255, 255, 255, 0.08)", color: "var(--color-text-muted)" },
+  connecting: {
+    title: "Connecting",
+    background: "rgba(245, 158, 11, 0.18)",
+    color: "var(--color-secondary)",
+  },
+  "awaiting-stream": {
+    title: "Awaiting Stream",
+    background: "rgba(255, 255, 255, 0.08)",
+    color: "var(--color-text-muted)",
+  },
+  ready: {
+    title: "Live",
+    background: "rgba(16, 185, 129, 0.22)",
+    color: "var(--color-success)",
+  },
+  ended: {
+    title: "Stream Ended",
+    background: "rgba(255, 255, 255, 0.08)",
+    color: "var(--color-text-muted)",
+  },
+  error: {
+    title: "Error",
+    background: "rgba(239, 68, 68, 0.2)",
+    color: "var(--color-danger)",
+  },
+};
+
+const DEFAULT_STREAM_ID = "presenter:primary";
+
 export function ViewerHostPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const sourceStreamRef = useRef<MediaStream | null>(null);
-  const playbackStreamRef = useRef<MediaStream | null>(null);
-  const isSettingStreamRef = useRef<boolean>(false);
+  const {
+    status,
+    error,
+    debugLog,
+    lastStreamId,
+    announceReady,
+    requestStream,
+  } = useViewerOrchestration({ videoRef });
 
-  const stopPlaybackStream = () => {
-    const stream = playbackStreamRef.current;
-    if (!stream) return;
-    stream.getTracks().forEach((track) => track.stop());
-    playbackStreamRef.current = null;
+  const statusMeta = useMemo(() => STATUS_LABELS[status] ?? STATUS_LABELS.idle, [status]);
+
+  const handleRetry = () => {
+    announceReady();
+    requestStream(lastStreamId ?? DEFAULT_STREAM_ID);
   };
-
-  useEffect(() => {
-    console.log('Viewer: Setting up message listener');
-    
-    const video = videoRef.current;
-    if (video) {
-      // Set up video event listeners once
-      video.addEventListener('loadedmetadata', () => {
-        console.log('Viewer: Video metadata loaded', {
-          readyState: video.readyState,
-          videoWidth: video.videoWidth,
-          videoHeight: video.videoHeight,
-        });
-      });
-      
-      video.addEventListener('playing', () => {
-        console.log('Viewer: Video is now playing!', {
-          readyState: video.readyState,
-          currentTime: video.currentTime,
-          videoWidth: video.videoWidth,
-          videoHeight: video.videoHeight,
-        });
-      });
-      
-      video.addEventListener('play', () => {
-        console.log('Viewer: Video play event fired', {
-          readyState: video.readyState,
-          currentTime: video.currentTime,
-          videoWidth: video.videoWidth,
-          videoHeight: video.videoHeight,
-        });
-      });
-      
-      video.addEventListener('error', (e) => {
-        console.error('Viewer: Video error:', e, video.error);
-      });
-    }
-    
-    const handleMessage = (event: MessageEvent) => {
-      console.log('Viewer: Received message', event.data, 'from origin', event.origin);
-      
-      // Only accept messages from same origin
-      if (event.origin !== window.location.origin) {
-        console.warn('Viewer: Rejecting message from different origin:', event.origin);
-        return;
-      }
-
-      const video = videoRef.current;
-      if (!video) {
-        console.warn('Viewer: Video element not available');
-        return;
-      }
-
-      if (event.data?.type === 'stream') {
-        console.log('Viewer: Received stream message', event.data);
-        
-        let stream: MediaStream | null = null;
-        
-        // Try to get stream from the message (might work if browser allows reference sharing)
-        if (event.data.stream && event.data.stream instanceof MediaStream) {
-          stream = event.data.stream;
-          console.log('Viewer: Got stream directly from message');
-        }
-        
-        // If no stream in message and we don't already have one, request it from opener
-        if (!stream && !sourceStreamRef.current && window.opener && !isSettingStreamRef.current) {
-          console.log('Viewer: Requesting stream from opener');
-          window.opener.postMessage({ type: 'request-stream' }, window.location.origin);
-        }
-        
-        // Also try to get it from opener's global if available
-        if (!stream && window.opener) {
-          try {
-            // @ts-ignore - accessing function/property from opener's context
-            const openerWindow = window.opener as any;
-            
-            // Try direct property access first
-            if (openerWindow.currentStream) {
-              const retrievedStream = openerWindow.currentStream;
-              console.log('Viewer: Got stream from opener.currentStream:', {
-                isNull: retrievedStream === null,
-                hasGetVideoTracks: typeof retrievedStream?.getVideoTracks === 'function',
-                hasTracks: retrievedStream?.getVideoTracks?.()?.length || 0,
-                streamType: typeof retrievedStream,
-              });
-              // Check if it has MediaStream-like interface instead of instanceof
-              if (retrievedStream && typeof retrievedStream.getVideoTracks === 'function') {
-                stream = retrievedStream as MediaStream;
-                console.log('Viewer: Using stream from opener.currentStream');
-              }
-            }
-            
-            // Fallback to function
-            if (!stream && openerWindow.getCurrentStream && typeof openerWindow.getCurrentStream === 'function') {
-              const retrievedStream = openerWindow.getCurrentStream();
-              console.log('Viewer: Got stream from opener.getCurrentStream():', {
-                isNull: retrievedStream === null,
-                hasGetVideoTracks: typeof retrievedStream?.getVideoTracks === 'function',
-                hasTracks: retrievedStream?.getVideoTracks?.()?.length || 0,
-                streamType: typeof retrievedStream,
-              });
-              // Check if it has MediaStream-like interface instead of instanceof
-              if (retrievedStream && typeof retrievedStream.getVideoTracks === 'function') {
-                stream = retrievedStream as MediaStream;
-                console.log('Viewer: Using stream from opener.getCurrentStream()');
-              }
-            }
-          } catch (e) {
-            console.warn('Viewer: Could not access stream from opener:', e);
-          }
-        }
-        
-        // Check if stream is valid (has MediaStream interface)
-        if (stream && typeof stream.getVideoTracks === 'function') {
-          // Only set stream if it's different from current one
-          if (sourceStreamRef.current === stream && playbackStreamRef.current && video.srcObject === playbackStreamRef.current) {
-            console.log('Viewer: Stream already set, skipping');
-            return;
-          }
-
-          // Prevent concurrent sets
-          if (isSettingStreamRef.current) {
-            console.log('Viewer: Already setting stream, skipping');
-            return;
-          }
-
-          isSettingStreamRef.current = true;
-          sourceStreamRef.current = stream;
-          
-          const tracks = stream.getVideoTracks();
-          console.log('Viewer: Setting video srcObject, tracks:', tracks.length);
-          if (tracks.length > 0) {
-            console.log('Viewer: Video track details:', {
-              id: tracks[0].id,
-              kind: tracks[0].kind,
-              enabled: tracks[0].enabled,
-              readyState: tracks[0].readyState,
-              muted: tracks[0].muted,
-              settings: tracks[0].getSettings?.() ?? null,
-            });
-          }
-          
-          stopPlaybackStream();
-          const playbackStream = stream.clone();
-          const playbackTrack = playbackStream.getVideoTracks()[0];
-          if (playbackTrack) {
-            playbackTrack.addEventListener('ended', () => {
-              console.warn('Viewer: Cloned video track ended');
-            });
-          }
-          playbackStreamRef.current = playbackStream;
-          
-          video.srcObject = playbackStream;
-          video
-            .play()
-            .then(() => {
-              console.log('Viewer: Stream playing successfully');
-              isSettingStreamRef.current = false;
-            })
-            .catch((error) => {
-              // AbortError is expected if we're switching streams, ignore it
-              if (error.name !== 'AbortError') {
-                console.error('Viewer: Failed to play stream:', error);
-              } else {
-                console.log('Viewer: Play interrupted (stream switch), will retry');
-                // Retry after a brief delay
-                setTimeout(() => {
-                  if (video.srcObject === playbackStream) {
-                    video.play()
-                      .then(() => {
-                        console.log('Viewer: Stream playing successfully (after retry)');
-                      })
-                      .catch(e => {
-                        if (e.name !== 'AbortError') {
-                          console.error('Viewer: Retry play failed:', e);
-                        }
-                      });
-                  }
-                }, 100);
-              }
-              isSettingStreamRef.current = false;
-            });
-        } else {
-          console.warn('Viewer: No valid stream available. Stream:', stream);
-          // Only retry if we don't have a stream at all
-          if (!sourceStreamRef.current && window.opener && !isSettingStreamRef.current) {
-            setTimeout(() => {
-              if (!sourceStreamRef.current) {
-                window.opener!.postMessage({ type: 'request-stream' }, window.location.origin);
-              }
-            }, 1000);
-          }
-        }
-      } else if (event.data?.type === 'stream-ended') {
-        // Stream ended, show placeholder or message
-        stopPlaybackStream();
-        sourceStreamRef.current = null;
-        video.srcObject = null;
-        console.log('Viewer: Stream ended');
-      } else if (event.data?.type === 'viewer-ready') {
-        console.log('Viewer: Received viewer-ready message');
-      } else if (event.data?.type === 'handshake') {
-        // Respond to handshake - parent window will resend stream if needed
-        console.log('Viewer: Responding to handshake');
-        if (window.opener) {
-          window.opener.postMessage({ type: 'viewer-ready' }, window.location.origin);
-        }
-      }
-    };
-
-    window.addEventListener('message', handleMessage);
-
-    // Send handshake to parent window if opened via window.open
-    if (window.opener) {
-      console.log('Viewer: Sending initial handshake to opener');
-      window.opener.postMessage({ type: 'viewer-ready' }, window.location.origin);
-    } else {
-      console.warn('Viewer: No window.opener found');
-    }
-
-    return () => {
-      window.removeEventListener('message', handleMessage);
-      stopPlaybackStream();
-      sourceStreamRef.current = null;
-    };
-  }, []);
 
   return (
     <div
       style={{
-        width: '100vw',
-        height: '100vh',
-        margin: 0,
-        padding: 0,
-        overflow: 'hidden',
-        backgroundColor: '#000',
+        minHeight: "100vh",
+        background: "rgba(10, 12, 18, 0.95)",
+        color: "var(--color-text)",
+        padding: "2.5rem 1.5rem",
+        display: "flex",
+        justifyContent: "center",
       }}
     >
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted
+      <div
         style={{
-          width: '100%',
-          height: '100%',
-          objectFit: 'contain',
+          width: "100%",
+          maxWidth: 960,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
         }}
-      />
+      >
+        <Card
+          style={{
+            width: "100%",
+            background: "rgba(18, 21, 32, 0.9)",
+            border: "1px solid rgba(255, 255, 255, 0.08)",
+            backdropFilter: "blur(12px)",
+          }}
+        >
+          <CardHeader
+            style={{
+              borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
+              background: "rgba(0, 0, 0, 0.25)",
+              paddingBottom: "1.5rem",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                justifyContent: "space-between",
+                gap: "1rem",
+                alignItems: "flex-start",
+              }}
+            >
+              <div>
+                <CardTitle style={{ fontSize: "1.75rem" }}>Viewer Window</CardTitle>
+                <CardDescription style={{ fontSize: "1rem" }}>
+                  This window mirrors the presenter canvas in real time.
+                </CardDescription>
+              </div>
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  height: 32,
+                  padding: "0 1rem",
+                  borderRadius: 999,
+                  fontSize: "0.875rem",
+                  fontWeight: 600,
+                  background: statusMeta.background,
+                  color: statusMeta.color,
+                }}
+              >
+                {statusMeta.title}
+              </span>
+            </div>
+          </CardHeader>
+
+          <CardContent style={{ display: "grid", gap: "1.75rem" }}>
+            <div
+              style={{
+                position: "relative",
+                width: "100%",
+                aspectRatio: "16 / 9",
+                borderRadius: 12,
+                overflow: "hidden",
+                border: "1px solid rgba(255, 255, 255, 0.08)",
+                background: "#000",
+              }}
+            >
+              <video
+                ref={videoRef}
+                playsInline
+                autoPlay
+                muted
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "contain",
+                  display: "block",
+                  background: "#000",
+                }}
+              />
+              {status !== "ready" && (
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    display: "grid",
+                    placeItems: "center",
+                    background: "rgba(0, 0, 0, 0.7)",
+                  }}
+                >
+                  <div
+                    style={{
+                      borderRadius: 12,
+                      border: "1px solid rgba(255, 255, 255, 0.12)",
+                      background: "rgba(14, 16, 24, 0.9)",
+                      padding: "0.75rem 1.25rem",
+                      fontSize: "0.9rem",
+                      textAlign: "center",
+                      color: "var(--color-text-muted)",
+                      maxWidth: "80%",
+                    }}
+                  >
+                    {status === "connecting" && "Waiting for presenter…"}
+                    {status === "awaiting-stream" && "Requesting video stream"}
+                    {status === "ended" && "Stream ended by presenter"}
+                    {status === "error" && (error ?? "Unable to connect")}
+                    {status === "idle" && "Viewer ready"}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gap: "0.75rem",
+                padding: "1rem",
+                borderRadius: 12,
+                border: "1px solid rgba(255, 255, 255, 0.08)",
+                background: "rgba(255, 255, 255, 0.04)",
+                fontSize: "0.9rem",
+              }}
+            >
+              <div>
+                <p style={{ fontWeight: 600, margin: 0 }}>Connection details</p>
+                <p style={{ margin: "0.35rem 0 0", color: "var(--color-text-muted)" }}>
+                  Status updates are shown above. If the video freezes you can request a fresh stream.
+                </p>
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "0.5rem",
+                  alignItems: "center",
+                  color: "var(--color-text-muted)",
+                  fontSize: "0.75rem",
+                }}
+              >
+                <span
+                  style={{
+                    padding: "0.25rem 0.75rem",
+                    borderRadius: 999,
+                    background: "rgba(255, 255, 255, 0.08)",
+                  }}
+                >
+                  Stream ID: {lastStreamId ?? DEFAULT_STREAM_ID}
+                </span>
+                {error && (
+                  <span
+                    style={{
+                      padding: "0.25rem 0.75rem",
+                      borderRadius: 999,
+                      background: "rgba(239, 68, 68, 0.2)",
+                      color: "var(--color-danger)",
+                    }}
+                  >
+                    {error}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: "0.75rem",
+                }}
+              >
+                <h3
+                  style={{
+                    fontSize: "0.85rem",
+                    letterSpacing: "0.12em",
+                    textTransform: "uppercase",
+                    color: "var(--color-text-muted)",
+                    margin: 0,
+                  }}
+                >
+                  Diagnostics
+                </h3>
+                <Button variant="ghost" size="sm" onClick={handleRetry}>
+                  Reconnect
+                </Button>
+              </div>
+              <Separator />
+              <div
+                style={{
+                  maxHeight: 200,
+                  overflowY: "auto",
+                  borderRadius: 10,
+                  border: "1px solid rgba(255, 255, 255, 0.08)",
+                  background: "rgba(16, 18, 26, 0.9)",
+                  padding: "0.75rem",
+                  fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+                  fontSize: "0.75rem",
+                  lineHeight: 1.5,
+                  color: "var(--color-text-muted)",
+                }}
+              >
+                {debugLog.length > 0 ? (
+                  debugLog.map((line, index) => <div key={`${index}-${line}`}>{line}</div>)
+                ) : (
+                  <div>Waiting for events…</div>
+                )}
+              </div>
+            </div>
+          </CardContent>
+
+          <CardFooter
+            style={{
+              borderTop: "1px solid rgba(255, 255, 255, 0.08)",
+              paddingTop: "1.5rem",
+              marginTop: "1rem",
+              fontSize: "0.9rem",
+              color: "var(--color-text-muted)",
+            }}
+          >
+            <div style={{ flex: "1 1 300px" }}>
+              Having trouble? Make sure the presenter window stays in the foreground while starting the stream.
+            </div>
+            <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+              <Button variant="secondary" size="sm" onClick={announceReady}>
+                Signal Ready
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => requestStream(lastStreamId ?? DEFAULT_STREAM_ID)}
+              >
+                Request Stream
+              </Button>
+            </div>
+          </CardFooter>
+        </Card>
+      </div>
     </div>
   );
 }

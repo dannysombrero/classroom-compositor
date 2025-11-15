@@ -15,13 +15,33 @@ export type SessionInfo = {
   createdAt?: number | null; // optional because we write serverTimestamp()
 };
 
+export type SessionStreamEntry = {
+  id: string;
+  label?: string;
+  createdAt: number;
+  updatedAt: number;
+  status: "available" | "in-use" | "ended";
+  viewerIds: string[];
+};
+
 type State = {
   session: SessionInfo | null;
   joinCode: string | null;
   isJoinCodeActive: boolean;
   goLive: (hostId: string) => Promise<void>;
   endLive: () => Promise<void>;
+  streams: Record<string, SessionStreamEntry>;
+  registerStream: (
+    id: string,
+    stream: MediaStream,
+    metadata?: Partial<Omit<SessionStreamEntry, "id">>,
+  ) => void;
+  releaseStream: (id: string) => void;
+  markStreamInUse: (id: string, viewerId: string) => void;
+  getStream: (id: string) => MediaStream | null;
 };
+
+const streamObjects = new Map<string, MediaStream>();
 
 // --- Helpers ---
 
@@ -68,6 +88,7 @@ export const useSessionStore = create<State>((set, get) => ({
   session: null,
   joinCode: null,
   isJoinCodeActive: false,
+  streams: {},
 
   async goLive(hostId: string) {
     try {
@@ -128,4 +149,97 @@ export const useSessionStore = create<State>((set, get) => ({
       set({ session: null, joinCode: null, isJoinCodeActive: false });
     }
   },
+  registerStream(id, stream, metadata) {
+    streamObjects.set(id, stream);
+    const now = Date.now();
+    set((state) => ({
+      streams: {
+        ...state.streams,
+        [id]: {
+          id,
+          label: metadata?.label,
+          status: metadata?.status ?? "available",
+          viewerIds: metadata?.viewerIds ?? [],
+          createdAt: metadata?.createdAt ?? now,
+          updatedAt: now,
+        },
+      },
+    }));
+  },
+  releaseStream(id) {
+    streamObjects.delete(id);
+    set((state) => {
+      if (!state.streams[id]) return state;
+      return {
+        streams: {
+          ...state.streams,
+          [id]: {
+            ...state.streams[id],
+            status: "ended",
+            viewerIds: [],
+            updatedAt: Date.now(),
+          },
+        },
+      };
+    });
+  },
+  markStreamInUse(id, viewerId) {
+    set((state) => {
+      const entry = state.streams[id];
+      if (!entry) return state;
+      const viewerIds = entry.viewerIds.includes(viewerId)
+        ? entry.viewerIds
+        : [...entry.viewerIds, viewerId];
+      return {
+        streams: {
+          ...state.streams,
+          [id]: {
+            ...entry,
+            viewerIds,
+            status: "in-use",
+            updatedAt: Date.now(),
+          },
+        },
+      };
+    });
+  },
+  getStream(id) {
+    const stream = streamObjects.get(id) ?? null;
+    if (stream) {
+      set((state) => {
+        const entry = state.streams[id];
+        if (!entry) return state;
+        return {
+          streams: {
+            ...state.streams,
+            [id]: {
+              ...entry,
+              updatedAt: Date.now(),
+            },
+          },
+        };
+      });
+    }
+    return stream;
+  },
 }));
+
+export function registerSessionStream(
+  id: string,
+  stream: MediaStream,
+  metadata?: Partial<Omit<SessionStreamEntry, "id" | "createdAt" | "updatedAt">>,
+): void {
+  useSessionStore.getState().registerStream(id, stream, metadata);
+}
+
+export function releaseSessionStream(id: string): void {
+  useSessionStore.getState().releaseStream(id);
+}
+
+export function markSessionStreamInUse(id: string, viewerId: string): void {
+  useSessionStore.getState().markStreamInUse(id, viewerId);
+}
+
+export function getRegisteredStream(id: string): MediaStream | null {
+  return useSessionStore.getState().getStream(id);
+}

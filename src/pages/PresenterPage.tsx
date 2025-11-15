@@ -20,6 +20,7 @@ import {
   requestCurrentStreamFrame,
   type ViewerMessage,
 } from "../utils/viewerStream";
+import { addSessionMessageListener } from "../utils/sessionMessaging";
 import { useAppStore } from "../app/store";
 import { loadMostRecentScene } from "../app/persistence";
 import { createId } from "../utils/id";
@@ -525,17 +526,21 @@ function PresenterPage() {
 
   const openViewer = () => {
     if (viewerWindowRef.current && !viewerWindowRef.current.closed) {
-      viewerWindowRef.current.focus();
-      ensureCanvasStream();
-      showControlStrip();
-      return;
+      try {
+        viewerWindowRef.current.close();
+      } catch (error) {
+        console.warn("[openViewer] Failed to close existing viewer window", error);
+      }
+      viewerWindowRef.current = null;
+      setIsViewerOpen(false);
     }
     // Calculate viewer window dimensions based on current scene size
     const currentScene = getCurrentScene();
     const windowDimensions = currentScene
       ? calculateViewerWindowDimensions({ width: currentScene.width, height: currentScene.height })
       : "width=1920,height=1080";
-    const viewer = window.open("/viewer", "classroom-compositor-viewer", windowDimensions);
+    const viewerName = `classroom-compositor-viewer-${Date.now()}`;
+    const viewer = window.open("/viewer", viewerName, windowDimensions);
     if (!viewer) {
       console.error("Failed to open viewer window (popup blocked?)");
       return;
@@ -573,9 +578,16 @@ function PresenterPage() {
   useEffect(() => {
     const handleMessage = (event: MessageEvent<ViewerMessage | { type: "request-stream" }>) => {
       if (event.origin !== window.location.origin) return;
+      const sourceWindow = event.source as Window | null;
+      if (sourceWindow && (viewerWindowRef.current === null || viewerWindowRef.current.closed)) {
+        viewerWindowRef.current = sourceWindow;
+        setIsViewerOpen(true);
+      }
       if (event.data?.type === "request-stream") {
         if (streamRef.current) {
-          sendStreamToViewer(viewerWindowRef.current!, streamRef.current);
+          if (viewerWindowRef.current) {
+            sendStreamToViewer(viewerWindowRef.current, streamRef.current);
+          }
         } else if (canvasRef.current) {
           startStreaming(canvasRef.current);
         }
@@ -589,6 +601,41 @@ function PresenterPage() {
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
+  }, [startStreaming]);
+
+  useEffect(() => {
+    const removeSessionListener = addSessionMessageListener((payload, event) => {
+      const sourceWindow = event.source as Window | null;
+      if (!sourceWindow || sourceWindow.closed) {
+        return;
+      }
+
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+
+      if (!viewerWindowRef.current || viewerWindowRef.current.closed) {
+        viewerWindowRef.current = sourceWindow;
+        setIsViewerOpen(true);
+      } else if (viewerWindowRef.current !== sourceWindow) {
+        viewerWindowRef.current = sourceWindow;
+      }
+
+      if (payload.type === "viewer-ready") {
+        if (streamRef.current && viewerWindowRef.current) {
+          sendStreamToViewer(viewerWindowRef.current, streamRef.current);
+        } else if (canvasRef.current) {
+          startStreaming(canvasRef.current);
+        }
+      } else if (payload.type === "request-stream") {
+        if (payload.streamId && streamRef.current && viewerWindowRef.current) {
+          sendStreamToViewer(viewerWindowRef.current, streamRef.current);
+        } else if (canvasRef.current) {
+          startStreaming(canvasRef.current);
+        }
+      }
+    });
+    return () => removeSessionListener();
   }, [startStreaming]);
 
   const ensureCanvasStream = useCallback((): MediaStream | null => {

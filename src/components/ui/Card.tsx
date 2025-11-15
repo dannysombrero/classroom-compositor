@@ -80,3 +80,22 @@ export function CardContent({ children, style, ...props }: HTMLAttributes<HTMLDi
     </div>
   );
 }
+
+export function CardFooter({ children, style, ...props }: HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      style={{
+        marginTop: '1.5rem',
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: '0.75rem',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        ...style,
+      }}
+      {...props}
+    >
+      {children}
+    </div>
+  );
+}
