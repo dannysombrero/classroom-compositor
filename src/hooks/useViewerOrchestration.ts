@@ -85,15 +85,10 @@ export function useViewerOrchestration(options: ViewerOrchestrationOptions): Vie
   const stopPlaybackStream = useCallback(() => {
     const current = playbackStreamRef.current;
     if (!current) return;
-    current.getTracks().forEach((track) => {
-      try {
-        track.stop();
-        // Explicitly remove track from stream to help GC
-        current.removeTrack(track);
-      } catch (err) {
-        console.warn("Failed to stop playback track", err);
-      }
-    });
+
+    // DON'T stop tracks - viewer doesn't own them!
+    // The presenter owns the canvas stream and is responsible for stopping tracks.
+    // Viewer should only clear its own references.
     playbackStreamRef.current = null;
     if (videoRef.current) {
       videoRef.current.srcObject = null;
