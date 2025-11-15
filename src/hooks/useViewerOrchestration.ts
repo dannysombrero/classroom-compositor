@@ -6,6 +6,7 @@ import {
   type SessionMessagePayload,
 } from "../utils/sessionMessaging";
 import { getStreamFromOpener } from "../utils/viewerStream";
+import { markSessionStreamInUse } from "../stores/sessionStore";
 
 function generateViewerId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -106,6 +107,15 @@ export function useViewerOrchestration(options: ViewerOrchestrationOptions): Vie
           console.error("Viewer failed to autoplay stream", err);
         }
       }
+
+      // Record this viewer's attachment in the stream registry
+      try {
+        markSessionStreamInUse(streamId, viewerIdRef.current);
+        appendDebug(`recorded attachment: viewer ${viewerIdRef.current} → stream ${streamId}`);
+      } catch (err) {
+        console.warn("Failed to mark stream in use", err);
+      }
+
       onStreamReceived?.(stream);
       updateStatus("ready");
     },

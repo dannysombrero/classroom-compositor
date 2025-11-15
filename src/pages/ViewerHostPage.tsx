@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useEffect, useState } from "react";
 
 import {
   useViewerOrchestration,
@@ -48,6 +48,15 @@ const DEFAULT_STREAM_ID = "presenter:primary";
 
 export function ViewerHostPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+
+  // Extract sessionId from URL query params (e.g., /viewer?sessionId=abc123)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("sessionId");
+    setSessionId(id);
+  }, []);
+
   const {
     status,
     error,
@@ -55,7 +64,7 @@ export function ViewerHostPage() {
     lastStreamId,
     announceReady,
     requestStream,
-  } = useViewerOrchestration({ videoRef });
+  } = useViewerOrchestration({ videoRef, sessionId });
 
   const statusMeta = useMemo(() => STATUS_LABELS[status] ?? STATUS_LABELS.idle, [status]);
 
