@@ -602,7 +602,7 @@ function PresenterPage() {
         }
       }
     }, 500);
-    viewerCheckIntervalRef.current = checkClosed;
+    viewerCheckIntervalRef.current = checkClosed as unknown as number;
 
     setTimeout(() => {
       if (canvasRef.current && !viewer.closed) startStreaming(canvasRef.current);
@@ -925,7 +925,15 @@ function PresenterPage() {
   // Cleanup
   useEffect(() => {
     return () => {
-      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+      if (streamRef.current) {
+        const streamToClean = streamRef.current;
+        streamToClean.getTracks().forEach((t) => {
+          t.stop();
+          streamToClean.removeTrack(t);
+        });
+        streamRef.current = null;
+        setCurrentStream(null);
+      }
       layerIdsRef.current.forEach((id) => stopSource(id));
       if (viewerWindowRef.current && !viewerWindowRef.current.closed) viewerWindowRef.current.close();
     };
