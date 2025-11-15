@@ -180,19 +180,7 @@ export const useSessionStore = create<State>((set, get) => ({
     }));
   },
   releaseStream(id) {
-    // Clean up the stream before removing it
-    const stream = streamObjects.get(id);
-    if (stream) {
-      stream.getTracks().forEach((track) => {
-        try {
-          track.stop();
-          stream.removeTrack(track);
-        } catch (err) {
-          console.warn('Failed to clean up stream track on release', err);
-        }
-      });
-    }
-
+    // Just remove from registry - caller is responsible for stopping tracks
     streamObjects.delete(id);
     set((state) => {
       if (!state.streams[id]) return state;

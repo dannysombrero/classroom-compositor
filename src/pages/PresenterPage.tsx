@@ -459,7 +459,11 @@ function PresenterPage() {
       }
       // Stream is dead, clean it up
       console.log("⚠️ [ensureStream] Existing stream is dead, cleaning up");
-      // Let setCurrentStream(null) handle stream cleanup via store
+      const deadStream = streamRef.current;
+      deadStream.getTracks().forEach((t) => {
+        t.stop();
+        deadStream.removeTrack(t);
+      });
       streamRef.current = null;
       setCurrentStream(null);
     }
@@ -585,7 +589,11 @@ function PresenterPage() {
         // Only stop if we're not hosting
         if (streamRef.current && !hostRef.current) {
           console.log("🛑 [openViewer] Stopping stream (not live)");
-          // Let setCurrentStream(null) handle cleanup via store
+          const streamToStop = streamRef.current;
+          streamToStop.getTracks().forEach((track) => {
+            track.stop();
+            streamToStop.removeTrack(track);
+          });
           streamRef.current = null;
           setCurrentStream(null);
         } else if (streamRef.current && hostRef.current) {
@@ -917,7 +925,11 @@ function PresenterPage() {
   useEffect(() => {
     return () => {
       if (streamRef.current) {
-        // Let setCurrentStream(null) handle stream cleanup via store
+        const streamToClean = streamRef.current;
+        streamToClean.getTracks().forEach((t) => {
+          t.stop();
+          streamToClean.removeTrack(t);
+        });
         streamRef.current = null;
         setCurrentStream(null);
       }
