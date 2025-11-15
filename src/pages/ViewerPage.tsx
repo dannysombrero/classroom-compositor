@@ -16,6 +16,13 @@ export default function ViewerPage() {
   const [iceState, setIceState] = useState<string>("new");
   const [hasVideoFrames, setHasVideoFrames] = useState(false);
 
+  // Reset hasVideoFrames when reconnecting
+  useEffect(() => {
+    if (connecting) {
+      setHasVideoFrames(false);
+    }
+  }, [connecting]);
+
   const tryPlay = () => {
     const v = videoRef.current;
     if (!v) return;
@@ -111,13 +118,18 @@ export default function ViewerPage() {
         const onLoadedData = () => {
           setHasVideoFrames(true);
         };
+        const onEmptied = () => {
+          setHasVideoFrames(false);
+        };
         v.addEventListener("resize", onResize);
         v.addEventListener("loadeddata", onLoadedData);
+        v.addEventListener("emptied", onEmptied);
         v.onloadedmetadata = () => tryPlay();
 
         // Store removers on the element so we can cleanly remove in cleanup
         (v as any).__onResize = onResize;
         (v as any).__onLoadedData = onLoadedData;
+        (v as any).__onEmptied = onEmptied;
       }
 
       window.addEventListener(
@@ -139,6 +151,10 @@ export default function ViewerPage() {
       if (v && (v as any).__onLoadedData) {
         v.removeEventListener("loadeddata", (v as any).__onLoadedData);
         delete (v as any).__onLoadedData;
+      }
+      if (v && (v as any).__onEmptied) {
+        v.removeEventListener("emptied", (v as any).__onEmptied);
+        delete (v as any).__onEmptied;
       }
       if (v && (v as any).__onFirstResize) {
         try { v.removeEventListener("resize", (v as any).__onFirstResize); } catch {}

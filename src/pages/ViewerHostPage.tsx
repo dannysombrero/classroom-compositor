@@ -67,6 +67,13 @@ export function ViewerHostPage() {
     requestStream,
   } = useViewerOrchestration({ videoRef, sessionId });
 
+  // Reset hasVideoFrames when status changes back to connecting/awaiting
+  useEffect(() => {
+    if (status === 'connecting' || status === 'awaiting-stream' || status === 'idle') {
+      setHasVideoFrames(false);
+    }
+  }, [status]);
+
   // Track when video actually has frames to display
   useEffect(() => {
     const video = videoRef.current;
@@ -82,10 +89,17 @@ export function ViewerHostPage() {
       }
     };
 
+    const handleEmptied = () => {
+      // Video source was removed/changed, reset frames state
+      setHasVideoFrames(false);
+    };
+
+    video.addEventListener('emptied', handleEmptied);
     video.addEventListener('loadeddata', handleLoadedData);
     video.addEventListener('resize', handleResize);
 
     return () => {
+      video.removeEventListener('emptied', handleEmptied);
       video.removeEventListener('loadeddata', handleLoadedData);
       video.removeEventListener('resize', handleResize);
     };
