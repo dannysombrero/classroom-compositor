@@ -283,7 +283,24 @@ export const PresenterCanvas = forwardRef<HTMLCanvasElement, PresenterCanvasProp
         emitLayoutChange(1, 1);
       }
 
+      // After resize clears the canvas, force immediate redraw
+      // Don't wait for RAF - canvas is black right now!
       markDirty();
+
+      // Force synchronous render to prevent black screen flash
+      const ctx = canvas.getContext('2d', { alpha: false });
+      if (ctx) {
+        const currentScene = useAppStore.getState().getCurrentScene();
+        if (currentScene) {
+          drawScene(currentScene, ctx, {
+            skipLayerIds: skipLayerIdsRef.current,
+            background: {
+              type: backgroundTypeRef.current,
+              value: backgroundValueRef.current,
+            },
+          });
+        }
+      }
     };
 
     // Initial size
