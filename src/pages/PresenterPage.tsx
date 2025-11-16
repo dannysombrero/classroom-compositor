@@ -474,15 +474,22 @@ function PresenterPage() {
 
         return streamRef.current;
       }
-      // Stream is dead, clean it up
+      // Stream is dead, clean it up aggressively
       console.log("⚠️ [ensureStream] Existing stream is dead, cleaning up", {
         hasTrack: !!track,
         readyState: track?.readyState
       });
       const deadStream = streamRef.current;
-      deadStream.getTracks().forEach((t) => {
-        t.stop();
-        deadStream.removeTrack(t);
+      const deadTracks = deadStream.getTracks();
+      deadTracks.forEach((t) => {
+        try {
+          t.stop();
+          deadStream.removeTrack(t);
+          // @ts-ignore - Disable track to help GC
+          t.enabled = false;
+        } catch (err) {
+          console.warn("Failed to cleanup dead track", err);
+        }
       });
       streamRef.current = null;
       setCurrentStream(null);
@@ -932,13 +939,27 @@ function PresenterPage() {
   useEffect(() => {
     return () => {
       if (streamRef.current) {
+        console.log("🧹 [cleanup] Aggressively cleaning up canvas stream");
         const streamToClean = streamRef.current;
-        streamToClean.getTracks().forEach((t) => {
-          t.stop();
-          streamToClean.removeTrack(t);
+
+        // Remove all tracks first
+        const tracks = streamToClean.getTracks();
+        console.log(`🧹 [cleanup] Stopping ${tracks.length} tracks`);
+        tracks.forEach((t) => {
+          try {
+            t.stop();
+            streamToClean.removeTrack(t);
+            // @ts-ignore - Force null any internal references
+            t.enabled = false;
+          } catch (err) {
+            console.warn("Failed to stop track", err);
+          }
         });
+
+        // Clear refs
         streamRef.current = null;
         setCurrentStream(null);
+        console.log("✅ [cleanup] Stream cleanup complete");
       }
       layerIdsRef.current.forEach((id) => stopSource(id));
       if (viewerWindowRef.current && !viewerWindowRef.current.closed) viewerWindowRef.current.close();
