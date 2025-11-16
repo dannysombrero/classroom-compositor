@@ -59,6 +59,7 @@ const EMPTY_LAYERS: Layer[] = [];
 const LAYERS_PANEL_WIDTH = 280;
 const LAYERS_PANEL_EXPANDED_HEIGHT = 760;
 const LAYERS_PANEL_COLLAPSED_HEIGHT = 64;
+type CanvasStreamConsumer = "viewer" | "presentation" | "host";
 
 function readFileAsDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -117,17 +118,7 @@ function PresenterPage() {
   const [cameraLayerForEffects, setCameraLayerForEffects] = useState<string | null>(null);
   const processedCameraTrack = useBackgroundEffectTrack(cameraTrackForEffects);
 
-  const isViewerOpenRef = useRef(isViewerOpen);
-  const isPresentationModeRef = useRef(isPresentationMode);
-  const isHostLiveRef = useRef(false);
-
-  useEffect(() => {
-    isViewerOpenRef.current = isViewerOpen;
-  }, [isViewerOpen]);
-
-  useEffect(() => {
-    isPresentationModeRef.current = isPresentationMode;
-  }, [isPresentationMode]);
+  const activeCanvasConsumersRef = useRef<Set<CanvasStreamConsumer>>(new Set());
 
   const sceneLayers: Layer[] = useAppStore((state) => {
     if (!state.currentSceneId) return EMPTY_LAYERS;
@@ -585,15 +576,28 @@ function PresenterPage() {
     setCurrentStream(null);
   }, []);
 
-  const releaseCanvasStreamIfIdle = useCallback(
-    (reason?: string) => {
-      if (isViewerOpenRef.current) return;
-      if (isPresentationModeRef.current) return;
-      if (isHostLiveRef.current) return;
-      stopCanvasStream(reason);
+  const addCanvasConsumer = useCallback((consumer: CanvasStreamConsumer) => {
+    const consumers = activeCanvasConsumersRef.current;
+    if (consumers.has(consumer)) return;
+    consumers.add(consumer);
+    console.log("👥 [canvasStream] consumer added:", consumer, "→", Array.from(consumers));
+  }, []);
+
+  const removeCanvasConsumer = useCallback(
+    (consumer: CanvasStreamConsumer, reason?: string) => {
+      const consumers = activeCanvasConsumersRef.current;
+      if (!consumers.has(consumer)) return;
+      consumers.delete(consumer);
+      console.log("👥 [canvasStream] consumer removed:", consumer, "→", Array.from(consumers));
+      if (consumers.size === 0) {
+        stopCanvasStream(reason);
+      } else {
+        console.log("♻️ [canvasStream] keeping stream for consumers:", Array.from(consumers));
+      }
     },
     [stopCanvasStream],
   );
+
 
   const startStreaming = useCallback((canvas: HTMLCanvasElement) => {
     // Get or create the stream (will reuse if already live!)
@@ -653,10 +657,27 @@ function PresenterPage() {
       console.error("Failed to open viewer window (popup blocked?)");
       return;
     }
+    const finalizeViewerCleanup = (reason: string) => {
+      if (!viewerWindowRef.current || viewerWindowRef.current !== viewer) return;
+      viewer.removeEventListener("beforeunload", handleViewerUnload);
+      setIsViewerOpen(false);
+      viewerWindowRef.current = null;
+      removeCanvasConsumer("viewer", reason);
+    };
+
+    const handleViewerUnload = () => {
+      finalizeViewerCleanup("viewer window unloaded");
+      if (viewerCheckIntervalRef.current !== null) {
+        clearInterval(viewerCheckIntervalRef.current);
+        viewerCheckIntervalRef.current = null;
+      }
+    };
+
     viewerWindowRef.current = viewer;
     setIsViewerOpen(true);
-    isViewerOpenRef.current = true;
+    addCanvasConsumer("viewer");
     showControlStrip();
+    viewer.addEventListener("beforeunload", handleViewerUnload, { once: true });
 
     viewer.addEventListener("load", () => {
       console.log("🪟 [openViewer] Viewer window loaded");
@@ -668,16 +689,8 @@ function PresenterPage() {
       if (viewer.closed) {
         clearInterval(checkClosed);
         viewerCheckIntervalRef.current = null;
-        setIsViewerOpen(false);
-        isViewerOpenRef.current = false;
-        viewerWindowRef.current = null;
-
-        // Keep the canvas stream alive for reuse!
-        // This prevents creating 10 new streams when opening viewer 10 times.
-        // The stream will be reused via ensureCanvasStreamExists() on next open.
-        // The stream is only kept alive if other consumers still need it.
         console.log("✅ [openViewer] Viewer closed");
-        releaseCanvasStreamIfIdle("viewer window closed");
+        finalizeViewerCleanup("viewer window closed");
       }
     }, 500);
     viewerCheckIntervalRef.current = checkClosed as unknown as number;
@@ -911,10 +924,12 @@ function PresenterPage() {
   }, [showControlStrip]);
 
   useEffect(() => {
-    if (!isPresentationMode) {
-      releaseCanvasStreamIfIdle("presentation mode inactive");
+    if (isPresentationMode) {
+      addCanvasConsumer("presentation");
+    } else {
+      removeCanvasConsumer("presentation", "presentation mode inactive");
     }
-  }, [isPresentationMode, releaseCanvasStreamIfIdle]);
+  }, [isPresentationMode, addCanvasConsumer, removeCanvasConsumer]);
 
   useEffect(() => {
     const hotkeys: KeyBindingMap = {
@@ -1006,17 +1021,18 @@ function PresenterPage() {
   // Cleanup
   useEffect(() => {
     return () => {
+      activeCanvasConsumersRef.current.clear();
       stopCanvasStream("component unmount");
       layerIdsRef.current.forEach((id) => stopSource(id));
       if (viewerWindowRef.current && !viewerWindowRef.current.closed) viewerWindowRef.current.close();
       const hostHandle = hostRef.current;
       if (hostHandle) {
         hostRef.current = null;
-        isHostLiveRef.current = false;
+        removeCanvasConsumer("host", "component unmount");
         hostHandle.stop().catch((err) => console.warn("Failed to stop host on unmount", err));
       }
     };
-  }, [stopCanvasStream]);
+  }, [stopCanvasStream, removeCanvasConsumer]);
 
   // === Go Live ===
   const HOST_ID = "host-123";
@@ -1083,7 +1099,7 @@ function PresenterPage() {
         sendAudio: false,        // optional: change to true if you want mic on at Go Live
         loadingText: "Waiting for presenter…",
       });
-      isHostLiveRef.current = true;
+      addCanvasConsumer("host");
       console.log("✅ [handleGoLive] WebRTC host started");
 
       // 5) Activate join code and reflect it in UI
@@ -1100,7 +1116,7 @@ function PresenterPage() {
     } finally {
       hostingRef.current = false;
     }
-  }, [goLive, ensureCanvasStreamExists]);
+  }, [goLive, ensureCanvasStreamExists, addCanvasConsumer]);
 
   return (
     <div
