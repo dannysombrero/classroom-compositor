@@ -40,13 +40,14 @@ const router = createBrowserRouter([
 const isStandaloneViewer = window.location.pathname === "/viewer";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    {isStandaloneViewer ? (
+  // Temporarily disable StrictMode to test if it's causing stream duplication
+  // <React.StrictMode>
+    isStandaloneViewer ? (
       <ErrorBoundary>
         <ViewerHostPage />
       </ErrorBoundary>
     ) : (
       <RouterProvider router={router} />
-    )}
-  </React.StrictMode>
+    )
+  // </React.StrictMode>
 );
