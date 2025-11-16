@@ -11,6 +11,7 @@ import { startHost, type HostHandle } from "../utils/webrtc";
 
 
 import { PresenterCanvas, type CanvasLayout } from "../components/PresenterCanvas";
+import { drawScene } from "../renderer/canvasRenderer";
 import {
   captureCanvasStream,
   sendStreamToViewer,
@@ -517,11 +518,28 @@ function PresenterPage() {
     streamRef.current = stream;
     setCurrentStream(stream);
 
-    // CRITICAL: Force canvas re-render to ensure stream has frames
-    // The canvas uses dirty rendering, so if nothing has changed recently,
-    // the stream will be empty (no frames). Request a frame to trigger a render.
-    requestCurrentStreamFrame();
-    console.log("✅ [ensureStream] Requested initial frame to populate stream");
+    // CRITICAL: Force immediate synchronous render to populate stream with frames
+    // The canvas uses dirty rendering, so the stream might be empty (0 frames).
+    // We need to force a render NOW before sending to viewer.
+    const ctx = canvas.getContext('2d', { alpha: false });
+    const currentScene = useAppStore.getState().getCurrentScene();
+    if (ctx && currentScene) {
+      try {
+        drawScene(currentScene, ctx);
+        console.log("✅ [ensureStream] Forced immediate canvas render");
+
+        // Now request frame capture from the freshly rendered canvas
+        const track = stream.getVideoTracks()[0];
+        if (track && typeof (track as any).requestFrame === 'function') {
+          (track as any).requestFrame();
+          console.log("✅ [ensureStream] Requested frame capture from stream");
+        }
+      } catch (error) {
+        console.warn("⚠️ [ensureStream] Failed to force canvas render:", error);
+      }
+    } else {
+      console.warn("⚠️ [ensureStream] Cannot force render - no context or scene");
+    }
 
     // Set up ended handler ONCE when stream is created
     const track = stream.getVideoTracks()[0];
