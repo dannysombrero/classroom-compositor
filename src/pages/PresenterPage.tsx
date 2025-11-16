@@ -548,7 +548,12 @@ function PresenterPage() {
   const startStreaming = useCallback((canvas: HTMLCanvasElement) => {
     // Get or create the stream (will reuse if already live!)
     const stream = ensureCanvasStreamExists();
-    if (!stream) return;
+    if (!stream) {
+      console.log("⚠️ [startStreaming] No stream available");
+      return;
+    }
+
+    console.log("📡 [startStreaming] Starting stream delivery");
 
     const track = stream.getVideoTracks()[0];
     if (track) {
@@ -603,6 +608,7 @@ function PresenterPage() {
     showControlStrip();
 
     viewer.addEventListener("load", () => {
+      console.log("🪟 [openViewer] Viewer window loaded");
       if (canvasRef.current) startStreaming(canvasRef.current);
     });
 
@@ -623,24 +629,25 @@ function PresenterPage() {
     }, 500);
     viewerCheckIntervalRef.current = checkClosed as unknown as number;
 
-    setTimeout(() => {
-      if (canvasRef.current && !viewer.closed) startStreaming(canvasRef.current);
-    }, 100);
+    // Removed redundant setTimeout - we already handle stream delivery on load event
+    // and in response to viewer-ready/request-stream messages
   };
 
-  // Messages from viewer
+  // Legacy message handler - keeping for backwards compatibility but logging to track usage
   useEffect(() => {
     const handleMessage = (event: MessageEvent<ViewerMessage | { type: "request-stream" }>) => {
       if (event.origin !== window.location.origin) return;
       if (event.data?.type === "request-stream") {
-        if (streamRef.current) {
-          sendStreamToViewer(viewerWindowRef.current!, streamRef.current);
+        console.log("📨 [legacy] Received request-stream");
+        if (streamRef.current && viewerWindowRef.current) {
+          sendStreamToViewer(viewerWindowRef.current, streamRef.current);
         } else if (canvasRef.current) {
           startStreaming(canvasRef.current);
         }
       } else if (event.data?.type === "viewer-ready") {
-        if (streamRef.current) {
-          // viewer will access opener.currentStream
+        console.log("📨 [legacy] Received viewer-ready");
+        if (streamRef.current && viewerWindowRef.current) {
+          sendStreamToViewer(viewerWindowRef.current, streamRef.current);
         } else if (canvasRef.current) {
           startStreaming(canvasRef.current);
         }
@@ -657,12 +664,14 @@ function PresenterPage() {
         return;
       }
       if (payload.type === "viewer-ready") {
+        console.log("📨 [session] Received viewer-ready");
         if (streamRef.current && viewerWindowRef.current) {
           sendStreamToViewer(viewerWindowRef.current, streamRef.current);
         } else if (canvasRef.current) {
           startStreaming(canvasRef.current);
         }
       } else if (payload.type === "request-stream") {
+        console.log("📨 [session] Received request-stream");
         if (payload.streamId && streamRef.current && viewerWindowRef.current) {
           sendStreamToViewer(viewerWindowRef.current, streamRef.current);
         } else if (canvasRef.current) {
