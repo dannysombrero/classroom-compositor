@@ -461,6 +461,17 @@ function PresenterPage() {
       const track = streamRef.current.getVideoTracks()[0];
       if (track && track.readyState === 'live') {
         console.log("✅ [ensureStream] Reusing existing live canvas stream");
+
+        // Request a frame to ensure viewer gets immediate content (not black screen)
+        if (typeof (track as any).requestFrame === 'function') {
+          try {
+            (track as any).requestFrame();
+            console.log("✅ [ensureStream] Requested frame on reused stream");
+          } catch (error) {
+            console.warn("⚠️ [ensureStream] Failed to request frame on reuse:", error);
+          }
+        }
+
         return streamRef.current;
       }
       // Stream is dead, clean it up
