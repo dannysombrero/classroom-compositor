@@ -699,30 +699,32 @@ function PresenterPage() {
     // and in response to viewer-ready/request-stream messages
   };
 
-  // Legacy message handler - keeping for backwards compatibility but logging to track usage
+  // Debug helper: Expose stream count checker globally
   useEffect(() => {
-    const handleMessage = (event: MessageEvent<ViewerMessage | { type: "request-stream" }>) => {
-      if (event.origin !== window.location.origin) return;
-      if (event.data?.type === "request-stream") {
-        console.log("📨 [legacy] Received request-stream");
-        if (streamRef.current && viewerWindowRef.current) {
-          sendStreamToViewer(viewerWindowRef.current, streamRef.current);
-        } else if (canvasRef.current) {
-          startStreaming(canvasRef.current);
-        }
-      } else if (event.data?.type === "viewer-ready") {
-        console.log("📨 [legacy] Received viewer-ready");
-        if (streamRef.current && viewerWindowRef.current) {
-          sendStreamToViewer(viewerWindowRef.current, streamRef.current);
-        } else if (canvasRef.current) {
-          startStreaming(canvasRef.current);
-        }
+    if (typeof window !== 'undefined') {
+      (window as any).__debugStreamCount = () => {
+        const registry = (window as any).__classroomCompositorStreams__;
+        const count = registry?.size ?? 0;
+        console.log('📊 Stream Registry:', {
+          totalStreams: count,
+          streamIds: registry ? Array.from(registry.keys()) : [],
+          currentStreamActive: !!streamRef.current,
+          viewerOpen: !!(viewerWindowRef.current && !viewerWindowRef.current.closed),
+        });
+        return count;
+      };
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        delete (window as any).__debugStreamCount;
       }
     };
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, [startStreaming]);
+  }, []);
 
+  // Session-based message handler for viewer communication
+  // Note: Legacy handler removed to prevent duplicate message handling.
+  // The viewer (useViewerOrchestration) sends BOTH session and legacy messages,
+  // but we only need to handle them once. The session handler is sufficient.
   useEffect(() => {
     const removeSessionListener = addSessionMessageListener((payload, event) => {
       const sourceWindow = event.source as (Window | null);
@@ -730,17 +732,21 @@ function PresenterPage() {
         return;
       }
       if (payload.type === "viewer-ready") {
-        console.log("📨 [session] Received viewer-ready");
+        console.log("📨 [session] Received viewer-ready (deduped handler)");
         if (streamRef.current && viewerWindowRef.current) {
+          console.log("📤 [session] Sending existing stream to viewer");
           sendStreamToViewer(viewerWindowRef.current, streamRef.current);
         } else if (canvasRef.current) {
+          console.log("🎬 [session] Starting new stream for viewer");
           startStreaming(canvasRef.current);
         }
       } else if (payload.type === "request-stream") {
-        console.log("📨 [session] Received request-stream");
+        console.log("📨 [session] Received request-stream (deduped handler)");
         if (payload.streamId && streamRef.current && viewerWindowRef.current) {
+          console.log("📤 [session] Re-sending stream to viewer");
           sendStreamToViewer(viewerWindowRef.current, streamRef.current);
         } else if (canvasRef.current) {
+          console.log("🎬 [session] Starting stream after request");
           startStreaming(canvasRef.current);
         }
       }
