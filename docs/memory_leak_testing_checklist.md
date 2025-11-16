@@ -1,10 +1,17 @@
-# Memory Leak Testing Checklist
+# Comprehensive Testing Checklist
+
+**Run ALL sections before committing any change.**
 
 ## When to Test
-- After implementing any new feature
-- After fixing any bug
-- Before merging to main
-- Weekly during active development
+- ✅ After implementing any new feature
+- ✅ After fixing any bug
+- ✅ Before merging to main
+- ✅ Before asking user to manually test
+- ✅ Weekly during active development
+
+---
+
+# PART 1: MEMORY LEAK TESTING
 
 ## Testing Procedure
 
@@ -242,3 +249,236 @@ useEffect(() => {
 - Close other tabs to reduce noise in heap snapshot
 - **Always force GC twice** before taking "after" snapshot
 - If leak found, take multiple snapshots to confirm it's real
+
+---
+
+# PART 2: FUNCTIONAL TESTING
+
+## Core Functionality Tests
+
+### Canvas Rendering
+- [ ] Canvas renders scene correctly on load
+- [ ] Canvas updates when layers added/removed
+- [ ] Canvas updates when layers moved/resized
+- [ ] Canvas maintains aspect ratio
+- [ ] **Resize window** - canvas stays visible (no black screen)
+- [ ] Background color/image renders correctly
+- [ ] All layer types render (text, camera, image, shape)
+
+### Viewer Window
+- [ ] Viewer opens via "Open Viewer" button
+- [ ] **Stream starts immediately** without moving objects
+- [ ] Stream shows live canvas updates
+- [ ] Closing viewer doesn't crash app
+- [ ] Reopening viewer works correctly
+- [ ] Multiple open/close cycles work (test 10x)
+
+### Preview Window
+- [ ] Preview opens via "Show Preview" button
+- [ ] Preview shows current scene
+- [ ] Preview updates in real-time
+- [ ] Closing preview doesn't crash app
+- [ ] Preview doesn't create memory leaks (see Part 1)
+
+### Camera Layers
+- [ ] Can add camera layer
+- [ ] Camera shows live video feed
+- [ ] Can enable/disable camera
+- [ ] Can remove camera layer
+- [ ] Camera cleanup doesn't leak (see Part 1)
+
+### Background Effects
+- [ ] Blur effect works
+- [ ] Background removal works (if implemented)
+- [ ] Chroma key works (if implemented)
+- [ ] Toggling effects on/off works
+- [ ] Effects don't leak memory (see Part 1)
+
+### Scene Management
+- [ ] Can create new scene
+- [ ] Can switch between scenes
+- [ ] Can delete scene
+- [ ] Scene state persists after refresh
+- [ ] Layers save correctly
+
+---
+
+# PART 3: PERFORMANCE TESTING
+
+## Frame Rate Tests
+
+### Canvas Rendering
+- [ ] Empty scene: 60 FPS (check DevTools Performance)
+- [ ] 5 layers: ≥30 FPS
+- [ ] 10 layers: ≥30 FPS
+- [ ] With live camera: ≥30 FPS
+- [ ] With blur effect: ≥24 FPS
+
+### Stream Performance
+- [ ] Viewer receives stream at ≥30 FPS
+- [ ] No stuttering during playback
+- [ ] No frame drops when editing scene
+- [ ] Stream quality acceptable
+
+## Resource Usage
+- [ ] CPU usage <50% during idle
+- [ ] CPU usage <80% during streaming
+- [ ] Memory growth <10MB per minute
+- [ ] No memory growth when idle
+
+---
+
+# PART 4: ERROR HANDLING
+
+## Edge Cases
+
+### Network Issues
+- [ ] App handles offline state gracefully
+- [ ] Reconnects when network restored
+- [ ] Shows appropriate error messages
+
+### Browser Compatibility
+- [ ] Works in Chrome (primary)
+- [ ] Works in Edge (Chromium)
+- [ ] Shows compatibility warning in Firefox/Safari if needed
+
+### User Errors
+- [ ] Can't add camera without permission - shows error
+- [ ] Can't start stream without canvas - shows error
+- [ ] Handles window close during stream
+- [ ] Handles page refresh during stream
+
+### Resource Limits
+- [ ] Handles very large scenes (50+ layers)
+- [ ] Handles high-resolution canvases (4K)
+- [ ] Degrades gracefully when resources limited
+
+---
+
+# PART 5: REGRESSION TESTING
+
+**After ANY change, verify these don't break:**
+
+### Critical Paths
+- [ ] Preview button → 0 memory leaks ✅
+- [ ] Viewer open/close → ≤1 stream leak
+- [ ] Camera add/remove → 0 leaks
+- [ ] Resize window → no black screen ✅
+- [ ] Stream auto-starts ✅
+
+### Known Fixed Bugs
+- [ ] Preview creates 0 streams (was 4)
+- [ ] Resize shows no black screen (was black)
+- [ ] Stream starts immediately (was delayed)
+- [ ] Viewer cleanup doesn't stop presenter's tracks
+
+---
+
+# PART 6: CONSOLE ERROR CHECK
+
+**Before committing, check browser console:**
+
+- [ ] No errors in console during normal use
+- [ ] No warnings (or document known warnings)
+- [ ] No failed network requests
+- [ ] No React errors/warnings
+
+**Common acceptable warnings:**
+- Vite dynamic import warnings (known)
+- Firebase emulator connection (when emulator off)
+
+---
+
+# PART 7: BUILD & TEST SUITE
+
+## Automated Tests
+```bash
+# Run before every commit
+npm test
+
+# Expected: All tests pass
+# Current: 35/35 tests passing
+```
+
+- [ ] All unit tests pass
+- [ ] All integration tests pass
+- [ ] No new test failures
+- [ ] Code coverage doesn't decrease
+
+## Build Check
+```bash
+# Must succeed before commit
+npm run build
+```
+
+- [ ] Build succeeds with no errors
+- [ ] No TypeScript errors
+- [ ] Bundle size reasonable (<1MB)
+
+---
+
+# PART 8: AUTOMATED PRE-COMMIT CHECKLIST
+
+**Copy this for every commit:**
+
+```markdown
+## Pre-Commit Checklist
+
+### Memory Leaks
+- [ ] Ran heap snapshot test (see Part 1)
+- [ ] MediaStream: 0 leaks
+- [ ] MediaStreamTrack: 0 leaks
+- [ ] RTCPeerConnection: 0 leaks
+- [ ] No detached DOM elements
+
+### Functional
+- [ ] Feature works as expected
+- [ ] No console errors
+- [ ] Resize works (no black screen)
+- [ ] Stream auto-starts
+- [ ] Preview/Viewer open/close works
+
+### Performance
+- [ ] FPS ≥30 during streaming
+- [ ] CPU usage acceptable
+- [ ] No memory growth over time
+
+### Tests
+- [ ] npm test passes (35/35)
+- [ ] npm run build succeeds
+- [ ] No new TypeScript errors
+
+### Regression
+- [ ] Existing features still work
+- [ ] Fixed bugs stay fixed
+- [ ] No new bugs introduced
+
+**Status: READY / NEEDS WORK**
+```
+
+---
+
+# Quick Reference Commands
+
+```bash
+# Development
+npm run dev
+
+# Run tests
+npm test
+
+# Build
+npm run build
+
+# Check TypeScript
+npx tsc --noEmit
+
+# Force GC in console (if enabled)
+if (window.gc) window.gc();
+
+# Check video elements
+document.querySelectorAll('video').length
+
+# Check canvas count
+document.querySelectorAll('canvas').length
+```
