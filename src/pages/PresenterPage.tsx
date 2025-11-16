@@ -681,7 +681,9 @@ function PresenterPage() {
 
     viewer.addEventListener("load", () => {
       console.log("🪟 [openViewer] Viewer window loaded");
-      if (canvasRef.current) startStreaming(canvasRef.current);
+      // NOTE: Don't call startStreaming here - the viewer will send viewer-ready
+      // message immediately after load, and the session handler will respond.
+      // Calling startStreaming here causes redundant stream delivery.
     });
 
     // Store interval ref for cleanup
