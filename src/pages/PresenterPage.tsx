@@ -735,21 +735,21 @@ function PresenterPage() {
       }
       if (payload.type === "viewer-ready") {
         console.log("📨 [session] Received viewer-ready (deduped handler)");
-        if (streamRef.current && viewerWindowRef.current) {
-          console.log("📤 [session] Sending existing stream to viewer");
-          sendStreamToViewer(viewerWindowRef.current, streamRef.current);
-        } else if (canvasRef.current) {
-          console.log("🎬 [session] Starting new stream for viewer");
-          startStreaming(canvasRef.current);
-        }
+        // NOTE: Don't send stream here - let the viewer send request-stream first.
+        // This prevents double delivery (viewer-ready → send, then request-stream → send again).
+        // The viewer will send request-stream immediately after viewer-ready anyway.
+        console.log("✅ [session] Viewer acknowledged, waiting for stream request");
       } else if (payload.type === "request-stream") {
         console.log("📨 [session] Received request-stream (deduped handler)");
-        if (payload.streamId && streamRef.current && viewerWindowRef.current) {
-          console.log("📤 [session] Re-sending stream to viewer");
-          sendStreamToViewer(viewerWindowRef.current, streamRef.current);
-        } else if (canvasRef.current) {
-          console.log("🎬 [session] Starting stream after request");
-          startStreaming(canvasRef.current);
+        if (!canvasRef.current) {
+          console.warn("⚠️ [session] Cannot send stream - no canvas available");
+          return;
+        }
+        // Ensure stream exists (will reuse existing or create new)
+        const stream = ensureCanvasStreamExists();
+        if (stream && viewerWindowRef.current) {
+          console.log("📤 [session] Sending stream to viewer");
+          sendStreamToViewer(viewerWindowRef.current, stream);
         }
       }
     });
