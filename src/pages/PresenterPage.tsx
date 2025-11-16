@@ -451,6 +451,12 @@ function PresenterPage() {
    */
   const ensureCanvasStreamExists = useCallback((): MediaStream | null => {
     // Check if we already have a live stream - REUSE IT!
+    console.log("🔍 [ensureStream] Checking for existing stream...", {
+      hasRef: !!streamRef.current,
+      trackCount: streamRef.current?.getTracks().length ?? 0,
+      trackState: streamRef.current?.getVideoTracks()[0]?.readyState ?? 'none'
+    });
+
     if (streamRef.current) {
       const track = streamRef.current.getVideoTracks()[0];
       if (track && track.readyState === 'live') {
@@ -458,7 +464,10 @@ function PresenterPage() {
         return streamRef.current;
       }
       // Stream is dead, clean it up
-      console.log("⚠️ [ensureStream] Existing stream is dead, cleaning up");
+      console.log("⚠️ [ensureStream] Existing stream is dead, cleaning up", {
+        hasTrack: !!track,
+        readyState: track?.readyState
+      });
       const deadStream = streamRef.current;
       deadStream.getTracks().forEach((t) => {
         t.stop();
@@ -466,6 +475,8 @@ function PresenterPage() {
       });
       streamRef.current = null;
       setCurrentStream(null);
+    } else {
+      console.log("⚠️ [ensureStream] No existing stream ref");
     }
 
     // Need to create new stream
@@ -585,20 +596,11 @@ function PresenterPage() {
         setIsViewerOpen(false);
         viewerWindowRef.current = null;
 
-        // DON'T stop the stream if we're still live streaming to remote viewers!
-        // Only stop if we're not hosting
-        if (streamRef.current && !hostRef.current) {
-          console.log("🛑 [openViewer] Stopping stream (not live)");
-          const streamToStop = streamRef.current;
-          streamToStop.getTracks().forEach((track) => {
-            track.stop();
-            streamToStop.removeTrack(track);
-          });
-          streamRef.current = null;
-          setCurrentStream(null);
-        } else if (streamRef.current && hostRef.current) {
-          console.log("✅ [openViewer] Keeping stream alive (still live to remote viewers)");
-        }
+        // Keep the canvas stream alive for reuse!
+        // This prevents creating 10 new streams when opening viewer 10 times.
+        // The stream will be reused via ensureCanvasStreamExists() on next open.
+        // We only stop the stream on component unmount.
+        console.log("✅ [openViewer] Viewer closed, keeping canvas stream alive for reuse");
       }
     }, 500);
     viewerCheckIntervalRef.current = checkClosed as unknown as number;
