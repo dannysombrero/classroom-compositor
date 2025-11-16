@@ -4,6 +4,7 @@ import type {
   TextLayer,
   ImageLayer,
   ShapeLayer,
+  GroupLayer,
   Transform,
 } from '../types/scene';
 
@@ -133,5 +134,24 @@ export function createShapeLayer(
     strokeColor: 'rgba(255, 255, 255, 0.45)',
     strokeWidth: 4,
     scaleLocked: true,
+  };
+}
+
+export function createGroupLayer(
+  id: string,
+  sceneWidth: number,
+  sceneHeight: number,
+  children: string[] = []
+): GroupLayer {
+  return {
+    id,
+    type: 'group',
+    name: 'Group',
+    visible: true,
+    locked: false,
+    z: 0,
+    transform: createBaseTransform(sceneWidth / 2, sceneHeight / 2),
+    children,
+    childVisibility: {},
   };
 }

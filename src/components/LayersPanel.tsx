@@ -4,6 +4,8 @@ import { useAppStore } from '../app/store';
 import { stopSource } from '../media/sourceManager';
 import { requestCurrentStreamFrame } from '../utils/viewerStream';
 import { LayerPropertiesPanel } from './LayerPropertiesPanel';
+import { createGroupLayer } from '../layers/factory';
+import { createId } from '../utils/id';
 
 interface LayersPanelProps {
   layers: Layer[];
@@ -24,39 +26,173 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
   const reorderLayers = useAppStore((state) => state.reorderLayers);
   const setSelection = useAppStore((state) => state.setSelection);
   const selection = useAppStore((state) => state.selection);
+  const addLayer = useAppStore((state) => state.addLayer);
+  const getCurrentScene = useAppStore((state) => state.getCurrentScene);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [dragPosition, setDragPosition] = useState<'before' | 'after' | 'into' | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renamingValue, setRenamingValue] = useState<string>('');
 
   const selectedLayer = useMemo(() => {
     if (selection.length === 0) return null;
     return layers.find((layer) => layer.id === selection[0]) ?? null;
   }, [layers, selection]);
 
-  const orderedLayers = useMemo(() => {
-    // Highest z first for UI readability (top-most layer at top)
-    return [...layers].sort((a, b) => b.z - a.z);
-  }, [layers]);
+  // Build a hierarchical display list with top-level layers and their children (recursive for nested groups)
+  const displayList = useMemo(() => {
+    const topLevelLayers = [...layers]
+      .filter((layer) => !layer.parentId)
+      .sort((a, b) => b.z - a.z);
+
+    const result: Array<{ layer: Layer; depth: number }> = [];
+
+    const addLayerAndChildren = (layer: Layer, depth: number) => {
+      result.push({ layer, depth });
+
+      // If it's a group and expanded, add its children recursively
+      if (layer.type === 'group' && expandedGroups.has(layer.id)) {
+        const children = layers
+          .filter((child) => child.parentId === layer.id)
+          .sort((a, b) => b.z - a.z);
+
+        for (const child of children) {
+          addLayerAndChildren(child, depth + 1);
+        }
+      }
+    };
+
+    for (const layer of topLevelLayers) {
+      addLayerAndChildren(layer, 0);
+    }
+
+    return result;
+  }, [layers, expandedGroups]);
 
   const toggleVisibility = (layerId: string, visible: boolean) => {
+    const layer = layers.find((l) => l.id === layerId);
+    if (!layer) return;
+
+    // Toggle the layer itself
     updateLayer(
       layerId,
       { visible: !visible },
       { recordHistory: true, persist: true }
     );
+
+    // If it's a group, toggle all children
+    if (layer.type === 'group') {
+      const children = layers.filter((l) => l.parentId === layerId);
+      const newVisibility = !visible;
+
+      // If hiding, save current visibility state
+      if (!newVisibility) {
+        const childVisibility: Record<string, boolean> = {};
+        children.forEach((child) => {
+          childVisibility[child.id] = child.visible;
+        });
+        updateLayer(
+          layerId,
+          { childVisibility },
+          { recordHistory: false, persist: false }
+        );
+
+        // Hide all children
+        children.forEach((child) => {
+          updateLayer(
+            child.id,
+            { visible: false },
+            { recordHistory: false, persist: false }
+          );
+        });
+      } else {
+        // Showing: restore saved visibility or default to visible
+        const savedVisibility = layer.type === 'group' ? layer.childVisibility : {};
+        children.forEach((child) => {
+          const shouldBeVisible = savedVisibility?.[child.id] ?? true;
+          updateLayer(
+            child.id,
+            { visible: shouldBeVisible },
+            { recordHistory: false, persist: false }
+          );
+        });
+      }
+    }
   };
 
   const toggleLock = (layerId: string, locked: boolean) => {
+    const layer = layers.find((l) => l.id === layerId);
+    if (!layer) return;
+
+    // Toggle the layer itself
     updateLayer(
       layerId,
       { locked: !locked },
       { recordHistory: true, persist: true }
     );
+
+    // If it's a group, toggle all children
+    if (layer.type === 'group') {
+      const children = layers.filter((l) => l.parentId === layerId);
+      const newLocked = !locked;
+
+      children.forEach((child) => {
+        updateLayer(
+          child.id,
+          { locked: newLocked },
+          { recordHistory: false, persist: false }
+        );
+      });
+    }
+
     requestCurrentStreamFrame();
+  };
+
+  const toggleGroupExpanded = (groupId: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) {
+        next.delete(groupId);
+      } else {
+        next.add(groupId);
+      }
+      return next;
+    });
+  };
+
+  const startRename = (layerId: string, currentName: string) => {
+    setRenamingId(layerId);
+    setRenamingValue(currentName);
+  };
+
+  const saveRename = () => {
+    if (renamingId && renamingValue.trim()) {
+      updateLayer(
+        renamingId,
+        { name: renamingValue.trim() },
+        { recordHistory: true, persist: true }
+      );
+    }
+    setRenamingId(null);
+    setRenamingValue('');
+  };
+
+  const cancelRename = () => {
+    setRenamingId(null);
+    setRenamingValue('');
   };
 
   const isSelected = (layerId: string) => selection.includes(layerId);
 
-  const handleRowClick = (event: ReactMouseEvent<HTMLButtonElement>, layerId: string) => {
+  // Calculate nesting depth of a layer
+  const getNestingDepth = (layerId: string): number => {
+    const layer = layers.find((l) => l.id === layerId);
+    if (!layer || !layer.parentId) return 0;
+    return 1 + getNestingDepth(layer.parentId);
+  };
+
+  const handleRowClick = (event: ReactMouseEvent<HTMLElement>, layerId: string) => {
     const multi = event.shiftKey || event.metaKey || event.ctrlKey;
     if (multi) {
       if (isSelected(layerId)) {
@@ -70,11 +206,39 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
   };
 
   const handleReorder = (draggedId: string, targetId: string | null, placeBefore: boolean) => {
-    const currentOrder = orderedLayers.map((layer) => layer.id);
-    const draggedIndex = currentOrder.indexOf(draggedId);
-    if (draggedIndex === -1) return;
+    const draggedLayer = layers.find((l) => l.id === draggedId);
+    if (!draggedLayer) return;
 
-    currentOrder.splice(draggedIndex, 1);
+    // If dragged layer has a parent, we're moving it out of the group to top level
+    if (draggedLayer.parentId) {
+      // Remove from parent's children array
+      const parent = layers.find((l) => l.id === draggedLayer.parentId);
+      if (parent && parent.type === 'group') {
+        const newChildren = parent.children.filter((id) => id !== draggedId);
+        updateLayer(
+          parent.id,
+          { children: newChildren },
+          { recordHistory: false, persist: false }
+        );
+      }
+
+      // Clear parentId
+      updateLayer(
+        draggedId,
+        { parentId: null },
+        { recordHistory: false, persist: false }
+      );
+    }
+
+    // Get only top-level layers for reordering
+    const topLevelLayers = layers.filter((layer) => !layer.parentId).sort((a, b) => b.z - a.z);
+    const currentOrder = topLevelLayers.map((layer) => layer.id);
+
+    // If draggedId is not in currentOrder yet (was a child), add it
+    const draggedIndex = currentOrder.indexOf(draggedId);
+    if (draggedIndex !== -1) {
+      currentOrder.splice(draggedIndex, 1);
+    }
 
     let insertIndex: number;
     if (targetId && currentOrder.includes(targetId)) {
@@ -88,13 +252,13 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
 
     currentOrder.splice(insertIndex, 0, draggedId);
 
-    const ascendingOrder = [...currentOrder].reverse();
-    reorderLayers(ascendingOrder);
+    // currentOrder is already in the correct UI order (descending z)
+    reorderLayers(currentOrder);
     setSelection([draggedId]);
     requestCurrentStreamFrame();
   };
 
-  const handleDragStart = (event: DragEvent<HTMLButtonElement>, layerId: string) => {
+  const handleDragStart = (event: DragEvent<HTMLElement>, layerId: string) => {
     setDraggingId(layerId);
     setDragOverId(layerId);
     event.dataTransfer.effectAllowed = 'move';
@@ -105,41 +269,164 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
     }
   };
 
-  const handleDragOver = (event: DragEvent<HTMLButtonElement>, layerId: string) => {
+  const handleDragOver = (event: DragEvent<HTMLElement>, layerId: string) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
-    if (dragOverId !== layerId) {
+
+    const targetLayer = layers.find((l) => l.id === layerId);
+    if (!targetLayer) return;
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const mouseY = event.clientY;
+    const relativeY = mouseY - rect.top;
+    const height = rect.height;
+
+    // Determine position based on mouse location
+    let position: 'before' | 'after' | 'into';
+    if (targetLayer.type === 'group') {
+      // For groups: top third = before, middle = into, bottom third = after
+      if (relativeY < height * 0.33) {
+        position = 'before';
+      } else if (relativeY > height * 0.67) {
+        position = 'after';
+      } else {
+        position = 'into';
+      }
+    } else {
+      // For non-groups: top half = before, bottom half = after
+      position = relativeY < height / 2 ? 'before' : 'after';
+    }
+
+    if (dragOverId !== layerId || dragPosition !== position) {
       setDragOverId(layerId);
+      setDragPosition(position);
     }
   };
 
-  const handleDrop = (event: DragEvent<HTMLButtonElement>, targetId: string) => {
+  const handleDrop = (event: DragEvent<HTMLElement>, targetId: string) => {
     event.preventDefault();
     if (!draggingId || draggingId === targetId) {
       setDraggingId(null);
       setDragOverId(null);
+      setDragPosition(null);
       return;
     }
 
-    const rect = event.currentTarget.getBoundingClientRect();
-    const placeBefore = event.clientY < rect.top + rect.height / 2;
-    handleReorder(draggingId, targetId, placeBefore);
+    const draggedLayer = layers.find((l) => l.id === draggingId);
+    const targetLayer = layers.find((l) => l.id === targetId);
+
+    if (!draggedLayer || !targetLayer) {
+      setDraggingId(null);
+      setDragOverId(null);
+      setDragPosition(null);
+      return;
+    }
+
+    // If dropping "into" a group, add to group
+    if (dragPosition === 'into' && targetLayer.type === 'group' && draggedLayer.parentId !== targetId) {
+      // Check nesting depth limit (max 3 levels deep)
+      const targetDepth = getNestingDepth(targetId);
+      if (targetDepth >= 3) {
+        alert('You cannot have more than 3 nested groups in one group.');
+        setDraggingId(null);
+        setDragOverId(null);
+        setDragPosition(null);
+        return;
+      }
+
+      // Remove from old parent's children array if it had one
+      if (draggedLayer.parentId) {
+        const oldParent = layers.find((l) => l.id === draggedLayer.parentId);
+        if (oldParent && oldParent.type === 'group') {
+          const newChildren = oldParent.children.filter((id) => id !== draggingId);
+          updateLayer(
+            oldParent.id,
+            { children: newChildren },
+            { recordHistory: false, persist: false }
+          );
+        }
+      }
+
+      // Add to new parent
+      if (targetLayer.type === 'group') {
+        const newChildren = [...targetLayer.children, draggingId];
+        updateLayer(
+          targetId,
+          { children: newChildren },
+          { recordHistory: false, persist: false }
+        );
+      }
+
+      // Update dragged layer's parentId
+      updateLayer(
+        draggingId,
+        { parentId: targetId },
+        { recordHistory: true, persist: true }
+      );
+
+      // Expand the target group so user can see the result
+      setExpandedGroups((prev) => new Set(prev).add(targetId));
+
+      setSelection([draggingId]);
+      requestCurrentStreamFrame();
+    } else {
+      // Normal reorder behavior (before/after)
+      const placeBefore = dragPosition === 'before';
+      handleReorder(draggingId, targetId, placeBefore);
+    }
+
     setDraggingId(null);
     setDragOverId(null);
+    setDragPosition(null);
   };
 
   const handleDragEnd = () => {
     setDraggingId(null);
     setDragOverId(null);
+    setDragPosition(null);
   };
 
   const handleDeleteSelection = () => {
     if (selection.length === 0) return;
     selection.forEach((id) => {
+      const layer = layers.find((l) => l.id === id);
+
+      // If it's a group, ungroup the children first
+      if (layer && layer.type === 'group') {
+        const children = layers.filter((l) => l.parentId === id);
+        children.forEach((child) => {
+          updateLayer(child.id, { parentId: null }, { recordHistory: false, persist: false });
+        });
+      }
+
       stopSource(id);
       removeLayer(id);
     });
     setSelection([]);
+    requestCurrentStreamFrame();
+  };
+
+  const handleCreateGroup = () => {
+    const scene = getCurrentScene();
+    if (!scene) return;
+
+    const groupId = createId();
+    const childrenIds = selection.length > 0 ? [...selection] : [];
+    const group = createGroupLayer(groupId, scene.width, scene.height, childrenIds);
+
+    // Update selected layers to have this group as parent (if any)
+    childrenIds.forEach((layerId) => {
+      updateLayer(layerId, { parentId: groupId }, { recordHistory: false, persist: false });
+    });
+
+    // Add the group layer
+    addLayer(group);
+
+    // Select the new group and expand it if it has children
+    setSelection([groupId]);
+    if (childrenIds.length > 0) {
+      setExpandedGroups((prev) => new Set(prev).add(groupId));
+    }
     requestCurrentStreamFrame();
   };
 
@@ -150,7 +437,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
       <div style={panelShellStyle}>
         <section style={layersSectionStyle}>
           <div style={layersHeaderStyle}>
-            <div style={menuTriggerWrapperStyle}>
+            <div style={{ display: 'flex', gap: '6px' }}>
               <button
                 type="button"
                 onClick={() => setMenuOpen((open) => !open)}
@@ -172,6 +459,17 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                 aria-label="Delete selected layers"
               >
                 −
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <button
+                type="button"
+                onClick={handleCreateGroup}
+                style={iconButtonStyle}
+                aria-label={selection.length > 0 ? "Create group from selection" : "Create empty group"}
+                title={selection.length > 0 ? "Create group from selection" : "Create empty group"}
+              >
+                📁
               </button>
             </div>
             {menuOpen && (
@@ -231,7 +529,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
             )}
           </div>
           <div style={layersScrollStyle} className="invisible-scrollbar">
-          {orderedLayers.length === 0 ? (
+          {displayList.length === 0 ? (
             <div
               style={{
                 padding: '24px 16px',
@@ -243,7 +541,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
               No layers yet. Click + to add a source.
             </div>
           ) : (
-            orderedLayers.map((layer) => {
+            displayList.map(({ layer, depth }) => {
               const isDragTarget = dragOverId === layer.id && draggingId !== null;
               const isDragging = draggingId === layer.id;
               const background = isDragging
@@ -254,29 +552,75 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                 ? 'rgba(255, 255, 255, 0.08)'
                 : 'transparent';
 
+              const isGroup = layer.type === 'group';
+              const isExpanded = isGroup && expandedGroups.has(layer.id);
+              const indentPx = depth * 20;
+              const isDraggedOver = dragOverId === layer.id && draggingId !== null && draggingId !== layer.id;
+
               return (
-                <button
-                  key={layer.id}
-                  type="button"
-                  onClick={(event) => handleRowClick(event, layer.id)}
-                  draggable
-                  onDragStart={(event) => handleDragStart(event, layer.id)}
-                  onDragOver={(event) => handleDragOver(event, layer.id)}
-                  onDrop={(event) => handleDrop(event, layer.id)}
-                  onDragEnd={handleDragEnd}
-                  style={{
-                    width: '100%',
-                    border: 'none',
-                    background,
-                    color: '#f5f5f5',
-                    padding: '10px 12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    cursor: 'pointer',
-                    borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
-                  }}
-                >
+                <div key={layer.id} style={{ position: 'relative' }}>
+                  {/* Drop indicator line */}
+                  {isDraggedOver && dragPosition === 'before' && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: `${14 + indentPx}px`,
+                        right: '14px',
+                        height: '2px',
+                        background: 'rgba(0, 166, 255, 0.95)',
+                        zIndex: 10,
+                        pointerEvents: 'none',
+                      }}
+                    />
+                  )}
+                  {isDraggedOver && dragPosition === 'after' && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        bottom: 0,
+                        left: `${14 + indentPx}px`,
+                        right: '14px',
+                        height: '2px',
+                        background: 'rgba(0, 166, 255, 0.95)',
+                        zIndex: 10,
+                        pointerEvents: 'none',
+                      }}
+                    />
+                  )}
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={(event) => handleRowClick(event, layer.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        handleRowClick(event as any, layer.id);
+                      }
+                    }}
+                    draggable
+                    onDragStart={(event) => handleDragStart(event, layer.id)}
+                    onDragOver={(event) => handleDragOver(event, layer.id)}
+                    onDrop={(event) => handleDrop(event, layer.id)}
+                    onDragEnd={handleDragEnd}
+                    style={{
+                      width: '100%',
+                      border: 'none',
+                      background: isDraggedOver && dragPosition === 'into'
+                        ? 'rgba(0, 166, 255, 0.25)'
+                        : background,
+                      color: '#f5f5f5',
+                      padding: '10px 14px',
+                      paddingLeft: `${14 + indentPx}px`,
+                      paddingRight: '14px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      cursor: 'pointer',
+                      borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+                      position: 'relative',
+                    }}
+                  >
                   <div
                     style={{
                       display: 'flex',
@@ -284,6 +628,10 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                       alignItems: 'flex-start',
                       textAlign: 'left',
                       gap: '2px',
+                      flex: '1 1 auto',
+                      minWidth: 0,
+                      paddingRight: '60px', // Space for absolutely positioned icons
+                      overflow: 'hidden',
                     }}
                   >
                     <span
@@ -293,9 +641,82 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                         display: 'flex',
                         alignItems: 'center',
                         gap: '6px',
+                        width: '100%',
+                        minWidth: 0,
                       }}
                     >
-                      {layer.name}
+                      {isGroup && (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            toggleGroupExpanded(layer.id);
+                          }}
+                          style={{
+                            border: 'none',
+                            background: 'transparent',
+                            cursor: 'pointer',
+                            padding: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: 'rgba(255, 255, 255, 0.7)',
+                            fontSize: '12px',
+                            width: '16px',
+                            height: '16px',
+                          }}
+                          aria-label={isExpanded ? 'Collapse group' : 'Expand group'}
+                        >
+                          {isExpanded ? '▼' : '▶'}
+                        </button>
+                      )}
+                      {renamingId === layer.id ? (
+                        <input
+                          type="text"
+                          value={renamingValue}
+                          onChange={(e) => setRenamingValue(e.target.value)}
+                          onBlur={saveRename}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              saveRename();
+                            } else if (e.key === 'Escape') {
+                              cancelRename();
+                            }
+                            e.stopPropagation();
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          autoFocus
+                          style={{
+                            background: 'rgba(0, 0, 0, 0.4)',
+                            border: '1px solid rgba(0, 166, 255, 0.6)',
+                            color: '#f5f5f5',
+                            borderRadius: '3px',
+                            padding: '2px 6px',
+                            fontSize: '13px',
+                            fontWeight: 600,
+                            outline: 'none',
+                            minWidth: '100px',
+                          }}
+                        />
+                      ) : (
+                        <span
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            startRename(layer.id, layer.name);
+                          }}
+                          title={layer.name}
+                          style={{
+                            cursor: 'text',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            flex: 1,
+                            minWidth: 0,
+                          }}
+                        >
+                          {layer.name}
+                        </span>
+                      )}
                       {layer.locked && (
                         <span
                           style={{
@@ -326,9 +747,13 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                   </div>
                   <div
                     style={{
+                      position: 'absolute',
+                      right: '14px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '10px',
+                      gap: '6px',
                     }}
                   >
                     <button
@@ -346,13 +771,18 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                         alignItems: 'center',
                         justifyContent: 'center',
                         opacity: layer.locked ? 1 : 0.65,
+                        width: '24px',
+                        height: '24px',
+                        minWidth: '24px',
+                        minHeight: '24px',
+                        flexShrink: 0,
                       }}
                       aria-label={layer.locked ? 'Unlock layer' : 'Lock layer'}
                     >
                       <svg
                         xmlns="http://www.w3.org/2000/svg"
-                        width="18"
-                        height="18"
+                        width="20"
+                        height="20"
                         viewBox="0 0 24 24"
                         fill="none"
                         stroke="rgba(255, 255, 255, 0.85)"
@@ -389,13 +819,18 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
+                        width: '24px',
+                        height: '24px',
+                        minWidth: '24px',
+                        minHeight: '24px',
+                        flexShrink: 0,
                       }}
                       aria-label={layer.visible ? 'Hide layer' : 'Show layer'}
                     >
                       <svg
                         xmlns="http://www.w3.org/2000/svg"
-                        width="18"
-                        height="18"
+                        width="20"
+                        height="20"
                         viewBox="0 0 24 24"
                         fill="none"
                         stroke={layer.visible ? 'rgba(255, 230, 125, 0.95)' : 'rgba(255, 255, 255, 0.3)'}
@@ -420,7 +855,8 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                       </svg>
                     </button>
                   </div>
-                </button>
+                </div>
+                </div>
               );
             })
           )}
@@ -460,7 +896,7 @@ const layersSectionStyle: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   minHeight: 0,
-  borderBottom: '2px solid rgba(255, 255, 255, 0.12)', // Stronger visual separation
+  borderBottom: '2px solid rgba(255, 255, 255, 0.12)',
 };
 
 const layersHeaderStyle: CSSProperties = {

@@ -1,44 +1,86 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
+import { useAppStore } from '../app/store';
+import type { Scene } from '../types/scene';
+import { drawScene } from '../renderer/canvasRenderer';
 
 interface ConfidencePreviewProps {
-  stream: MediaStream | null;
   visible: boolean;
   onClose: () => void;
 }
 
-export function ConfidencePreview({ stream, visible, onClose }: ConfidencePreviewProps) {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+/**
+ * Confidence preview that renders the scene directly to a small canvas.
+ * No encoding/decoding - just direct canvas rendering like OBS does.
+ * Subscribes to store changes for immediate updates during user interaction.
+ */
+export function ConfidencePreview({ visible, onClose }: ConfidencePreviewProps) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const isRenderingRef = useRef(false);
 
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
+  // Subscribe to scene changes from the store for immediate updates
+  const scene = useAppStore((state) => state.getCurrentScene());
 
-    if (!visible || !stream) {
-      try {
-        video.pause();
-      } catch (error) {
-        console.warn('ConfidencePreview: failed to pause video', error);
-      }
-      video.srcObject = null;
+  const renderPreview = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !visible || !scene || isRenderingRef.current) {
       return;
     }
 
-    video.srcObject = stream;
+    isRenderingRef.current = true;
 
-    let cancelled = false;
+    try {
+      const ctx = canvas.getContext('2d', { alpha: false });
+      if (!ctx) return;
 
-    video
-      .play()
-      .catch((error) => {
-        if (!cancelled) {
-          console.warn('ConfidencePreview: failed to play stream', error);
-        }
-      });
+      // Direct render - no encoding/decoding!
+      drawScene(scene, ctx);
+    } finally {
+      isRenderingRef.current = false;
+    }
+  }, [scene, visible]);
+
+  // Set up canvas dimensions
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !visible || !scene) return;
+
+    // Set up preview canvas at low resolution (320x180)
+    const previewWidth = 320;
+    const previewHeight = 180;
+    const dpr = window.devicePixelRatio || 1;
+
+    canvas.width = previewWidth * dpr;
+    canvas.height = previewHeight * dpr;
+    canvas.style.width = `${previewWidth}px`;
+    canvas.style.height = `${previewHeight}px`;
+
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) return;
+
+    // Calculate scale to fit scene in preview
+    const scaleX = previewWidth / scene.width;
+    const scaleY = previewHeight / scene.height;
+
+    // Set transform for scaled rendering
+    ctx.setTransform(dpr * scaleX, 0, 0, dpr * scaleY, 0, 0);
+
+    // Initial render
+    renderPreview();
+  }, [scene, visible, renderPreview]);
+
+  // Subscribe to store updates for immediate rendering during interaction
+  useEffect(() => {
+    if (!visible) return;
+
+    // Subscribe to any store changes
+    const unsubscribe = useAppStore.subscribe(() => {
+      renderPreview();
+    });
 
     return () => {
-      cancelled = true;
+      unsubscribe();
     };
-  }, [stream, visible]);
+  }, [visible, renderPreview]);
 
   if (!visible) {
     return null;
@@ -65,37 +107,36 @@ export function ConfidencePreview({ stream, visible, onClose }: ConfidencePrevie
     >
       <div
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '8px 12px',
-          fontSize: '12px',
-          letterSpacing: '0.08em',
-          textTransform: 'uppercase',
-          color: 'rgba(255, 255, 255, 0.65)',
+          position: 'absolute',
+          top: '8px',
+          right: '8px',
+          zIndex: 1,
         }}
       >
-        Confidence Preview
         <button
           type="button"
           onClick={onClose}
           style={{
             border: 'none',
-            background: 'transparent',
-            color: 'rgba(255, 255, 255, 0.75)',
-            fontSize: '12px',
+            background: 'rgba(0, 0, 0, 0.5)',
+            color: 'rgba(255, 255, 255, 0.9)',
+            fontSize: '16px',
             cursor: 'pointer',
+            width: '28px',
+            height: '28px',
+            borderRadius: '6px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
           }}
         >
           ✕
         </button>
       </div>
       <div style={{ flex: 1, background: '#000', position: 'relative' }}>
-        {stream ? (
-          <video
-            ref={videoRef}
-            playsInline
-            muted
+        {scene ? (
+          <canvas
+            ref={canvasRef}
             style={{
               width: '100%',
               height: '100%',
@@ -114,7 +155,7 @@ export function ConfidencePreview({ stream, visible, onClose }: ConfidencePrevie
               fontSize: '13px',
             }}
           >
-            Waiting for stream…
+            Waiting for scene…
           </div>
         )}
       </div>

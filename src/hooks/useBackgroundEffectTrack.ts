@@ -7,14 +7,14 @@ function log(...args: any[]) {
 }
 
 /**
- * Background effects hook (diagnostic build)
- * - Logs clearly which path is taken
- * - Draws a magenta border on processed frames (easy visual confirmation)
+ * Background effects hook
+ * - Supports blur, background removal (ML), and chroma key (color-based)
  * - Keeps one output track; slider updates are live without replacing tracks
  * - Modes:
- *    - OFF / non-blur: passthrough raw
- *    - engine !== "mediapipe": full-frame blur (mock)
- *    - engine === "mediapipe": background-only blur (subject sharp)
+ *    - OFF: passthrough raw
+ *    - blur: background blur (mock = full frame, mediapipe = background only)
+ *    - removeBackground: ML segmentation with solid color background
+ *    - chromaKey: Traditional color-based green screen keying
  */
 export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
   const [processed, setProcessed] = useState<MediaStreamTrack | null>(null);
@@ -36,34 +36,71 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
   const currentTrackRef = useRef<MediaStreamTrack | null>(null);
 
   const segmenterRef = useRef<MediaPipeSegmenter | null>(null);
-  const backgroundImageRef = useRef<HTMLImageElement | null>(null);
 
-  const { enabled, mode, engine, blurRadius, background } = useVideoEffectsStore();
+  const {
+    enabled,
+    mode,
+    engine,
+    blurRadius,
+    backgroundColor,
+    chromaKeyColor,
+    chromaKeyTolerance,
+    edgeSoftness,
+  } = useVideoEffectsStore();
 
-  // Live slider value (don’t rebuild pipeline when it changes)
+  // Live slider values (don't rebuild pipeline when they change)
   const blurRef = useRef<number>(blurRadius);
+  const bgColorRef = useRef<string>(backgroundColor);
+  const chromaColorRef = useRef<string>(chromaKeyColor);
+  const chromaToleranceRef = useRef<number>(chromaKeyTolerance);
+  const edgeSoftnessRef = useRef<number>(edgeSoftness);
+
   useEffect(() => {
     blurRef.current = blurRadius;
-    log("blurRadius changed ->", blurRadius);
   }, [blurRadius]);
+
+  useEffect(() => {
+    bgColorRef.current = backgroundColor;
+  }, [backgroundColor]);
+
+  useEffect(() => {
+    chromaColorRef.current = chromaKeyColor;
+  }, [chromaKeyColor]);
+
+  useEffect(() => {
+    chromaToleranceRef.current = chromaKeyTolerance;
+  }, [chromaKeyTolerance]);
+
+  useEffect(() => {
+    edgeSoftnessRef.current = edgeSoftness;
+  }, [edgeSoftness]);
 
   const teardown = () => {
     if (loopRef.current != null) {
       cancelAnimationFrame(loopRef.current);
       loopRef.current = null;
     }
-    if (processed && processed !== rawTrack) {
-      try { processed.stop?.(); } catch {}
-    }
+    // Clean up output stream - stop and remove tracks for GC
+    // This is the stream WE created via outCanvas.captureStream()
     if (outStreamRef.current) {
-      outStreamRef.current.getTracks().forEach((t) => { try { t.stop(); } catch {} });
+      outStreamRef.current.getTracks().forEach((t) => {
+        try {
+          t.stop();
+          outStreamRef.current?.removeTrack(t);
+        } catch {}
+      });
       outStreamRef.current = null;
+    }
+    // Clean up source stream - DON'T stop tracks, we don't own them!
+    // The rawTrack belongs to the camera source manager, not this hook.
+    // Just clear the stream reference.
+    if (srcStreamRef.current) {
+      srcStreamRef.current = null;
     }
     if (videoRef.current) {
       try { (videoRef.current as HTMLVideoElement).srcObject = null; } catch {}
       videoRef.current = null;
     }
-    srcStreamRef.current = null;
 
     outCanvasRef.current = null;
     outCtxRef.current = null;
@@ -92,11 +129,11 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
 
     log("Hook init:", { enabled, mode, engine, rawId: rawTrack.id });
 
-    // Effects off or unsupported mode -> passthrough
-    if (!enabled || (mode !== "blur" && mode !== "replace")) {
+    // Effects off -> passthrough
+    if (!enabled || mode === "off") {
       setProcessed(rawTrack);
       currentTrackRef.current = rawTrack;
-      log("Mode OFF or unsupported -> passthrough", { trackId: rawTrack.id });
+      log("Mode OFF -> passthrough", { trackId: rawTrack.id });
       return;
     }
 
@@ -147,8 +184,8 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
       log("captureStream not available -> passthrough");
     }
 
-    // MediaPipe required for replace mode, or if explicitly selected for blur
-    const useMP = mode === "replace" || engine === "mediapipe";
+    // MediaPipe required for removeBackground mode, or if explicitly selected for blur
+    const useMP = mode === "removeBackground" || engine === "mediapipe";
     if (useMP) {
       log("Initializing MediaPipe segmenter…");
       const seg = new MediaPipeSegmenter();
@@ -163,24 +200,56 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
           segmenterRef.current = null;
         });
     } else {
-      log("Engine is mock -> full-frame effect path");
+      log("Engine is mock or mode is chromaKey -> no MediaPipe needed");
     }
 
-    // Load background image if provided for replace mode
-    if (mode === "replace" && background) {
-      log("Loading background image:", background);
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => {
-        log("Background image loaded successfully");
-        backgroundImageRef.current = img;
-      };
-      img.onerror = (e) => {
-        log("Background image failed to load:", e);
-        backgroundImageRef.current = null;
-      };
-      img.src = background;
-    }
+    // Helper: Parse hex color to RGB
+    const hexToRgb = (hex: string): [number, number, number] => {
+      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+      return result
+        ? [parseInt(result[1], 16), parseInt(result[2], 16), parseInt(result[3], 16)]
+        : [0, 255, 0]; // Default green
+    };
+
+    // Helper: Calculate color distance (Euclidean in RGB space)
+    const colorDistance = (r1: number, g1: number, b1: number, r2: number, g2: number, b2: number): number => {
+      return Math.sqrt((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2);
+    };
+
+    // Helper: Apply chroma key to create alpha mask
+    const applyChromaKey = (
+      imageData: ImageData,
+      keyColor: [number, number, number],
+      tolerance: number,
+      edgeSoftness: number
+    ): ImageData => {
+      const data = imageData.data;
+      const maxDistance = Math.sqrt(255 ** 2 * 3); // Max possible distance in RGB
+      const toleranceDistance = (tolerance / 100) * maxDistance;
+      const softnessDistance = (edgeSoftness / 20) * maxDistance * 0.5; // Scale softness
+
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+
+        const distance = colorDistance(r, g, b, keyColor[0], keyColor[1], keyColor[2]);
+
+        if (distance <= toleranceDistance) {
+          // Fully transparent (key color)
+          if (softnessDistance > 0 && distance > toleranceDistance - softnessDistance) {
+            // Edge feathering - gradually fade alpha
+            const alpha = (distance - (toleranceDistance - softnessDistance)) / softnessDistance;
+            data[i + 3] = Math.round(alpha * 255);
+          } else {
+            data[i + 3] = 0;
+          }
+        }
+        // else keep original alpha
+      }
+
+      return imageData;
+    };
 
     const draw = () => {
       const v = videoRef.current;
@@ -210,8 +279,34 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
 
       const px = Math.max(0, Math.min(48, blurRef.current | 0));
 
-      if (mode === "replace") {
-        // BACKGROUND REPLACEMENT MODE
+      if (mode === "chromaKey") {
+        // CHROMA KEY MODE - Color-based keying
+        if (!fc || !fctx) {
+          // Fallback: show original video
+          octx.clearRect(0, 0, oc.width, oc.height);
+          octx.drawImage(v, 0, 0, oc.width, oc.height);
+        } else {
+          // Draw video to foreground canvas
+          fctx.clearRect(0, 0, fc.width, fc.height);
+          fctx.drawImage(v, 0, 0, fc.width, fc.height);
+
+          // Get image data and apply chroma key
+          const imageData = fctx.getImageData(0, 0, fc.width, fc.height);
+          const keyColor = hexToRgb(chromaColorRef.current);
+          const tolerance = chromaToleranceRef.current;
+          const softness = edgeSoftnessRef.current;
+
+          const maskedData = applyChromaKey(imageData, keyColor, tolerance, softness);
+          fctx.putImageData(maskedData, 0, 0);
+
+          // Draw solid background color, then composite keyed video on top
+          octx.clearRect(0, 0, oc.width, oc.height);
+          octx.fillStyle = bgColorRef.current;
+          octx.fillRect(0, 0, oc.width, oc.height);
+          octx.drawImage(fc, 0, 0, oc.width, oc.height);
+        }
+      } else if (mode === "removeBackground") {
+        // BACKGROUND REMOVAL MODE - ML-based segmentation
         const maskCanvas = segmenterRef.current?.getLatestMask() ?? null;
 
         if (!maskCanvas || !fc || !fctx) {
@@ -222,32 +317,9 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
           // Clear output canvas
           octx.clearRect(0, 0, oc.width, oc.height);
 
-          // Draw replacement background (image or solid color)
-          const bgImg = backgroundImageRef.current;
-          if (bgImg && bgImg.complete) {
-            // Draw background image (cover fit)
-            const imgAspect = bgImg.width / bgImg.height;
-            const canvasAspect = oc.width / oc.height;
-            let drawWidth, drawHeight, drawX, drawY;
-
-            if (imgAspect > canvasAspect) {
-              drawHeight = oc.height;
-              drawWidth = drawHeight * imgAspect;
-              drawX = (oc.width - drawWidth) / 2;
-              drawY = 0;
-            } else {
-              drawWidth = oc.width;
-              drawHeight = drawWidth / imgAspect;
-              drawX = 0;
-              drawY = (oc.height - drawHeight) / 2;
-            }
-
-            octx.drawImage(bgImg, drawX, drawY, drawWidth, drawHeight);
-          } else {
-            // Default: green screen effect (solid green background)
-            octx.fillStyle = "#00ff00";
-            octx.fillRect(0, 0, oc.width, oc.height);
-          }
+          // Draw solid background color
+          octx.fillStyle = bgColorRef.current;
+          octx.fillRect(0, 0, oc.width, oc.height);
 
           // Extract foreground (person) with mask
           fctx.clearRect(0, 0, fc.width, fc.height);
@@ -256,53 +328,63 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
           fctx.drawImage(maskCanvas, 0, 0, fc.width, fc.height);
           fctx.globalCompositeOperation = "source-over";
 
-          // Composite foreground over replacement background
+          // Apply edge softness if requested
+          const softness = edgeSoftnessRef.current;
+          if (softness > 0) {
+            fctx.filter = `blur(${softness}px)`;
+            const temp = fctx.getImageData(0, 0, fc.width, fc.height);
+            fctx.putImageData(temp, 0, 0);
+            fctx.filter = "none";
+          }
+
+          // Composite foreground over solid background
           octx.drawImage(fc, 0, 0, oc.width, oc.height);
         }
-      } else if (!useMP) {
-        // MOCK: full-frame blur directly to output
-        octx.filter = px ? `blur(${px}px)` : "none";
-        octx.drawImage(v, 0, 0, oc.width, oc.height);
-        octx.filter = "none";
-      } else {
-        // MEDIAPIPE: blur background, overlay sharp foreground masked by segmentation
-        if (!bc || !bctx || !fc || !fctx) {
-          // Fallback to full-frame blur if staging contexts missing
+      } else if (mode === "blur") {
+        // BLUR MODE
+        if (!useMP) {
+          // MOCK: full-frame blur directly to output
           octx.filter = px ? `blur(${px}px)` : "none";
           octx.drawImage(v, 0, 0, oc.width, oc.height);
           octx.filter = "none";
         } else {
-          // 1) blurred background
-          bctx.filter = px ? `blur(${px}px)` : "none";
-          bctx.drawImage(v, 0, 0, bc.width, bc.height);
-          bctx.filter = "none";
+          // MEDIAPIPE: blur background, overlay sharp foreground masked by segmentation
+          if (!bc || !bctx || !fc || !fctx) {
+            // Fallback to full-frame blur if staging contexts missing
+            octx.filter = px ? `blur(${px}px)` : "none";
+            octx.drawImage(v, 0, 0, oc.width, oc.height);
+            octx.filter = "none";
+          } else {
+            // 1) blurred background
+            bctx.filter = px ? `blur(${px}px)` : "none";
+            bctx.drawImage(v, 0, 0, bc.width, bc.height);
+            bctx.filter = "none";
 
-          // Start with blurred background
-          octx.clearRect(0, 0, oc.width, oc.height);
-          octx.drawImage(bc, 0, 0, oc.width, oc.height);
+            // Start with blurred background
+            octx.clearRect(0, 0, oc.width, oc.height);
+            octx.drawImage(bc, 0, 0, oc.width, oc.height);
 
-          // 2) sharp foreground masked by segmentation
-          const maskCanvas = segmenterRef.current?.getLatestMask() ?? null;
+            // 2) sharp foreground masked by segmentation
+            const maskCanvas = segmenterRef.current?.getLatestMask() ?? null;
 
-          if (maskCanvas) {
-            // Build sharp FG layer
-            fctx.clearRect(0, 0, fc.width, fc.height);
-            fctx.drawImage(v, 0, 0, fc.width, fc.height);
+            if (maskCanvas) {
+              // Build sharp FG layer
+              fctx.clearRect(0, 0, fc.width, fc.height);
+              fctx.drawImage(v, 0, 0, fc.width, fc.height);
 
-            // Keep only FG pixels
-            fctx.globalCompositeOperation = "destination-in";
-            fctx.drawImage(maskCanvas, 0, 0, fc.width, fc.height);
-            fctx.globalCompositeOperation = "source-over";
+              // Keep only FG pixels
+              fctx.globalCompositeOperation = "destination-in";
+              fctx.drawImage(maskCanvas, 0, 0, fc.width, fc.height);
+              fctx.globalCompositeOperation = "source-over";
 
-            // Composite FG over blurred BG
-            octx.drawImage(fc, 0, 0, oc.width, oc.height);
+              // Composite FG over blurred BG
+              octx.drawImage(fc, 0, 0, oc.width, oc.height);
+            }
           }
-          // IMPORTANT: if no mask, we do NOT draw sharp fg at all,
-          // leaving the blurred frame visible (so fallback looks blurred).
         }
       }
 
-      // DIAGNOSTIC border
+      // DIAGNOSTIC border (optional - remove in production)
       octx.save();
       octx.strokeStyle = "magenta";
       octx.lineWidth = 8;
@@ -329,7 +411,7 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
       log("Tearing down effects pipeline.");
       teardown();
     };
-  }, [rawTrack, enabled, mode, engine, background]);
+  }, [rawTrack, enabled, mode, engine]);
 
   return processed;
 }

@@ -55,13 +55,13 @@ export default function JoinPage() {
 
   return (
     <div className="page">
-      <div className="card" style={{ maxWidth: 640, width: "100%" }}>
+      <div className="card" style={{ maxWidth: 'min(90vw, 1200px)', width: "100%" }}>
         <div className="card-header">
-          <div className="card-title">Join a Stream</div>
-          <div className="card-subtle">Enter the 6-character code</div>
+          <div className="card-title" style={{ fontSize: 'clamp(24px, 4vw, 36px)' }}>Join a Stream</div>
+          <div className="card-subtle" style={{ fontSize: 'clamp(14px, 2vw, 18px)', marginTop: '8px' }}>Enter the 6-character code</div>
         </div>
         <div className="card-body">
-          <form onSubmit={handleSubmit} className="row" style={{ gap: 10 }}>
+          <form onSubmit={handleSubmit} className="row" style={{ gap: 'clamp(10px, 2vw, 20px)' }}>
             <input
               ref={inputRef}
               className="input"
@@ -71,13 +71,23 @@ export default function JoinPage() {
               inputMode="text"
               autoCapitalize="characters"
               maxLength={7}
-              style={{ textTransform: "uppercase", letterSpacing: "0.08em" }}
+              style={{
+                textTransform: "uppercase",
+                letterSpacing: "0.08em",
+                height: 'clamp(48px, 8vh, 72px)',
+                fontSize: 'clamp(18px, 3vw, 28px)',
+                padding: '0 clamp(12px, 2vw, 24px)'
+              }}
             />
-            <button type="submit" className="btn">Join</button>
+            <button type="submit" className="btn" style={{
+              height: 'clamp(48px, 8vh, 72px)',
+              padding: '0 clamp(20px, 3vw, 40px)',
+              fontSize: 'clamp(16px, 2.5vw, 24px)'
+            }}>Join</button>
           </form>
-          {error && <div style={{ marginTop: 10, color: "#fca5a5" }}>{error}</div>}
-          <div style={{ marginTop: 12 }} className="help">
-            Example format: <code>ABC-123</code>
+          {error && <div style={{ marginTop: 'clamp(12px, 2vh, 20px)', color: "#fca5a5", fontSize: 'clamp(14px, 2vw, 18px)' }}>{error}</div>}
+          <div style={{ marginTop: 'clamp(12px, 2vh, 20px)', fontSize: 'clamp(13px, 1.8vw, 16px)' }} className="help">
+            Example format: <code style={{ fontSize: 'clamp(13px, 1.8vw, 16px)' }}>ABC-123</code>
           </div>
         </div>
       </div>

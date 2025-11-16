@@ -20,9 +20,11 @@ import {
   requestCurrentStreamFrame,
   type ViewerMessage,
 } from "../utils/viewerStream";
+import { addSessionMessageListener } from "../utils/sessionMessaging";
 import { useAppStore } from "../app/store";
 import { loadMostRecentScene } from "../app/persistence";
 import { createId } from "../utils/id";
+import { calculateOptimalSceneDimensions, calculateViewerWindowDimensions } from "../utils/sceneResolution";
 import {
   createScreenLayer,
   createCameraLayer,
@@ -57,6 +59,7 @@ const EMPTY_LAYERS: Layer[] = [];
 const LAYERS_PANEL_WIDTH = 280;
 const LAYERS_PANEL_EXPANDED_HEIGHT = 760;
 const LAYERS_PANEL_COLLAPSED_HEIGHT = 64;
+type CanvasStreamConsumer = "viewer" | "presentation" | "host";
 
 function readFileAsDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -83,7 +86,8 @@ function PresenterPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewerWindowRef = useRef<Window | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const hostRef = useRef<{ stop: () => void } | null>(null);
+  const hostRef = useRef<HostHandle | null>(null);
+  const viewerCheckIntervalRef = useRef<number | null>(null);
 
   const [sessionId, setSessionId] = useState<string>("");
 
@@ -92,7 +96,11 @@ function PresenterPage() {
   const [isAddingCamera, setIsAddingCamera] = useState(false);
   const layerIdsRef = useRef<string[]>([]);
   const [panelPosition, setPanelPosition] = useState({ x: 24, y: 24 });
-  const [isLayersPanelCollapsed, setLayersPanelCollapsed] = useState(false);
+  const [panelSize, setPanelSize] = useState({
+    width: LAYERS_PANEL_WIDTH,
+    height: LAYERS_PANEL_EXPANDED_HEIGHT
+  });
+  const [isPanelMinimized, setIsPanelMinimized] = useState(false);
   const [canvasLayout, setCanvasLayout] = useState<CanvasLayout | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [isPresentationMode, setIsPresentationMode] = useState(false);
@@ -102,10 +110,15 @@ function PresenterPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const controlStripTimerRef = useRef<number | null>(null);
   const clipboardRef = useRef<Layer[] | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [canvasBackgroundType, setCanvasBackgroundType] = useState<'color' | 'image'>('color');
+  const [canvasBackgroundValue, setCanvasBackgroundValue] = useState<string>('#ffffff');
 
   const [cameraTrackForEffects, setCameraTrackForEffects] = useState<MediaStreamTrack | null>(null);
   const [cameraLayerForEffects, setCameraLayerForEffects] = useState<string | null>(null);
   const processedCameraTrack = useBackgroundEffectTrack(cameraTrackForEffects);
+
+  const activeCanvasConsumersRef = useRef<Set<CanvasStreamConsumer>>(new Set());
 
   const sceneLayers: Layer[] = useAppStore((state) => {
     if (!state.currentSceneId) return EMPTY_LAYERS;
@@ -131,7 +144,27 @@ function PresenterPage() {
 
   const selectionLength = selectionIds.length;
   const selectedGroup = selectedLayer && selectedLayer.type === "group" ? selectedLayer : null;
-  const activeGroupChildIds = selectedGroup ? selectedGroup.children : [];
+
+  // Recursively collect all descendants of a group (including nested groups' children)
+  const getAllDescendants = useCallback((groupId: string, layers: Layer[]): string[] => {
+    const group = layers.find((l) => l.id === groupId && l.type === 'group');
+    if (!group || group.type !== 'group') return [];
+
+    const result: string[] = [];
+    for (const childId of group.children) {
+      result.push(childId);
+      const child = layers.find((l) => l.id === childId);
+      if (child && child.type === 'group') {
+        result.push(...getAllDescendants(childId, layers));
+      }
+    }
+    return result;
+  }, []);
+
+  const activeGroupChildIds = selectedGroup && currentScene
+    ? getAllDescendants(selectedGroup.id, currentScene.layers)
+    : [];
+
   const groupTransformIds =
     selectedGroup && activeGroupChildIds.length > 0
       ? activeGroupChildIds
@@ -188,6 +221,16 @@ function PresenterPage() {
     return () => {
       if (controlStripTimerRef.current !== null) {
         window.clearTimeout(controlStripTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Cleanup viewer check interval on unmount
+  useEffect(() => {
+    return () => {
+      if (viewerCheckIntervalRef.current !== null) {
+        clearInterval(viewerCheckIntervalRef.current);
+        viewerCheckIntervalRef.current = null;
       }
     };
   }, []);
@@ -411,17 +454,50 @@ function PresenterPage() {
    */
   const ensureCanvasStreamExists = useCallback((): MediaStream | null => {
     // Check if we already have a live stream - REUSE IT!
+    console.log("🔍 [ensureStream] Checking for existing stream...", {
+      hasRef: !!streamRef.current,
+      trackCount: streamRef.current?.getTracks().length ?? 0,
+      trackState: streamRef.current?.getVideoTracks()[0]?.readyState ?? 'none'
+    });
+
     if (streamRef.current) {
       const track = streamRef.current.getVideoTracks()[0];
       if (track && track.readyState === 'live') {
         console.log("✅ [ensureStream] Reusing existing live canvas stream");
+
+        // Request a frame to ensure viewer gets immediate content (not black screen)
+        if (typeof (track as any).requestFrame === 'function') {
+          try {
+            (track as any).requestFrame();
+            console.log("✅ [ensureStream] Requested frame on reused stream");
+          } catch (error) {
+            console.warn("⚠️ [ensureStream] Failed to request frame on reuse:", error);
+          }
+        }
+
         return streamRef.current;
       }
-      // Stream is dead, clean it up
-      console.log("⚠️ [ensureStream] Existing stream is dead, cleaning up");
-      streamRef.current.getTracks().forEach((t) => t.stop());
+      // Stream is dead, clean it up aggressively
+      console.log("⚠️ [ensureStream] Existing stream is dead, cleaning up", {
+        hasTrack: !!track,
+        readyState: track?.readyState
+      });
+      const deadStream = streamRef.current;
+      const deadTracks = deadStream.getTracks();
+      deadTracks.forEach((t) => {
+        try {
+          t.stop();
+          deadStream.removeTrack(t);
+          // @ts-ignore - Disable track to help GC
+          t.enabled = false;
+        } catch (err) {
+          console.warn("Failed to cleanup dead track", err);
+        }
+      });
       streamRef.current = null;
       setCurrentStream(null);
+    } else {
+      console.log("⚠️ [ensureStream] No existing stream ref");
     }
 
     // Need to create new stream
@@ -443,6 +519,16 @@ function PresenterPage() {
 
     // Set up ended handler ONCE when stream is created
     const track = stream.getVideoTracks()[0];
+
+    // Request initial frame to kickstart the stream
+    if (track && typeof (track as any).requestFrame === 'function') {
+      try {
+        (track as any).requestFrame();
+        console.log("✅ [ensureStream] Requested initial frame to kickstart stream");
+      } catch (error) {
+        console.warn("⚠️ [ensureStream] Failed to request initial frame:", error);
+      }
+    }
     if (track) {
       const handleEnded = () => {
         console.log("🛑 [ensureStream] Canvas track ended");
@@ -462,10 +548,66 @@ function PresenterPage() {
     return stream;
   }, [showControlStrip]);
 
+  const stopCanvasStream = useCallback((reason?: string) => {
+    if (!streamRef.current) return;
+    const streamToClean = streamRef.current;
+    console.log("🧹 [canvasStream] Stopping canvas stream", reason ?? "");
+
+    const tracks = streamToClean.getTracks();
+    tracks.forEach((track) => {
+      try {
+        track.stop();
+      } catch (err) {
+        console.warn("Failed to stop canvas track", err);
+      }
+      try {
+        streamToClean.removeTrack(track);
+      } catch (err) {
+        console.warn("Failed to remove canvas track", err);
+      }
+      try {
+        (track as any).enabled = false;
+      } catch {
+        // noop - best effort to help GC
+      }
+    });
+
+    streamRef.current = null;
+    setCurrentStream(null);
+  }, []);
+
+  const addCanvasConsumer = useCallback((consumer: CanvasStreamConsumer) => {
+    const consumers = activeCanvasConsumersRef.current;
+    if (consumers.has(consumer)) return;
+    consumers.add(consumer);
+    console.log("👥 [canvasStream] consumer added:", consumer, "→", Array.from(consumers));
+  }, []);
+
+  const removeCanvasConsumer = useCallback(
+    (consumer: CanvasStreamConsumer, reason?: string) => {
+      const consumers = activeCanvasConsumersRef.current;
+      if (!consumers.has(consumer)) return;
+      consumers.delete(consumer);
+      console.log("👥 [canvasStream] consumer removed:", consumer, "→", Array.from(consumers));
+      if (consumers.size === 0) {
+        stopCanvasStream(reason);
+      } else {
+        console.log("♻️ [canvasStream] keeping stream for consumers:", Array.from(consumers));
+      }
+    },
+    [stopCanvasStream],
+  );
+
+
   const startStreaming = useCallback((canvas: HTMLCanvasElement) => {
     // Get or create the stream (will reuse if already live!)
     const stream = ensureCanvasStreamExists();
-    if (!stream) return;
+    if (!stream) {
+      console.log("⚠️ [startStreaming] No stream available");
+      return;
+    }
+
+    console.log("📡 [startStreaming] Starting stream delivery");
 
     const track = stream.getVideoTracks()[0];
     if (track) {
@@ -482,6 +624,12 @@ function PresenterPage() {
     if (viewerWindowRef.current && !viewerWindowRef.current.closed) {
       console.log("📤 [startStreaming] Sending stream to viewer window");
       sendStreamToViewer(viewerWindowRef.current, stream);
+
+      // Force a frame update to ensure viewer gets initial content
+      setTimeout(() => {
+        requestCurrentStreamFrame();
+        console.log("🎬 [startStreaming] Requested frame update for viewer");
+      }, 50);
     }
   }, [ensureCanvasStreamExists]);
 
@@ -492,60 +640,118 @@ function PresenterPage() {
       showControlStrip();
       return;
     }
-    const viewer = window.open("/viewer", "classroom-compositor-viewer", "width=1920,height=1080");
+
+    // Clear any existing interval from previous viewer instances
+    if (viewerCheckIntervalRef.current !== null) {
+      clearInterval(viewerCheckIntervalRef.current);
+      viewerCheckIntervalRef.current = null;
+    }
+
+    // Calculate viewer window dimensions based on current scene size
+    const currentScene = getCurrentScene();
+    const windowDimensions = currentScene
+      ? calculateViewerWindowDimensions({ width: currentScene.width, height: currentScene.height })
+      : "width=1920,height=1080";
+    const viewer = window.open("/viewer", "classroom-compositor-viewer", windowDimensions);
     if (!viewer) {
       console.error("Failed to open viewer window (popup blocked?)");
       return;
     }
+    const finalizeViewerCleanup = (reason: string) => {
+      if (!viewerWindowRef.current || viewerWindowRef.current !== viewer) return;
+      viewer.removeEventListener("beforeunload", handleViewerUnload);
+      setIsViewerOpen(false);
+      viewerWindowRef.current = null;
+      removeCanvasConsumer("viewer", reason);
+    };
+
+    const handleViewerUnload = () => {
+      finalizeViewerCleanup("viewer window unloaded");
+      if (viewerCheckIntervalRef.current !== null) {
+        clearInterval(viewerCheckIntervalRef.current);
+        viewerCheckIntervalRef.current = null;
+      }
+    };
+
     viewerWindowRef.current = viewer;
     setIsViewerOpen(true);
+    addCanvasConsumer("viewer");
     showControlStrip();
+    viewer.addEventListener("beforeunload", handleViewerUnload, { once: true });
 
     viewer.addEventListener("load", () => {
+      console.log("🪟 [openViewer] Viewer window loaded");
       if (canvasRef.current) startStreaming(canvasRef.current);
     });
+
+    // Store interval ref for cleanup
     const checkClosed = setInterval(() => {
       if (viewer.closed) {
         clearInterval(checkClosed);
-        setIsViewerOpen(false);
-        viewerWindowRef.current = null;
-        // DON'T stop the stream if we're still live streaming to remote viewers!
-        // Only stop if we're not hosting
-        if (streamRef.current && !hostRef.current) {
-          console.log("🛑 [openViewer] Stopping stream (not live)");
-          streamRef.current.getTracks().forEach((track) => track.stop());
-          streamRef.current = null;
-          setCurrentStream(null);
-        } else if (streamRef.current && hostRef.current) {
-          console.log("✅ [openViewer] Keeping stream alive (still live to remote viewers)");
-        }
+        viewerCheckIntervalRef.current = null;
+        console.log("✅ [openViewer] Viewer closed");
+        finalizeViewerCleanup("viewer window closed");
       }
     }, 500);
-    setTimeout(() => {
-      if (canvasRef.current && !viewer.closed) startStreaming(canvasRef.current);
-    }, 100);
+    viewerCheckIntervalRef.current = checkClosed as unknown as number;
+
+    // Removed redundant setTimeout - we already handle stream delivery on load event
+    // and in response to viewer-ready/request-stream messages
   };
 
-  // Messages from viewer
+  // Debug helper: Expose stream count checker globally
   useEffect(() => {
-    const handleMessage = (event: MessageEvent<ViewerMessage | { type: "request-stream" }>) => {
-      if (event.origin !== window.location.origin) return;
-      if (event.data?.type === "request-stream") {
-        if (streamRef.current) {
-          sendStreamToViewer(viewerWindowRef.current!, streamRef.current);
+    if (typeof window !== 'undefined') {
+      (window as any).__debugStreamCount = () => {
+        const registry = (window as any).__classroomCompositorStreams__;
+        const count = registry?.size ?? 0;
+        console.log('📊 Stream Registry:', {
+          totalStreams: count,
+          streamIds: registry ? Array.from(registry.keys()) : [],
+          currentStreamActive: !!streamRef.current,
+          viewerOpen: !!(viewerWindowRef.current && !viewerWindowRef.current.closed),
+        });
+        return count;
+      };
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        delete (window as any).__debugStreamCount;
+      }
+    };
+  }, []);
+
+  // Session-based message handler for viewer communication
+  // Note: Legacy handler removed to prevent duplicate message handling.
+  // The viewer (useViewerOrchestration) sends BOTH session and legacy messages,
+  // but we only need to handle them once. The session handler is sufficient.
+  useEffect(() => {
+    const removeSessionListener = addSessionMessageListener((payload, event) => {
+      const sourceWindow = event.source as (Window | null);
+      if (!sourceWindow || sourceWindow !== viewerWindowRef.current) {
+        return;
+      }
+      if (payload.type === "viewer-ready") {
+        console.log("📨 [session] Received viewer-ready (deduped handler)");
+        if (streamRef.current && viewerWindowRef.current) {
+          console.log("📤 [session] Sending existing stream to viewer");
+          sendStreamToViewer(viewerWindowRef.current, streamRef.current);
         } else if (canvasRef.current) {
+          console.log("🎬 [session] Starting new stream for viewer");
           startStreaming(canvasRef.current);
         }
-      } else if (event.data?.type === "viewer-ready") {
-        if (streamRef.current) {
-          // viewer will access opener.currentStream
+      } else if (payload.type === "request-stream") {
+        console.log("📨 [session] Received request-stream (deduped handler)");
+        if (payload.streamId && streamRef.current && viewerWindowRef.current) {
+          console.log("📤 [session] Re-sending stream to viewer");
+          sendStreamToViewer(viewerWindowRef.current, streamRef.current);
         } else if (canvasRef.current) {
+          console.log("🎬 [session] Starting stream after request");
           startStreaming(canvasRef.current);
         }
       }
-    };
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
+    });
+    return () => removeSessionListener();
   }, [startStreaming]);
 
   const ensureCanvasStream = useCallback((): MediaStream | null => {
@@ -589,15 +795,45 @@ function PresenterPage() {
     requestCurrentStreamFrame();
   }, []);
 
+  // Helper function to generate copy name with proper numbering
+  const generateCopyName = useCallback((originalName: string, existingNames: string[]): string => {
+    const baseName = originalName || "Layer";
+
+    // Try "Copy" first
+    const copyName = `${baseName} Copy`;
+    if (!existingNames.includes(copyName)) {
+      return copyName;
+    }
+
+    // Try "Copy 1", "Copy 2", etc.
+    let counter = 1;
+    while (true) {
+      const numberedName = `${baseName} Copy ${counter}`;
+      if (!existingNames.includes(numberedName)) {
+        return numberedName;
+      }
+      counter++;
+      // Safety limit to prevent infinite loop
+      if (counter > 1000) {
+        return `${baseName} Copy ${Date.now()}`;
+      }
+    }
+  }, []);
+
   const duplicateLayers = useCallback(() => {
     const layers = getSelectedLayers();
     if (layers.length === 0) return;
     const state = useAppStore.getState();
+    const scene = state.getCurrentScene();
+    if (!scene) return;
+    const existingNames = scene.layers.map(l => l.name);
     const newIds: string[] = [];
     layers.forEach((layer, index) => {
       const clone: Layer = JSON.parse(JSON.stringify(layer));
       clone.id = createId("layer");
-      clone.name = `${layer.name || "Layer"} Copy`;
+      clone.name = generateCopyName(layer.name, existingNames);
+      // Add the new name to existing names for next iteration
+      existingNames.push(clone.name);
       clone.transform = {
         ...layer.transform,
         pos: { x: layer.transform.pos.x + 24 + index * 12, y: layer.transform.pos.y + 24 + index * 12 },
@@ -607,7 +843,7 @@ function PresenterPage() {
     });
     state.setSelection(newIds);
     requestCurrentStreamFrame();
-  }, [getSelectedLayers]);
+  }, [getSelectedLayers, generateCopyName]);
 
   const copyLayersToClipboard = useCallback(() => {
     const layers = getSelectedLayers();
@@ -619,11 +855,16 @@ function PresenterPage() {
     const clipboard = clipboardRef.current;
     if (!clipboard || clipboard.length === 0) return;
     const state = useAppStore.getState();
+    const scene = state.getCurrentScene();
+    if (!scene) return;
+    const existingNames = scene.layers.map(l => l.name);
     const newIds: string[] = [];
     clipboard.forEach((layer, index) => {
       const clone: Layer = JSON.parse(JSON.stringify(layer));
       clone.id = createId("layer");
-      clone.name = `${layer.name || "Layer"} Paste`;
+      clone.name = generateCopyName(layer.name, existingNames);
+      // Add the new name to existing names for next iteration
+      existingNames.push(clone.name);
       clone.transform = {
         ...layer.transform,
         pos: { x: layer.transform.pos.x + 32 + index * 12, y: layer.transform.pos.y + 32 + index * 12 },
@@ -633,7 +874,7 @@ function PresenterPage() {
     });
     state.setSelection(newIds);
     requestCurrentStreamFrame();
-  }, []);
+  }, [generateCopyName]);
 
   const toggleVisibilityForSelection = useCallback(() => {
     const layers = getSelectedLayers();
@@ -683,16 +924,18 @@ function PresenterPage() {
   }, [isPresentationMode, showControlStrip]);
 
   const toggleConfidencePreview = useCallback(() => {
-    if (!isConfidencePreviewVisible) {
-      const stream = ensureCanvasStream();
-      if (!stream) {
-        console.warn("Presenter: Cannot show confidence preview without a stream");
-        return;
-      }
-    }
+    // ConfidencePreview doesn't need a stream - it renders directly to canvas
     setIsConfidencePreviewVisible((prev) => !prev);
     showControlStrip();
-  }, [ensureCanvasStream, isConfidencePreviewVisible, showControlStrip]);
+  }, [showControlStrip]);
+
+  useEffect(() => {
+    if (isPresentationMode) {
+      addCanvasConsumer("presentation");
+    } else {
+      removeCanvasConsumer("presentation", "presentation mode inactive");
+    }
+  }, [isPresentationMode, addCanvasConsumer, removeCanvasConsumer]);
 
   useEffect(() => {
     const hotkeys: KeyBindingMap = {
@@ -754,11 +997,15 @@ function PresenterPage() {
             currentSceneId: mostRecent.id,
           }));
         } else {
-          createScene();
+          // Create new scene with optimal dimensions for presenter's display
+          const { width, height } = calculateOptimalSceneDimensions();
+          createScene('Untitled Scene', width, height);
         }
       } catch (error) {
         console.error("Failed to load most recent scene", error);
-        createScene();
+        // Create new scene with optimal dimensions for presenter's display
+        const { width, height } = calculateOptimalSceneDimensions();
+        createScene('Untitled Scene', width, height);
       } finally {
         setIsSceneLoading(false);
       }
@@ -780,11 +1027,18 @@ function PresenterPage() {
   // Cleanup
   useEffect(() => {
     return () => {
-      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+      activeCanvasConsumersRef.current.clear();
+      stopCanvasStream("component unmount");
       layerIdsRef.current.forEach((id) => stopSource(id));
       if (viewerWindowRef.current && !viewerWindowRef.current.closed) viewerWindowRef.current.close();
+      const hostHandle = hostRef.current;
+      if (hostHandle) {
+        hostRef.current = null;
+        removeCanvasConsumer("host", "component unmount");
+        hostHandle.stop().catch((err) => console.warn("Failed to stop host on unmount", err));
+      }
     };
-  }, []);
+  }, [stopCanvasStream, removeCanvasConsumer]);
 
   // === Go Live ===
   const HOST_ID = "host-123";
@@ -811,7 +1065,11 @@ function PresenterPage() {
       // 2) Get or create canvas stream (will reuse if already exists!)
       const displayStream = ensureCanvasStreamExists() || undefined;
 
-      // 3) Attach the track to WebRTC BEFORE creating the offer
+      // 3) Wait a brief moment to ensure canvas has rendered at least one frame
+      // This prevents the track from starting muted with no video data
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // 4) Attach the track to WebRTC BEFORE creating the offer
       if (displayStream) {
         const track = displayStream.getVideoTracks()[0];
         if (track) {
@@ -830,6 +1088,7 @@ function PresenterPage() {
             console.log("📹 [handleGoLive] Canvas track pre-attached to sender", {
               trackId: track.id,
               readyState: track.readyState,
+              muted: track.muted,
             });
           } catch (err) {
             console.warn("⚠️ [handleGoLive] replaceHostVideoTrack failed pre-offer", err);
@@ -838,7 +1097,7 @@ function PresenterPage() {
         console.log("✅ [handleGoLive] Canvas stream ready for WebRTC");
       }
 
-      // 4) Start WebRTC host with the canvas stream
+      // 5) Start WebRTC host with the canvas stream
       hostingRef.current = true;
       hostRef.current = await startHost(s.id, {
         displayStream,
@@ -846,6 +1105,7 @@ function PresenterPage() {
         sendAudio: false,        // optional: change to true if you want mic on at Go Live
         loadingText: "Waiting for presenter…",
       });
+      addCanvasConsumer("host");
       console.log("✅ [handleGoLive] WebRTC host started");
 
       // 5) Activate join code and reflect it in UI
@@ -862,7 +1122,7 @@ function PresenterPage() {
     } finally {
       hostingRef.current = false;
     }
-  }, [goLive, ensureCanvasStreamExists]);
+  }, [goLive, ensureCanvasStreamExists, addCanvasConsumer]);
 
   return (
     <div
@@ -904,22 +1164,23 @@ function PresenterPage() {
             style={{
               display: "inline-flex",
               alignItems: "center",
-              gap: 8,
+              gap: 'clamp(6px, 1vw, 12px)',
               background: "#e11d48",
               color: "white",
               border: "none",
-              borderRadius: 8,
-              padding: "6px 12px",
+              borderRadius: 'clamp(6px, 1vw, 10px)',
+              padding: 'clamp(8px, 1.2vh, 12px) clamp(16px, 2vw, 24px)',
               cursor: "pointer",
               fontWeight: 700,
+              fontSize: 'clamp(13px, 1.5vw, 16px)',
             }}
             title="Start a live session and generate a join code"
           >
             <span
               style={{
                 display: "inline-flex",
-                width: 8,
-                height: 8,
+                width: 'clamp(8px, 1vw, 12px)',
+                height: 'clamp(8px, 1vw, 12px)',
                 borderRadius: 999,
                 background: "white",
               }}
@@ -931,20 +1192,21 @@ function PresenterPage() {
             <span
               style={{
                 display: "inline-flex",
-                width: 8,
-                height: 8,
+                width: 'clamp(8px, 1vw, 12px)',
+                height: 'clamp(8px, 1vw, 12px)',
                 borderRadius: 999,
                 background: "#ef4444",
                 boxShadow: "0 0 0 6px rgba(239,68,68,0.2)",
-                marginRight: 2,
+                marginRight: 'clamp(2px, 0.5vw, 4px)',
               }}
               title="Live"
             />
-            <span style={{ opacity: 0.85, marginRight: 6 }}>Live</span>
+            <span style={{ opacity: 0.85, marginRight: 'clamp(6px, 1vw, 10px)', fontSize: 'clamp(13px, 1.5vw, 16px)' }}>Live</span>
             <code
               style={{
                 fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
                 fontWeight: 700,
+                fontSize: 'clamp(13px, 1.5vw, 16px)',
               }}
               title="Join code"
             >
@@ -954,13 +1216,14 @@ function PresenterPage() {
             <button
               onClick={copyJoinInfo}
               style={{
-                marginLeft: 8,
+                marginLeft: 'clamp(8px, 1.2vw, 12px)',
                 background: "transparent",
                 color: "#eaeaea",
                 border: "1px solid rgba(255,255,255,0.2)",
-                borderRadius: 6,
-                padding: "4px 8px",
+                borderRadius: 'clamp(4px, 0.8vw, 8px)',
+                padding: 'clamp(6px, 1vh, 10px) clamp(10px, 1.5vw, 16px)',
                 cursor: "pointer",
+                fontSize: 'clamp(12px, 1.4vw, 15px)',
               }}
               title="Copy /join link"
             >
@@ -970,13 +1233,13 @@ function PresenterPage() {
             {copied && (
               <span
                 style={{
-                  marginLeft: 8,
-                  padding: "2px 6px",
-                  borderRadius: 6,
+                  marginLeft: 'clamp(8px, 1.2vw, 12px)',
+                  padding: 'clamp(4px, 0.8vh, 8px) clamp(8px, 1.2vw, 12px)',
+                  borderRadius: 'clamp(4px, 0.8vw, 8px)',
                   background: "rgba(34,197,94,0.15)",
                   border: "1px solid rgba(34,197,94,0.35)",
                   color: "#86efac",
-                  fontSize: 11,
+                  fontSize: 'clamp(11px, 1.3vw, 14px)',
                 }}
               >
                 Copied!
@@ -986,13 +1249,13 @@ function PresenterPage() {
             {liveError && (
               <span
                 style={{
-                  marginLeft: 8,
-                  padding: "2px 6px",
-                  borderRadius: 6,
+                  marginLeft: 'clamp(8px, 1.2vw, 12px)',
+                  padding: 'clamp(4px, 0.8vh, 8px) clamp(8px, 1.2vw, 12px)',
+                  borderRadius: 'clamp(4px, 0.8vw, 8px)',
                   background: "rgba(239,68,68,0.15)",
                   border: "1px solid rgba(239,68,68,0.35)",
                   color: "#fecaca",
-                  fontSize: 11,
+                  fontSize: 'clamp(11px, 1.3vw, 14px)',
                 }}
               >
                 {liveError}
@@ -1003,6 +1266,146 @@ function PresenterPage() {
 
         {/* 👇 New: inline error feedback */}
       </div>
+
+      {/* Settings button in top right */}
+      <button
+        onClick={() => setSettingsOpen(!settingsOpen)}
+        style={{
+          position: 'fixed',
+          top: 16,
+          right: 16,
+          zIndex: 10001,
+          width: 44,
+          height: 44,
+          borderRadius: '50%',
+          background: 'rgba(20,20,20,0.85)',
+          border: '1px solid rgba(255,255,255,0.15)',
+          color: '#eaeaea',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 20,
+          backdropFilter: 'blur(4px)',
+          boxShadow: '0 6px 24px rgba(0,0,0,0.35)',
+        }}
+        title="Settings"
+      >
+        ⚙️
+      </button>
+
+      {/* Settings Panel */}
+      {settingsOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 70,
+            right: 16,
+            zIndex: 10001,
+            width: 320,
+            background: 'rgba(20,20,20,0.95)',
+            border: '1px solid rgba(255,255,255,0.15)',
+            borderRadius: 12,
+            padding: 20,
+            boxShadow: '0 12px 48px rgba(0,0,0,0.5)',
+            backdropFilter: 'blur(8px)',
+          }}
+        >
+          <h3 style={{ margin: '0 0 16px 0', color: '#eaeaea', fontSize: 16, fontWeight: 600 }}>
+            Canvas Settings
+          </h3>
+
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', marginBottom: 8, color: '#aaa', fontSize: 13 }}>
+              Background Type
+            </label>
+            <select
+              value={canvasBackgroundType}
+              onChange={(e) => setCanvasBackgroundType(e.target.value as 'color' | 'image')}
+              style={{
+                width: '100%',
+                padding: 8,
+                borderRadius: 6,
+                background: 'rgba(255,255,255,0.08)',
+                border: '1px solid rgba(255,255,255,0.15)',
+                color: '#eaeaea',
+                fontSize: 13,
+              }}
+            >
+              <option value="color">Solid Color</option>
+              <option value="image">Image Upload</option>
+            </select>
+          </div>
+
+          {canvasBackgroundType === 'color' && (
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', marginBottom: 8, color: '#aaa', fontSize: 13 }}>
+                Color
+              </label>
+              <input
+                type="color"
+                value={canvasBackgroundValue}
+                onChange={(e) => setCanvasBackgroundValue(e.target.value)}
+                style={{
+                  width: '100%',
+                  height: 40,
+                  borderRadius: 6,
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  cursor: 'pointer',
+                }}
+              />
+            </div>
+          )}
+
+          {canvasBackgroundType === 'image' && (
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', marginBottom: 8, color: '#aaa', fontSize: 13 }}>
+                Upload Image
+              </label>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      setCanvasBackgroundValue(reader.result as string);
+                    };
+                    reader.readAsDataURL(file);
+                  }
+                }}
+                style={{
+                  width: '100%',
+                  padding: 8,
+                  borderRadius: 6,
+                  background: 'rgba(255,255,255,0.08)',
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  color: '#eaeaea',
+                  fontSize: 13,
+                }}
+              />
+            </div>
+          )}
+
+          <button
+            onClick={() => setSettingsOpen(false)}
+            style={{
+              width: '100%',
+              padding: 10,
+              borderRadius: 6,
+              background: 'rgba(0, 166, 255, 0.25)',
+              border: '1px solid rgba(0, 166, 255, 0.8)',
+              color: '#eaeaea',
+              cursor: 'pointer',
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+          >
+            Close
+          </button>
+        </div>
+      )}
 
       {/* Main canvas area */}
       <div
@@ -1019,6 +1422,8 @@ function PresenterPage() {
           fitToContainer
           onLayoutChange={handleCanvasLayoutChange}
           skipLayerIds={editingTextId ? [editingTextId] : undefined}
+          backgroundType={canvasBackgroundType}
+          backgroundValue={canvasBackgroundValue}
         />
         {canvasLayout && (
           <CanvasSelectionOverlay
@@ -1056,14 +1461,17 @@ function PresenterPage() {
       <FloatingPanel
         title="Objects & Layers"
         position={panelPosition}
-        size={{
-          width: LAYERS_PANEL_WIDTH,
-          height: isLayersPanelCollapsed ? LAYERS_PANEL_COLLAPSED_HEIGHT : LAYERS_PANEL_EXPANDED_HEIGHT,
-        }}
+        size={isPanelMinimized ? { width: panelSize.width, height: 44 } : panelSize}
+        minSize={{ width: 280, height: 200 }}
         onPositionChange={setPanelPosition}
-        collapsible
-        collapsed={isLayersPanelCollapsed}
-        onToggleCollapse={() => setLayersPanelCollapsed((prev) => !prev)}
+        onSizeChange={(newSize) => {
+          if (!isPanelMinimized) {
+            setPanelSize(newSize);
+          }
+        }}
+        minimizable
+        minimized={isPanelMinimized}
+        onToggleMinimize={() => setIsPanelMinimized(!isPanelMinimized)}
       >
         <LayersPanel
           layers={sceneLayers}
@@ -1082,7 +1490,6 @@ function PresenterPage() {
         selectedLayer.type !== "group" &&
         !selectedLayer.locked &&
         selectedLayer.type !== "camera" &&
-        selectedLayer.type !== "screen" &&
         !isEditingSelectedText && (
           <TransformControls
             layout={canvasLayout}
@@ -1134,7 +1541,7 @@ function PresenterPage() {
       />
 
       <ConfidencePreview
-        stream={streamRef.current}
+        
         visible={isConfidencePreviewVisible}
         onClose={() => {
           setIsConfidencePreviewVisible(false);

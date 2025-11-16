@@ -31,6 +31,7 @@ interface LayerTransformSnapshot {
   id: string;
   startPos: { x: number; y: number };
   startScale: { x: number; y: number };
+  startRotation: number;
   scaleLocked?: boolean;
 }
 
@@ -40,6 +41,7 @@ type GroupDragState =
       pointerId: number;
       origin: { x: number; y: number };
       latest: { x: number; y: number };
+      lockedAxis: 'x' | 'y' | null;
       layers: LayerTransformSnapshot[];
       historySnapshot?: Scene | null;
       historyApplied: boolean;
@@ -53,13 +55,22 @@ type GroupDragState =
       layers: LayerTransformSnapshot[];
       historySnapshot?: Scene | null;
       historyApplied: boolean;
+    }
+  | {
+      type: 'rotate';
+      pointerId: number;
+      center: { x: number; y: number };
+      startAngle: number;
+      layers: LayerTransformSnapshot[];
+      historySnapshot?: Scene | null;
+      historyApplied: boolean;
     };
 
-const handles: Array<{ key: ResizeHandle; left: string; top: string }> = [
-  { key: 'top-left', left: '-8px', top: '-8px' },
-  { key: 'top-right', left: 'calc(100% - 8px)', top: '-8px' },
-  { key: 'bottom-right', left: 'calc(100% - 8px)', top: 'calc(100% - 8px)' },
-  { key: 'bottom-left', left: '-8px', top: 'calc(100% - 8px)' },
+const handles: Array<{ key: ResizeHandle; left: string; top: string; cursor: string }> = [
+  { key: 'top-left', left: '-8px', top: '-8px', cursor: 'nwse-resize' },
+  { key: 'top-right', left: 'calc(100% - 8px)', top: '-8px', cursor: 'nesw-resize' },
+  { key: 'bottom-right', left: 'calc(100% - 8px)', top: 'calc(100% - 8px)', cursor: 'nwse-resize' },
+  { key: 'bottom-left', left: '-8px', top: 'calc(100% - 8px)', cursor: 'nesw-resize' },
 ];
 
 function computeLayerBounds(layer: Layer, scene: Scene) {
@@ -159,6 +170,7 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
       id: layer.id,
       startPos: { ...layer.transform.pos },
       startScale: { ...layer.transform.scale },
+      startRotation: layer.transform.rot,
       scaleLocked:
         layer.type === 'image' || layer.type === 'shape'
           ? layer.scaleLocked ?? true
@@ -167,9 +179,37 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
   }, [layers]);
 
   const applyMove = useCallback(
-    (state: Extract<GroupDragState, { type: 'move' }>, pointerScene: { x: number; y: number }) => {
-      const deltaX = pointerScene.x - state.origin.x;
-      const deltaY = pointerScene.y - state.origin.y;
+    (
+      state: Extract<GroupDragState, { type: 'move' }>,
+      pointerScene: { x: number; y: number },
+      shiftKey: boolean
+    ) => {
+      let deltaX = pointerScene.x - state.origin.x;
+      let deltaY = pointerScene.y - state.origin.y;
+
+      // Handle shift-constrained movement
+      if (shiftKey) {
+        // Determine locked axis if not yet locked
+        if (state.lockedAxis === null) {
+          const absDeltaX = Math.abs(deltaX);
+          const absDeltaY = Math.abs(deltaY);
+
+          // Lock to the axis with more movement (threshold to avoid locking too early)
+          if (absDeltaX > 5 || absDeltaY > 5) {
+            state.lockedAxis = absDeltaX > absDeltaY ? 'x' : 'y';
+          }
+        }
+
+        // Apply axis constraint
+        if (state.lockedAxis === 'x') {
+          deltaY = 0;
+        } else if (state.lockedAxis === 'y') {
+          deltaX = 0;
+        }
+      } else {
+        // Reset locked axis when shift is released
+        state.lockedAxis = null;
+      }
 
       const currentScene = useAppStore.getState().getCurrentScene();
       if (!currentScene) return;
@@ -283,6 +323,51 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
     [updateLayer]
   );
 
+  const applyRotate = useCallback(
+    (state: Extract<GroupDragState, { type: 'rotate' }>, pointerScene: { x: number; y: number }) => {
+      const dx = pointerScene.x - state.center.x;
+      const dy = pointerScene.y - state.center.y;
+      const currentAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+      const angleDelta = currentAngle - state.startAngle;
+
+      const currentScene = useAppStore.getState().getCurrentScene();
+      if (!currentScene) return;
+
+      const historyOptions = () => {
+        if (!state.historyApplied && state.historySnapshot) {
+          state.historyApplied = true;
+          return {
+            recordHistory: false,
+            persist: false,
+            historySnapshot: state.historySnapshot,
+          } as const;
+        }
+        return { recordHistory: false, persist: false } as const;
+      };
+
+      for (const target of state.layers) {
+        const layer = currentScene.layers.find((item) => item.id === target.id);
+        if (!layer) continue;
+
+        const newRotation = target.startRotation + angleDelta;
+
+        updateLayer(
+          target.id,
+          {
+            transform: {
+              ...layer.transform,
+              rot: newRotation,
+            },
+          },
+          historyOptions()
+        );
+      }
+
+      requestCurrentStreamFrame();
+    },
+    [updateLayer]
+  );
+
   const finishTransform = useCallback((state: GroupDragState | null, cancelled = false) => {
     if (!state) return;
     if (state.historyApplied && !cancelled) {
@@ -312,12 +397,14 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
       event.preventDefault();
 
       if (state.type === 'move') {
-        applyMove(state, pointerScene);
+        applyMove(state, pointerScene, event.shiftKey);
+      } else if (state.type === 'rotate') {
+        applyRotate(state, pointerScene);
       } else {
         applyResize(state, pointerScene);
       }
     },
-    [applyMove, applyResize, pointerToScene]
+    [applyMove, applyRotate, applyResize, pointerToScene]
   );
   pointerMoveRef.current = handlePointerMove;
 
@@ -344,6 +431,7 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
         pointerId: event.pointerId,
         origin: pointerScene,
         latest: pointerScene,
+        lockedAxis: null,
         layers: buildLayerSnapshots(),
         historySnapshot: cloneSceneForHistory(useAppStore.getState().getCurrentScene()),
         historyApplied: false,
@@ -417,6 +505,48 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
     [bounds, buildLayerSnapshots]
   );
 
+  const startRotate = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!bounds) return;
+
+      const snapshots = buildLayerSnapshots();
+      if (snapshots.length === 0) {
+        return;
+      }
+
+      const center = bounds.center;
+      const pointerScene = pointerToScene(event.clientX, event.clientY);
+
+      const dx = pointerScene.x - center.x;
+      const dy = pointerScene.y - center.y;
+      const startAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+
+      dragStateRef.current = {
+        type: 'rotate',
+        pointerId: event.pointerId,
+        center,
+        startAngle,
+        layers: snapshots,
+        historySnapshot: cloneSceneForHistory(useAppStore.getState().getCurrentScene()),
+        historyApplied: false,
+      };
+
+      cleanupPointerListeners();
+      if (pointerMoveRef.current) {
+        window.addEventListener('pointermove', pointerMoveRef.current, { passive: false });
+      }
+      if (pointerUpRef.current) {
+        window.addEventListener('pointerup', pointerUpRef.current);
+      }
+      if (pointerCancelRef.current) {
+        window.addEventListener('pointercancel', pointerCancelRef.current);
+      }
+    },
+    [bounds, buildLayerSnapshots, pointerToScene]
+  );
+
   const handlePointerCancel = useCallback(
     (event: PointerEvent) => {
       const state = dragStateRef.current;
@@ -452,15 +582,15 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
         top,
         width,
         height,
-        border: '2px solid rgba(0, 166, 255, 0.85)',
-        boxShadow: '0 0 0 1px rgba(0, 166, 255, 0.45)',
-        background: 'rgba(0, 166, 255, 0.08)',
+        border: '2px solid #000000',
+        background: 'transparent',
         cursor: 'move',
         pointerEvents: 'auto',
         zIndex: 16,
       }}
       onPointerDown={startMove}
     >
+      {/* Resize handles */}
       {handles.map((handle) => (
         <button
           key={handle.key}
@@ -469,18 +599,50 @@ export function GroupTransformControls({ layout, scene, layerIds }: GroupTransfo
             position: 'absolute',
             left: handle.left,
             top: handle.top,
-            width: '16px',
-            height: '16px',
-            borderRadius: '4px',
-            border: '2px solid rgba(5, 120, 200, 0.9)',
-            background: 'rgba(0, 166, 255, 0.85)',
+            width: '12px',
+            height: '12px',
+            borderRadius: '50%',
+            border: '2px solid #000000',
+            background: '#ffffff',
             transform: 'translate(-50%, -50%)',
-            cursor: 'nwse-resize',
+            cursor: handle.cursor,
             padding: 0,
           }}
           aria-label={`Resize from ${handle.key}`}
         />
       ))}
+      {/* Rotation handle */}
+      <button
+        onPointerDown={startRotate}
+        style={{
+          position: 'absolute',
+          left: '50%',
+          top: '-30px',
+          width: '12px',
+          height: '12px',
+          borderRadius: '50%',
+          border: '2px solid #000000',
+          background: '#ffffff',
+          cursor: 'grab',
+          pointerEvents: 'auto',
+          transform: 'translate(-50%, -50%)',
+          padding: 0,
+        }}
+        aria-label="Rotate"
+      />
+      {/* Rotation handle connector line */}
+      <div
+        style={{
+          position: 'absolute',
+          left: '50%',
+          top: '-15px',
+          width: '2px',
+          height: '15px',
+          background: '#000000',
+          transform: 'translateX(-50%)',
+          pointerEvents: 'none',
+        }}
+      />
     </div>
   );
 }

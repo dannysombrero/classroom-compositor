@@ -17,6 +17,8 @@ type DragState =
       pointerId: number;
       offsetX: number;
       offsetY: number;
+      startPos: { x: number; y: number };
+      lockedAxis: 'x' | 'y' | null;
       historySnapshot?: Scene | null;
       historyApplied?: boolean;
     }
@@ -27,6 +29,15 @@ type DragState =
       opposite: { x: number; y: number };
       baseSize: { width: number; height: number };
       initialFontSize?: number;
+      historySnapshot?: Scene | null;
+      historyApplied?: boolean;
+    }
+  | {
+      type: 'rotate';
+      pointerId: number;
+      center: { x: number; y: number };
+      startAngle: number;
+      startRotation: number;
       historySnapshot?: Scene | null;
       historyApplied?: boolean;
     };
@@ -66,23 +77,24 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
 
   const boxStyle: React.CSSProperties = {
     position: 'fixed',
-    left: `${centerPx.x - halfWidth * layout.scaleX}px`,
-    top: `${centerPx.y - halfHeight * layout.scaleY}px`,
+    left: `${centerPx.x}px`,
+    top: `${centerPx.y}px`,
     width: `${boundingSize.width * layout.scaleX}px`,
     height: `${boundingSize.height * layout.scaleY}px`,
-    border: '2px solid rgba(0, 166, 255, 0.85)',
-    boxShadow: '0 0 0 1px rgba(0, 166, 255, 0.45)',
-    background: 'rgba(0, 166, 255, 0.08)',
+    border: '2px solid #000000',
+    background: 'transparent',
     cursor: 'move',
     pointerEvents: 'auto',
     zIndex: 16,
+    transform: `translate(-50%, -50%) rotate(${layer.transform.rot}deg)`,
+    transformOrigin: 'center center',
   };
 
-  const handles: Array<{ key: ResizeHandle; left: string; top: string }> = [
-    { key: 'top-left', left: '-8px', top: '-8px' },
-    { key: 'top-right', left: `calc(100% - 8px)`, top: '-8px' },
-    { key: 'bottom-right', left: `calc(100% - 8px)`, top: `calc(100% - 8px)` },
-    { key: 'bottom-left', left: '-8px', top: `calc(100% - 8px)` },
+  const handles: Array<{ key: ResizeHandle; left: string; top: string; cursor: string }> = [
+    { key: 'top-left', left: '-8px', top: '-8px', cursor: 'nwse-resize' },
+    { key: 'top-right', left: `calc(100% - 8px)`, top: '-8px', cursor: 'nesw-resize' },
+    { key: 'bottom-right', left: `calc(100% - 8px)`, top: `calc(100% - 8px)`, cursor: 'nwse-resize' },
+    { key: 'bottom-left', left: '-8px', top: `calc(100% - 8px)`, cursor: 'nesw-resize' },
   ];
 
   const computeCenterFromHandle = useCallback(
@@ -113,11 +125,14 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
   const startMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     const pointerScene = pointerToScene(event.clientX, event.clientY);
+    const currentPos = layerRef.current.transform.pos;
     dragStateRef.current = {
       type: 'move',
       pointerId: event.pointerId,
-      offsetX: pointerScene.x - layerRef.current.transform.pos.x,
-      offsetY: pointerScene.y - layerRef.current.transform.pos.y,
+      offsetX: pointerScene.x - currentPos.x,
+      offsetY: pointerScene.y - currentPos.y,
+      startPos: { x: currentPos.x, y: currentPos.y },
+      lockedAxis: null,
       historySnapshot: cloneSceneForHistory(useAppStore.getState().getCurrentScene()),
       historyApplied: false,
     };
@@ -161,6 +176,34 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
     (event.target as HTMLElement).setPointerCapture(event.pointerId);
   };
 
+  const startRotate = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const currentLayer = layerRef.current;
+    const center = currentLayer.transform.pos;
+    const pointerScene = pointerToScene(event.clientX, event.clientY);
+
+    const dx = pointerScene.x - center.x;
+    const dy = pointerScene.y - center.y;
+    const startAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+
+    dragStateRef.current = {
+      type: 'rotate',
+      pointerId: event.pointerId,
+      center,
+      startAngle,
+      startRotation: currentLayer.transform.rot,
+      historySnapshot: cloneSceneForHistory(useAppStore.getState().getCurrentScene()),
+      historyApplied: false,
+    };
+
+    window.addEventListener('pointermove', handlePointerMove, { passive: false });
+    window.addEventListener('pointerup', endDrag);
+    window.addEventListener('pointercancel', endDrag);
+    (event.target as HTMLElement).setPointerCapture(event.pointerId);
+  };
+
   const handlePointerMove = useCallback(
     (event: PointerEvent) => {
       const dragState = dragStateRef.current;
@@ -188,14 +231,56 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
       };
 
       if (dragState.type === 'move') {
-        const newPos = {
+        let newPos = {
           x: pointerScene.x - dragState.offsetX,
           y: pointerScene.y - dragState.offsetY,
         };
+
+        // Handle shift-constrained movement
+        if (event.shiftKey) {
+          // Determine locked axis if not yet locked
+          if (dragState.lockedAxis === null) {
+            const deltaX = Math.abs(newPos.x - dragState.startPos.x);
+            const deltaY = Math.abs(newPos.y - dragState.startPos.y);
+
+            // Lock to the axis with more movement (threshold to avoid locking too early)
+            if (deltaX > 5 || deltaY > 5) {
+              dragState.lockedAxis = deltaX > deltaY ? 'x' : 'y';
+            }
+          }
+
+          // Apply axis constraint
+          if (dragState.lockedAxis === 'x') {
+            newPos.y = dragState.startPos.y;
+          } else if (dragState.lockedAxis === 'y') {
+            newPos.x = dragState.startPos.x;
+          }
+        } else {
+          // Reset locked axis when shift is released
+          dragState.lockedAxis = null;
+        }
+
         updateLayer(currentLayer.id, {
           transform: {
             ...currentLayer.transform,
             pos: newPos,
+          },
+        }, historyOptions());
+        requestCurrentStreamFrame();
+        return;
+      }
+
+      if (dragState.type === 'rotate') {
+        const dx = pointerScene.x - dragState.center.x;
+        const dy = pointerScene.y - dragState.center.y;
+        const currentAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+        const angleDelta = currentAngle - dragState.startAngle;
+        const newRotation = dragState.startRotation + angleDelta;
+
+        updateLayer(currentLayer.id, {
+          transform: {
+            ...currentLayer.transform,
+            rot: newRotation,
           },
         }, historyOptions());
         requestCurrentStreamFrame();
@@ -273,27 +358,26 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
         return;
       }
 
-      if (currentLayer.type === 'image') {
-        const locked = currentLayer.scaleLocked ?? true;
+      if (currentLayer.type === 'image' || currentLayer.type === 'shape' || currentLayer.type === 'screen') {
+        const locked = currentLayer.type === 'image' || currentLayer.type === 'shape' || currentLayer.type === 'screen'
+          ? (currentLayer.scaleLocked ?? true)
+          : true;
         const minScaleX = Math.max(MIN_SIZE / baseSize.width, IMAGE_SCALE_MIN);
         const minScaleY = Math.max(MIN_SIZE / baseSize.height, IMAGE_SCALE_MIN);
         newScaleX = Math.min(IMAGE_SCALE_MAX, Math.max(newScaleX, minScaleX));
         newScaleY = Math.min(IMAGE_SCALE_MAX, Math.max(newScaleY, minScaleY));
         if (locked) {
-          const uniformScale = Math.min(newScaleX, newScaleY);
-          newScaleX = uniformScale;
-          newScaleY = uniformScale;
-        }
-      } else if (currentLayer.type === 'shape') {
-        const locked = currentLayer.scaleLocked ?? true;
-        const minScaleX = Math.max(MIN_SIZE / baseSize.width, IMAGE_SCALE_MIN);
-        const minScaleY = Math.max(MIN_SIZE / baseSize.height, IMAGE_SCALE_MIN);
-        newScaleX = Math.min(IMAGE_SCALE_MAX, Math.max(newScaleX, minScaleX));
-        newScaleY = Math.min(IMAGE_SCALE_MAX, Math.max(newScaleY, minScaleY));
-        if (locked) {
-          const uniformScale = Math.min(newScaleX, newScaleY);
-          newScaleX = uniformScale;
-          newScaleY = uniformScale;
+          // Maintain current aspect ratio instead of forcing uniform scale
+          const currentRatio = currentLayer.transform.scale.x / currentLayer.transform.scale.y;
+          // Use the dimension with larger scale as the driver
+          if (Math.abs(newScaleX) >= Math.abs(newScaleY)) {
+            newScaleY = newScaleX / currentRatio;
+          } else {
+            newScaleX = newScaleY * currentRatio;
+          }
+          // Re-clamp after ratio adjustment
+          newScaleX = Math.min(IMAGE_SCALE_MAX, Math.max(newScaleX, minScaleX));
+          newScaleY = Math.min(IMAGE_SCALE_MAX, Math.max(newScaleY, minScaleY));
         }
       }
 
@@ -347,6 +431,7 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
 
   return (
     <div style={boxStyle} onPointerDown={startMove} onDoubleClick={handleDoubleClick}>
+      {/* Resize handles */}
       {handles.map((handle) => (
         <button
           key={handle.key}
@@ -355,12 +440,12 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
             position: 'absolute',
             left: handle.left,
             top: handle.top,
-            width: '16px',
-            height: '16px',
-            borderRadius: '4px',
-            border: '1px solid rgba(255, 255, 255, 0.75)',
-            background: 'rgba(0, 166, 255, 0.95)',
-            cursor: 'nwse-resize',
+            width: '12px',
+            height: '12px',
+            borderRadius: '50%',
+            border: '2px solid #000000',
+            background: '#ffffff',
+            cursor: handle.cursor,
             pointerEvents: 'auto',
             transform: 'translate(-50%, -50%)',
             padding: 0,
@@ -368,6 +453,38 @@ export function TransformControls({ layout, layer, scene, onRequestEdit }: Trans
           aria-label={`Resize ${handle.key}`}
         />
       ))}
+      {/* Rotation handle */}
+      <button
+        onPointerDown={startRotate}
+        style={{
+          position: 'absolute',
+          left: '50%',
+          top: '-30px',
+          width: '12px',
+          height: '12px',
+          borderRadius: '50%',
+          border: '2px solid #000000',
+          background: '#ffffff',
+          cursor: 'grab',
+          pointerEvents: 'auto',
+          transform: 'translate(-50%, -50%)',
+          padding: 0,
+        }}
+        aria-label="Rotate"
+      />
+      {/* Rotation handle connector line */}
+      <div
+        style={{
+          position: 'absolute',
+          left: '50%',
+          top: '-15px',
+          width: '2px',
+          height: '15px',
+          background: '#000000',
+          transform: 'translateX(-50%)',
+          pointerEvents: 'none',
+        }}
+      />
     </div>
   );
 }

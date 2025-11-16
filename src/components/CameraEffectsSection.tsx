@@ -17,14 +17,20 @@ export function CameraEffectsSection({ heading }: CameraEffectsSectionProps) {
     mode,
     quality,
     engine,
-    background,
     blurRadius,
+    backgroundColor,
+    chromaKeyColor,
+    chromaKeyTolerance,
+    edgeSoftness,
     setEnabled,
     setMode,
     setQuality,
     setEngine,
-    setBackground,
     setBlurRadius,
+    setBackgroundColor,
+    setChromaKeyColor,
+    setChromaKeyTolerance,
+    setEdgeSoftness,
   } = useVideoEffectsStore();
 
   const renderHeading = heading ? (
@@ -57,9 +63,9 @@ export function CameraEffectsSection({ heading }: CameraEffectsSectionProps) {
           style={styles.select}
         >
           <option value="off">Off</option>
-          <option value="blur">Blur</option>
-          <option value="replace">Replace</option>
-          <option value="chroma">Chroma</option>
+          <option value="blur">Blur Background</option>
+          <option value="removeBackground">Remove Background</option>
+          <option value="chromaKey">Chroma Key</option>
         </select>
       </label>
 
@@ -89,7 +95,6 @@ export function CameraEffectsSection({ heading }: CameraEffectsSectionProps) {
           }}
           style={styles.select}
         >
-          <option value="mock">Mock</option>
           <option value="mediapipe">MediaPipe</option>
           <option value="onnx">ONNX</option>
         </select>
@@ -115,24 +120,125 @@ export function CameraEffectsSection({ heading }: CameraEffectsSectionProps) {
         </label>
       )}
 
-      {mode === "replace" && (
-        <label style={styles.column}>
-          <span>Background (optional URL/data URI)</span>
-          <input
-            type="text"
-            value={background ?? ""}
-            onChange={(event) => {
-              const value = event.target.value;
-              setBackground(value || null);
-              requestCurrentStreamFrame();
-            }}
-            placeholder="https://… or data:image/png;base64,…"
-            style={styles.textInput}
-          />
-          <span style={styles.hint}>
-            Leave empty for green screen effect
-          </span>
-        </label>
+      {mode === "removeBackground" && (
+        <>
+          <label style={styles.column}>
+            <span>Background Color</span>
+            <div style={styles.colorPickerRow}>
+              <input
+                type="color"
+                value={backgroundColor}
+                onChange={(event) => {
+                  setBackgroundColor(event.target.value);
+                  requestCurrentStreamFrame();
+                }}
+                style={styles.colorInput}
+              />
+              <input
+                type="text"
+                value={backgroundColor}
+                onChange={(event) => {
+                  setBackgroundColor(event.target.value);
+                  requestCurrentStreamFrame();
+                }}
+                placeholder="#00ff00"
+                style={styles.textInput}
+              />
+            </div>
+            <span style={styles.hint}>
+              Color shown behind removed background
+            </span>
+          </label>
+
+          <label style={styles.sliderGroup}>
+            <span style={styles.sliderLabel}>
+              <span>Edge softness</span>
+              <span style={styles.sliderValue}>{edgeSoftness}px</span>
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={20}
+              step={1}
+              value={edgeSoftness}
+              onChange={(event) => {
+                setEdgeSoftness(event.currentTarget.valueAsNumber);
+                requestCurrentStreamFrame();
+              }}
+            />
+          </label>
+        </>
+      )}
+
+      {mode === "chromaKey" && (
+        <>
+          <label style={styles.column}>
+            <span>Key Color</span>
+            <div style={styles.colorPickerRow}>
+              <input
+                type="color"
+                value={chromaKeyColor}
+                onChange={(event) => {
+                  setChromaKeyColor(event.target.value);
+                  requestCurrentStreamFrame();
+                }}
+                style={styles.colorInput}
+              />
+              <input
+                type="text"
+                value={chromaKeyColor}
+                onChange={(event) => {
+                  setChromaKeyColor(event.target.value);
+                  requestCurrentStreamFrame();
+                }}
+                placeholder="#00ff00"
+                style={styles.textInput}
+              />
+            </div>
+            <span style={styles.hint}>
+              Color to remove (usually green or blue)
+            </span>
+          </label>
+
+          <label style={styles.sliderGroup}>
+            <span style={styles.sliderLabel}>
+              <span>Tolerance</span>
+              <span style={styles.sliderValue}>{chromaKeyTolerance}%</span>
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={chromaKeyTolerance}
+              onChange={(event) => {
+                setChromaKeyTolerance(event.currentTarget.valueAsNumber);
+                requestCurrentStreamFrame();
+              }}
+            />
+            <span style={styles.hint}>
+              How much color variation to accept
+            </span>
+          </label>
+
+          <label style={styles.sliderGroup}>
+            <span style={styles.sliderLabel}>
+              <span>Edge softness</span>
+              <span style={styles.sliderValue}>{edgeSoftness}px</span>
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={20}
+              step={1}
+              value={edgeSoftness}
+              onChange={(event) => {
+                setEdgeSoftness(event.currentTarget.valueAsNumber);
+                requestCurrentStreamFrame();
+              }}
+            />
+          </label>
+        </>
       )}
     </div>
   );
@@ -200,12 +306,26 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 12,
     color: "rgba(255, 255, 255, 0.8)",
   },
+  colorPickerRow: {
+    display: "flex",
+    gap: 6,
+    alignItems: "center",
+  },
+  colorInput: {
+    width: 40,
+    height: 28,
+    border: "1px solid rgba(255, 255, 255, 0.12)",
+    borderRadius: 4,
+    cursor: "pointer",
+  },
   textInput: {
+    flex: 1,
     background: "rgba(0, 0, 0, 0.3)",
     border: "1px solid rgba(255, 255, 255, 0.12)",
     color: "#f5f5f5",
     borderRadius: 4,
     padding: "6px",
+    fontSize: 12,
   },
   hint: {
     fontSize: 11,

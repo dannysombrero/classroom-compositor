@@ -134,7 +134,7 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
     const layerMap = new Map(scene.layers.map((layer) => [layer.id, layer]));
     return selection
       .map((id) => layerMap.get(id))
-      .filter((layer): layer is Layer => !!layer && !skipIds.has(layer.id));
+      .filter((layer): layer is Layer => !!layer && !skipIds.has(layer.id) && layer.type !== 'group');
   }, [scene, selection, skipIds]);
 
   const pointerToScene = useCallback(
@@ -449,26 +449,29 @@ export function CanvasSelectionOverlay({ layout, scene, skipLayerIds }: CanvasSe
 
   const selectionOutlines = selectedLayers.map((layer) => {
     const bounds = computeBounds(layer, scene);
-    const left = layout.x + bounds.minX * layout.scaleX;
-    const top = layout.y + bounds.minY * layout.scaleY;
     const width = Math.max(0, (bounds.maxX - bounds.minX) * layout.scaleX);
     const height = Math.max(0, (bounds.maxY - bounds.minY) * layout.scaleY);
     const isPrimary = selectionRef.current[0] === layer.id;
+
+    // Position at center and apply rotation
+    const centerX = layout.x + layer.transform.pos.x * layout.scaleX;
+    const centerY = layout.y + layer.transform.pos.y * layout.scaleY;
 
     return (
       <div
         key={`selection-${layer.id}`}
         style={{
           position: 'fixed',
-          left,
-          top,
+          left: `${centerX}px`,
+          top: `${centerY}px`,
           width,
           height,
-          border: isPrimary ? '2px solid rgba(0, 166, 255, 0.95)' : '1px dashed rgba(0, 166, 255, 0.75)',
-          boxShadow: isPrimary ? '0 0 0 1px rgba(0, 166, 255, 0.35)' : '0 0 0 1px rgba(0, 166, 255, 0.25)',
-          backgroundColor: isPrimary ? 'rgba(0, 166, 255, 0.12)' : 'rgba(0, 166, 255, 0.08)',
+          border: isPrimary ? '2px solid #000000' : '1px dashed #000000',
+          backgroundColor: 'transparent',
           pointerEvents: 'none',
           zIndex: 11,
+          transform: `translate(-50%, -50%) rotate(${layer.transform.rot}deg)`,
+          transformOrigin: 'center center',
         }}
       />
     );

@@ -14,6 +14,21 @@ export default function ViewerPage() {
   const [needsTap, setNeedsTap] = useState(false);
   const [connecting, setConnecting] = useState(true);
   const [iceState, setIceState] = useState<string>("new");
+  const [hasVideoFrames, setHasVideoFrames] = useState(false);
+  const prevConnectingRef = useRef(connecting);
+
+  // Reset hasVideoFrames when reconnecting (not during initial connection)
+  useEffect(() => {
+    const wasNotConnecting = !prevConnectingRef.current;
+    const isNowConnecting = connecting;
+
+    // Only reset if we transition FROM not-connecting TO connecting (reconnect)
+    if (wasNotConnecting && isNowConnecting) {
+      setHasVideoFrames(false);
+    }
+
+    prevConnectingRef.current = connecting;
+  }, [connecting]);
 
   const tryPlay = () => {
     const v = videoRef.current;
@@ -99,18 +114,49 @@ export default function ViewerPage() {
 
       const v = videoRef.current;
       if (v) {
+        let lastStreamId: string | null = null;
+
         const onResize = () => {
           console.log("[VIEWER] video resize →", v.videoWidth, "x", v.videoHeight);
           if (v.videoWidth && v.videoHeight) {
             setConnecting(false);
+            setHasVideoFrames(true);
             if (v.paused) tryPlay();
           }
         };
+        const onLoadedData = () => {
+          setHasVideoFrames(true);
+        };
+        const onEmptied = () => {
+          // Only reset if srcObject is actually null (stream removed)
+          if (!v.srcObject) {
+            setHasVideoFrames(false);
+            lastStreamId = null;
+          }
+        };
+        const onLoadStart = () => {
+          // Track the stream ID to detect actual changes
+          const currentStream = v.srcObject as MediaStream | null;
+          const currentId = currentStream?.id;
+
+          // Only reset if this is a genuinely different stream
+          if (currentId && currentId !== lastStreamId) {
+            setHasVideoFrames(false);
+            lastStreamId = currentId;
+          }
+        };
+
         v.addEventListener("resize", onResize);
+        v.addEventListener("loadeddata", onLoadedData);
+        v.addEventListener("emptied", onEmptied);
+        v.addEventListener("loadstart", onLoadStart);
         v.onloadedmetadata = () => tryPlay();
 
-        // Store remover on the element so we can cleanly remove in cleanup
+        // Store removers on the element so we can cleanly remove in cleanup
         (v as any).__onResize = onResize;
+        (v as any).__onLoadedData = onLoadedData;
+        (v as any).__onEmptied = onEmptied;
+        (v as any).__onLoadStart = onLoadStart;
       }
 
       window.addEventListener(
@@ -129,12 +175,28 @@ export default function ViewerPage() {
         v.removeEventListener("resize", (v as any).__onResize);
         delete (v as any).__onResize;
       }
+      if (v && (v as any).__onLoadedData) {
+        v.removeEventListener("loadeddata", (v as any).__onLoadedData);
+        delete (v as any).__onLoadedData;
+      }
+      if (v && (v as any).__onEmptied) {
+        v.removeEventListener("emptied", (v as any).__onEmptied);
+        delete (v as any).__onEmptied;
+      }
+      if (v && (v as any).__onLoadStart) {
+        v.removeEventListener("loadstart", (v as any).__onLoadStart);
+        delete (v as any).__onLoadStart;
+      }
       if (v && (v as any).__onFirstResize) {
         try { v.removeEventListener("resize", (v as any).__onFirstResize); } catch {}
         try { delete (v as any).__onFirstResize; } catch {}
       }
       if (v?.srcObject) {
-        (v.srcObject as MediaStream).getTracks().forEach((t) => t.stop());
+        const stream = v.srcObject as MediaStream;
+        stream.getTracks().forEach((t) => {
+          t.stop();
+          stream.removeTrack(t);
+        });
         v.srcObject = null;
       }
     };
@@ -145,7 +207,7 @@ export default function ViewerPage() {
     tryPlay();
   };
 
-  const showOverlay = connecting || needsTap;
+  const showOverlay = connecting || needsTap || !hasVideoFrames;
 
   return (
     <div style={styles.page}>
@@ -171,8 +233,10 @@ export default function ViewerPage() {
             {showOverlay && (
               <div style={styles.overlayCenter}>
                 <div style={styles.overlayChip}>
-                  {connecting && <span style={styles.spinner} />}
-                  <span>{needsTap ? "Tap to Play" : "Loading stream…"}</span>
+                  {(connecting || !hasVideoFrames) && <span style={styles.spinner} />}
+                  <span>
+                    {needsTap ? "Tap to Play" : connecting ? "Connecting..." : "Waiting for Stream to Begin..."}
+                  </span>
                 </div>
                 {needsTap && (
                   <button onClick={handleTapToPlay} style={styles.btn}>

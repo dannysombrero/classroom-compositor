@@ -3,8 +3,16 @@ import { useVideoEffectsStore, type EffectMode, type EffectQuality, type EffectE
 
 export function PresenterEffectsControls() {
   const {
-    enabled, mode, quality, engine, background,
-    setEnabled, setMode, setQuality, setEngine, setBackground,
+    enabled,
+    mode,
+    quality,
+    engine,
+    backgroundColor,
+    setEnabled,
+    setMode,
+    setQuality,
+    setEngine,
+    setBackgroundColor,
   } = useVideoEffectsStore();
 
   return (
@@ -49,7 +57,6 @@ export function PresenterEffectsControls() {
           value={engine}
           onChange={(e) => setEngine(e.target.value as EffectEngine)}
         >
-          <option value="mock">Mock</option>
           <option value="mediapipe">MediaPipe</option>
           <option value="onnx">ONNX</option>
         </select>
@@ -59,9 +66,9 @@ export function PresenterEffectsControls() {
         <span style={{ width: 72, opacity: 0.8 }}>Background</span>
         <input
           type="text"
-          placeholder="(optional) URL or data URI"
-          value={background ?? ""}
-          onChange={(e) => setBackground(e.target.value || null)}
+          placeholder="Hex color"
+          value={backgroundColor}
+          onChange={(e) => setBackgroundColor(e.target.value)}
           style={{ flex: 1 }}
         />
       </label>
