@@ -85,7 +85,7 @@ function PresenterPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewerWindowRef = useRef<Window | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const hostRef = useRef<{ stop: () => void } | null>(null);
+  const hostRef = useRef<HostHandle | null>(null);
   const viewerCheckIntervalRef = useRef<number | null>(null);
 
   const [sessionId, setSessionId] = useState<string>("");
@@ -116,6 +116,18 @@ function PresenterPage() {
   const [cameraTrackForEffects, setCameraTrackForEffects] = useState<MediaStreamTrack | null>(null);
   const [cameraLayerForEffects, setCameraLayerForEffects] = useState<string | null>(null);
   const processedCameraTrack = useBackgroundEffectTrack(cameraTrackForEffects);
+
+  const isViewerOpenRef = useRef(isViewerOpen);
+  const isPresentationModeRef = useRef(isPresentationMode);
+  const isHostLiveRef = useRef(false);
+
+  useEffect(() => {
+    isViewerOpenRef.current = isViewerOpen;
+  }, [isViewerOpen]);
+
+  useEffect(() => {
+    isPresentationModeRef.current = isPresentationMode;
+  }, [isPresentationMode]);
 
   const sceneLayers: Layer[] = useAppStore((state) => {
     if (!state.currentSceneId) return EMPTY_LAYERS;
@@ -545,6 +557,44 @@ function PresenterPage() {
     return stream;
   }, [showControlStrip]);
 
+  const stopCanvasStream = useCallback((reason?: string) => {
+    if (!streamRef.current) return;
+    const streamToClean = streamRef.current;
+    console.log("🧹 [canvasStream] Stopping canvas stream", reason ?? "");
+
+    const tracks = streamToClean.getTracks();
+    tracks.forEach((track) => {
+      try {
+        track.stop();
+      } catch (err) {
+        console.warn("Failed to stop canvas track", err);
+      }
+      try {
+        streamToClean.removeTrack(track);
+      } catch (err) {
+        console.warn("Failed to remove canvas track", err);
+      }
+      try {
+        (track as any).enabled = false;
+      } catch {
+        // noop - best effort to help GC
+      }
+    });
+
+    streamRef.current = null;
+    setCurrentStream(null);
+  }, []);
+
+  const releaseCanvasStreamIfIdle = useCallback(
+    (reason?: string) => {
+      if (isViewerOpenRef.current) return;
+      if (isPresentationModeRef.current) return;
+      if (isHostLiveRef.current) return;
+      stopCanvasStream(reason);
+    },
+    [stopCanvasStream],
+  );
+
   const startStreaming = useCallback((canvas: HTMLCanvasElement) => {
     // Get or create the stream (will reuse if already live!)
     const stream = ensureCanvasStreamExists();
@@ -605,6 +655,7 @@ function PresenterPage() {
     }
     viewerWindowRef.current = viewer;
     setIsViewerOpen(true);
+    isViewerOpenRef.current = true;
     showControlStrip();
 
     viewer.addEventListener("load", () => {
@@ -618,13 +669,15 @@ function PresenterPage() {
         clearInterval(checkClosed);
         viewerCheckIntervalRef.current = null;
         setIsViewerOpen(false);
+        isViewerOpenRef.current = false;
         viewerWindowRef.current = null;
 
         // Keep the canvas stream alive for reuse!
         // This prevents creating 10 new streams when opening viewer 10 times.
         // The stream will be reused via ensureCanvasStreamExists() on next open.
-        // We only stop the stream on component unmount.
-        console.log("✅ [openViewer] Viewer closed, keeping canvas stream alive for reuse");
+        // The stream is only kept alive if other consumers still need it.
+        console.log("✅ [openViewer] Viewer closed");
+        releaseCanvasStreamIfIdle("viewer window closed");
       }
     }, 500);
     viewerCheckIntervalRef.current = checkClosed as unknown as number;
@@ -858,6 +911,12 @@ function PresenterPage() {
   }, [showControlStrip]);
 
   useEffect(() => {
+    if (!isPresentationMode) {
+      releaseCanvasStreamIfIdle("presentation mode inactive");
+    }
+  }, [isPresentationMode, releaseCanvasStreamIfIdle]);
+
+  useEffect(() => {
     const hotkeys: KeyBindingMap = {
       f: (e: KeyboardEvent) => { if (isTextInputTarget(e)) return; e.preventDefault(); togglePresentationMode(); },
       Escape: (e: KeyboardEvent) => { if (!isPresentationMode) return; e.preventDefault(); exitPresentationMode(); },
@@ -947,33 +1006,17 @@ function PresenterPage() {
   // Cleanup
   useEffect(() => {
     return () => {
-      if (streamRef.current) {
-        console.log("🧹 [cleanup] Aggressively cleaning up canvas stream");
-        const streamToClean = streamRef.current;
-
-        // Remove all tracks first
-        const tracks = streamToClean.getTracks();
-        console.log(`🧹 [cleanup] Stopping ${tracks.length} tracks`);
-        tracks.forEach((t) => {
-          try {
-            t.stop();
-            streamToClean.removeTrack(t);
-            // @ts-ignore - Force null any internal references
-            t.enabled = false;
-          } catch (err) {
-            console.warn("Failed to stop track", err);
-          }
-        });
-
-        // Clear refs
-        streamRef.current = null;
-        setCurrentStream(null);
-        console.log("✅ [cleanup] Stream cleanup complete");
-      }
+      stopCanvasStream("component unmount");
       layerIdsRef.current.forEach((id) => stopSource(id));
       if (viewerWindowRef.current && !viewerWindowRef.current.closed) viewerWindowRef.current.close();
+      const hostHandle = hostRef.current;
+      if (hostHandle) {
+        hostRef.current = null;
+        isHostLiveRef.current = false;
+        hostHandle.stop().catch((err) => console.warn("Failed to stop host on unmount", err));
+      }
     };
-  }, []);
+  }, [stopCanvasStream]);
 
   // === Go Live ===
   const HOST_ID = "host-123";
@@ -1040,6 +1083,7 @@ function PresenterPage() {
         sendAudio: false,        // optional: change to true if you want mic on at Go Live
         loadingText: "Waiting for presenter…",
       });
+      isHostLiveRef.current = true;
       console.log("✅ [handleGoLive] WebRTC host started");
 
       // 5) Activate join code and reflect it in UI
