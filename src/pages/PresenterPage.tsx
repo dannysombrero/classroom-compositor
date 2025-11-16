@@ -517,18 +517,14 @@ function PresenterPage() {
     streamRef.current = stream;
     setCurrentStream(stream);
 
+    // CRITICAL: Force canvas re-render to ensure stream has frames
+    // The canvas uses dirty rendering, so if nothing has changed recently,
+    // the stream will be empty (no frames). Request a frame to trigger a render.
+    requestCurrentStreamFrame();
+    console.log("✅ [ensureStream] Requested initial frame to populate stream");
+
     // Set up ended handler ONCE when stream is created
     const track = stream.getVideoTracks()[0];
-
-    // Request initial frame to kickstart the stream
-    if (track && typeof (track as any).requestFrame === 'function') {
-      try {
-        (track as any).requestFrame();
-        console.log("✅ [ensureStream] Requested initial frame to kickstart stream");
-      } catch (error) {
-        console.warn("⚠️ [ensureStream] Failed to request initial frame:", error);
-      }
-    }
     if (track) {
       const handleEnded = () => {
         console.log("🛑 [ensureStream] Canvas track ended");
