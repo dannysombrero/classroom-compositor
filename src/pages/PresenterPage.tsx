@@ -735,22 +735,23 @@ function PresenterPage() {
       }
       if (payload.type === "viewer-ready") {
         console.log("📨 [session] Received viewer-ready (deduped handler)");
-        // NOTE: Don't send stream here - let the viewer send request-stream first.
-        // This prevents double delivery (viewer-ready → send, then request-stream → send again).
-        // The viewer will send request-stream immediately after viewer-ready anyway.
-        console.log("✅ [session] Viewer acknowledged, waiting for stream request");
-      } else if (payload.type === "request-stream") {
-        console.log("📨 [session] Received request-stream (deduped handler)");
         if (!canvasRef.current) {
           console.warn("⚠️ [session] Cannot send stream - no canvas available");
           return;
         }
-        // Ensure stream exists (will reuse existing or create new)
+        // Ensure stream exists and send it immediately for fast handshake
         const stream = ensureCanvasStreamExists();
         if (stream && viewerWindowRef.current) {
           console.log("📤 [session] Sending stream to viewer");
           sendStreamToViewer(viewerWindowRef.current, stream);
         }
+      } else if (payload.type === "request-stream") {
+        console.log("📨 [session] Received request-stream (deduped handler)");
+        // This happens when viewer explicitly requests (reconnect button)
+        // or after receiving stream-announce message
+        // We can safely ignore since viewer already has access via opener.currentStream
+        // The stream was already registered in sendStreamToViewer() from viewer-ready
+        console.log("✅ [session] Stream already available via registry, viewer will retrieve it");
       }
     });
     return () => removeSessionListener();
