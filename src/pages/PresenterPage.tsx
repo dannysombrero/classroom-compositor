@@ -864,6 +864,60 @@ function PresenterPage() {
     }
   }, [goLive, ensureCanvasStreamExists]);
 
+  const handleStartStreamTest = useCallback(async () => {
+    console.log("🧪 [START STREAM TEST] Starting stream and minimizing browser...");
+
+    // 1) Ensure canvas stream is running
+    const stream = ensureCanvasStreamExists();
+    if (!stream) {
+      console.error("❌ [START STREAM TEST] Failed to create stream");
+      return;
+    }
+
+    const track = stream.getVideoTracks()[0];
+    console.log("✅ [START STREAM TEST] Stream active:", {
+      streamId: stream.id,
+      trackId: track?.id,
+      trackState: track?.readyState,
+    });
+
+    // 2) Open viewer window if not already open (this will background the presenter)
+    if (!viewerWindowRef.current || viewerWindowRef.current.closed) {
+      console.log("📺 [START STREAM TEST] Opening viewer window...");
+      openViewer();
+    } else {
+      viewerWindowRef.current.focus();
+      console.log("📺 [START STREAM TEST] Focusing existing viewer window...");
+    }
+
+    // 3) Attempt to minimize/background the presenter window
+    // Note: Browser security prevents true minimize, but we can try to blur/background it
+    try {
+      window.blur();
+      console.log("🔽 [START STREAM TEST] Window blurred (backgrounded)");
+    } catch (err) {
+      console.warn("⚠️ [START STREAM TEST] Could not blur window:", err);
+    }
+
+    // 4) Monitor stream status
+    const monitorInterval = setInterval(() => {
+      const currentTrack = stream.getVideoTracks()[0];
+      if (!currentTrack || currentTrack.readyState !== 'live') {
+        console.error("❌ [START STREAM TEST] Stream is no longer live!");
+        clearInterval(monitorInterval);
+      } else {
+        console.log("✅ [START STREAM TEST] Stream still active:", currentTrack.readyState);
+      }
+    }, 2000);
+
+    // Stop monitoring after 30 seconds
+    setTimeout(() => {
+      clearInterval(monitorInterval);
+      console.log("🛑 [START STREAM TEST] Stopped monitoring");
+    }, 30000);
+
+  }, [ensureCanvasStreamExists, openViewer]);
+
   return (
     <div
       style={{
@@ -1000,6 +1054,27 @@ function PresenterPage() {
             )}
           </>
         )}
+
+        {/* START STREAM (temp) button - always visible for testing */}
+        <button
+          onClick={handleStartStreamTest}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            background: "#3b82f6",
+            color: "white",
+            border: "none",
+            borderRadius: 8,
+            padding: "6px 12px",
+            cursor: "pointer",
+            fontWeight: 700,
+            marginLeft: 12,
+          }}
+          title="Test stream with browser minimize"
+        >
+          START STREAM (temp)
+        </button>
 
         {/* 👇 New: inline error feedback */}
       </div>
