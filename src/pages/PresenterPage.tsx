@@ -881,25 +881,26 @@ function PresenterPage() {
       trackState: track?.readyState,
     });
 
-    // 2) Open viewer window if not already open (this will background the presenter)
-    if (!viewerWindowRef.current || viewerWindowRef.current.closed) {
-      console.log("📺 [START STREAM TEST] Opening viewer window...");
-      openViewer();
-    } else {
-      viewerWindowRef.current.focus();
-      console.log("📺 [START STREAM TEST] Focusing existing viewer window...");
-    }
-
-    // 3) Attempt to minimize/background the presenter window
-    // Note: Browser security prevents true minimize, but we can try to blur/background it
+    // 2) Attempt to minimize the presenter window
+    // Note: Browsers restrict true minimize for security. This opens a small temporary
+    // window to force the current window to background/minimize
     try {
-      window.blur();
-      console.log("🔽 [START STREAM TEST] Window blurred (backgrounded)");
+      const tempWindow = window.open('about:blank', '_blank', 'width=100,height=100');
+      if (tempWindow) {
+        console.log("🔽 [START STREAM TEST] Opened temp window to background presenter");
+        // Close the temp window after a moment
+        setTimeout(() => {
+          tempWindow.close();
+          console.log("🔽 [START STREAM TEST] Closed temp window");
+        }, 1000);
+      } else {
+        console.warn("⚠️ [START STREAM TEST] Could not open temp window (popup blocker?)");
+      }
     } catch (err) {
-      console.warn("⚠️ [START STREAM TEST] Could not blur window:", err);
+      console.warn("⚠️ [START STREAM TEST] Could not minimize window:", err);
     }
 
-    // 4) Monitor stream status
+    // 3) Monitor stream status
     const monitorInterval = setInterval(() => {
       const currentTrack = stream.getVideoTracks()[0];
       if (!currentTrack || currentTrack.readyState !== 'live') {
@@ -916,7 +917,7 @@ function PresenterPage() {
       console.log("🛑 [START STREAM TEST] Stopped monitoring");
     }, 30000);
 
-  }, [ensureCanvasStreamExists, openViewer]);
+  }, [ensureCanvasStreamExists]);
 
   return (
     <div
