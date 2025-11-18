@@ -56,7 +56,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
 
   const isSelected = (layerId: string) => selection.includes(layerId);
 
-  const handleRowClick = (event: ReactMouseEvent<HTMLButtonElement>, layerId: string) => {
+  const handleRowClick = (event: ReactMouseEvent<HTMLElement>, layerId: string) => {
     const multi = event.shiftKey || event.metaKey || event.ctrlKey;
     if (multi) {
       if (isSelected(layerId)) {
@@ -94,7 +94,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
     requestCurrentStreamFrame();
   };
 
-  const handleDragStart = (event: DragEvent<HTMLButtonElement>, layerId: string) => {
+  const handleDragStart = (event: DragEvent<HTMLElement>, layerId: string) => {
     setDraggingId(layerId);
     setDragOverId(layerId);
     event.dataTransfer.effectAllowed = 'move';
@@ -105,7 +105,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
     }
   };
 
-  const handleDragOver = (event: DragEvent<HTMLButtonElement>, layerId: string) => {
+  const handleDragOver = (event: DragEvent<HTMLElement>, layerId: string) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
     if (dragOverId !== layerId) {
@@ -113,7 +113,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
     }
   };
 
-  const handleDrop = (event: DragEvent<HTMLButtonElement>, targetId: string) => {
+  const handleDrop = (event: DragEvent<HTMLElement>, targetId: string) => {
     event.preventDefault();
     if (!draggingId || draggingId === targetId) {
       setDraggingId(null);
