@@ -922,7 +922,7 @@ function PresenterPage() {
   }, [setStreamingStatus, setCompactPresenter]);
 
   const handleStartStreamTest = useCallback(async () => {
-    console.log("🧪 [START STREAM TEST] Starting stream and minimizing browser...");
+    console.log("🧪 [START STREAM TEST] Testing delayed screen share flow...");
 
     // 1) Ensure canvas stream is running
     const stream = ensureCanvasStreamExists();
@@ -938,43 +938,18 @@ function PresenterPage() {
       trackState: track?.readyState,
     });
 
-    // 2) Attempt to minimize the presenter window
-    // Note: Browsers restrict true minimize for security. This opens a small temporary
-    // window to force the current window to background/minimize
-    try {
-      const tempWindow = window.open('about:blank', '_blank', 'width=100,height=100');
-      if (tempWindow) {
-        console.log("🔽 [START STREAM TEST] Opened temp window to background presenter");
-        // Close the temp window after a moment
-        setTimeout(() => {
-          tempWindow.close();
-          console.log("🔽 [START STREAM TEST] Closed temp window");
-        }, 1000);
-      } else {
-        console.warn("⚠️ [START STREAM TEST] Could not open temp window (popup blocker?)");
-      }
-    } catch (err) {
-      console.warn("⚠️ [START STREAM TEST] Could not minimize window:", err);
-    }
+    // 2) Show compact controls FIRST
+    setStreamingStatus('live');
+    setCompactPresenter(true);
+    console.log("✅ [START STREAM TEST] Compact controls shown");
 
-    // 3) Monitor stream status
-    const monitorInterval = setInterval(() => {
-      const currentTrack = stream.getVideoTracks()[0];
-      if (!currentTrack || currentTrack.readyState !== 'live') {
-        console.error("❌ [START STREAM TEST] Stream is no longer live!");
-        clearInterval(monitorInterval);
-      } else {
-        console.log("✅ [START STREAM TEST] Stream still active:", currentTrack.readyState);
-      }
-    }, 2000);
+    // 3) THEN activate pending screen shares (after compact controls appear)
+    setTimeout(async () => {
+      console.log("🧪 [START STREAM TEST] Now activating screen shares...");
+      await activatePendingScreenShares();
+    }, 500); // Small delay to ensure compact controls are rendered
 
-    // Stop monitoring after 30 seconds
-    setTimeout(() => {
-      clearInterval(monitorInterval);
-      console.log("🛑 [START STREAM TEST] Stopped monitoring");
-    }, 30000);
-
-  }, [ensureCanvasStreamExists]);
+  }, [ensureCanvasStreamExists, setStreamingStatus, setCompactPresenter, activatePendingScreenShares]);
 
   return (
     <div
