@@ -994,38 +994,34 @@ function PresenterPage() {
     console.log("▶️ Stream resumed - showing compact controls");
   }, [setStreamingStatus, setCompactPresenter]);
 
-  const handleStartStreamTest = useCallback(async () => {
-    console.log("🧪 [START STREAM TEST] Testing delayed screen share flow...");
+  const handleStartSession = useCallback(async () => {
+    console.log("🎬 [START SESSION] Creating room and preparing session...");
 
-    // 1) Detect monitors (requires user gesture, so do it here when user clicks button)
-    await detectAndUpdateMonitors();
+    try {
+      // 1) Detect monitors (requires user gesture, so do it here when user clicks button)
+      await detectAndUpdateMonitors();
 
-    // 2) Ensure canvas stream is running
-    const stream = ensureCanvasStreamExists();
-    if (!stream) {
-      console.error("❌ [START STREAM TEST] Failed to create stream");
-      return;
+      // 2) Create Firestore session and activate join code
+      await goLive(HOST_ID);
+      const s = useSessionStore.getState().session;
+      if (!s?.id) {
+        console.error("❌ [START SESSION] Couldn't create a session");
+        return;
+      }
+
+      const { codePretty } = await activateJoinCode(s.id);
+      useSessionStore.setState({ joinCode: codePretty, isJoinCodeActive: true });
+      console.log("✅ [START SESSION] Session created with join code:", codePretty);
+
+      // 3) Optionally open viewer window for local preview
+      // openViewer(); // Uncomment if you want viewer to open automatically
+
+      console.log("✅ [START SESSION] Ready to start streaming");
+
+    } catch (error) {
+      console.error("❌ [START SESSION] Failed to create session:", error);
     }
-
-    const track = stream.getVideoTracks()[0];
-    console.log("✅ [START STREAM TEST] Stream active:", {
-      streamId: stream.id,
-      trackId: track?.id,
-      trackState: track?.readyState,
-    });
-
-    // 3) Show compact controls FIRST
-    setStreamingStatus('live');
-    setCompactPresenter(true);
-    console.log("✅ [START STREAM TEST] Compact controls shown");
-
-    // 4) THEN activate pending screen shares (after compact controls appear)
-    setTimeout(async () => {
-      console.log("🧪 [START STREAM TEST] Now activating screen shares...");
-      await activatePendingScreenShares();
-    }, 500); // Small delay to ensure compact controls are rendered
-
-  }, [ensureCanvasStreamExists, setStreamingStatus, setCompactPresenter, activatePendingScreenShares, detectAndUpdateMonitors]);
+  }, [detectAndUpdateMonitors, goLive]);
 
   return (
     <div
@@ -1196,9 +1192,9 @@ function PresenterPage() {
           </>
         )}
 
-        {/* START STREAM (temp) button - always visible for testing */}
+        {/* START SESSION button - creates room and shows join code */}
         <button
-          onClick={handleStartStreamTest}
+          onClick={handleStartSession}
           style={{
             display: "inline-flex",
             alignItems: "center",
@@ -1212,9 +1208,9 @@ function PresenterPage() {
             fontWeight: 700,
             marginLeft: 12,
           }}
-          title="Test stream with browser minimize"
+          title="Create room and generate join code"
         >
-          START STREAM (temp)
+          START SESSION
         </button>
 
         {/* 👇 New: inline error feedback */}
