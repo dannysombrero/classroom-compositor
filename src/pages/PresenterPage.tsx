@@ -40,7 +40,7 @@ import {
 import { FloatingPanel } from "../components/FloatingPanel";
 import { LayersPanel } from "../components/LayersPanel";
 import { TransformControls } from "../components/TransformControls";
-import type { Layer, CameraLayer, TextLayer, Scene } from "../types/scene";
+import type { Layer, CameraLayer, ScreenLayer, TextLayer, Scene } from "../types/scene";
 import { CameraOverlayControls } from "../components/CameraOverlayControls";
 import { TextEditOverlay } from "../components/TextEditOverlay";
 import { ControlStrip } from "../components/ControlStrip";
