@@ -44,6 +44,43 @@ export function drawScreenLayer(
 
   applyTransform(ctx, layer.transform);
 
+  // Check if this is a pending screen share (no streamId)
+  const isPending = !layer.streamId;
+
+  if (isPending) {
+    // Draw placeholder for pending screen share
+    const width = 1920;
+    const height = 1080;
+
+    // Gray background
+    ctx.fillStyle = '#2a2a2a';
+    ctx.fillRect(-width / 2, -height / 2, width, height);
+
+    // Diagonal lines pattern
+    ctx.strokeStyle = '#404040';
+    ctx.lineWidth = 2;
+    const spacing = 40;
+    for (let i = -width; i < width + height; i += spacing) {
+      ctx.beginPath();
+      ctx.moveTo(i - height / 2, -height / 2);
+      ctx.lineTo(i + height / 2, height / 2);
+      ctx.stroke();
+    }
+
+    // Text: "Screen Share - Will activate when live"
+    ctx.fillStyle = '#888888';
+    ctx.font = 'bold 48px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Screen Share', 0, -40);
+    ctx.font = '32px system-ui, -apple-system, sans-serif';
+    ctx.fillText('Will activate when live', 0, 20);
+
+    ctx.restore();
+    return;
+  }
+
+  // Normal rendering: show video
   const video = getVideoForLayer(layer.id);
   if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
     ctx.restore();

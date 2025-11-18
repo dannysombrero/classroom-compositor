@@ -230,29 +230,15 @@ function PresenterPage() {
     const layerId = createId("layer");
     const layer = createScreenLayer(layerId, scene.width, scene.height);
 
+    // For 1-2 monitors: Add placeholder layer without activating screen share
+    // Screen share will activate when "Go Live" is pressed (after compact controls appear)
     setIsAddingScreen(true);
     addLayer(layer);
+    useAppStore.getState().setSelection([layerId]);
+    setIsAddingScreen(false);
 
-    try {
-      const result = await startScreenCapture(layerId);
-      if (!result) {
-        removeLayer(layerId);
-        return;
-      }
-      useAppStore.getState().setSelection([layerId]);
-      const track = result.stream.getVideoTracks()[0];
-      if (track) {
-        updateLayer(layerId, { streamId: track.id });
-        track.addEventListener("ended", () => {
-          stopSource(layerId);
-          useAppStore.getState().removeLayer(layerId);
-        });
-      }
-      requestCurrentStreamFrame();
-    } finally {
-      setIsAddingScreen(false);
-    }
-  }, [addLayer, getCurrentScene, isAddingScreen, removeLayer, updateLayer]);
+    console.log("📺 [Screen Layer] Added placeholder - will activate on Go Live");
+  }, [addLayer, getCurrentScene, isAddingScreen]);
 
   const addCameraLayer = useCallback(async () => {
     if (isAddingCamera) return;
@@ -799,6 +785,55 @@ function PresenterPage() {
   // pull the actions/state from the zustand store
   const { goLive, joinCode, isJoinCodeActive } = useSessionStore();
 
+  /**
+   * Activate pending screen share layers (those without streamId).
+   * Called after compact controls appear to prevent feedback loop.
+   */
+  const activatePendingScreenShares = useCallback(async () => {
+    const scene = getCurrentScene();
+    if (!scene) return;
+
+    // Find all screen layers without streamId (pending activation)
+    const pendingScreenLayers = scene.layers.filter(
+      (layer): layer is ScreenLayer => layer.type === 'screen' && !layer.streamId
+    );
+
+    if (pendingScreenLayers.length === 0) {
+      console.log("📺 [Screen Share] No pending screen shares to activate");
+      return;
+    }
+
+    console.log(`📺 [Screen Share] Activating ${pendingScreenLayers.length} pending screen share(s)...`);
+
+    // Activate each pending screen share
+    for (const layer of pendingScreenLayers) {
+      try {
+        const result = await startScreenCapture(layer.id);
+        if (!result) {
+          console.warn(`⚠️ [Screen Share] User cancelled screen share for layer ${layer.id}`);
+          // Don't remove the layer - let them try again later
+          continue;
+        }
+
+        const track = result.stream.getVideoTracks()[0];
+        if (track) {
+          updateLayer(layer.id, { streamId: track.id }, { recordHistory: false });
+          track.addEventListener("ended", () => {
+            stopSource(layer.id);
+            // Reset to pending state instead of removing
+            updateLayer(layer.id, { streamId: undefined }, { recordHistory: false });
+            console.log(`📺 [Screen Share] Track ended for layer ${layer.id} - reset to pending`);
+          });
+          console.log(`✅ [Screen Share] Activated screen share for layer ${layer.id}`);
+        }
+      } catch (error) {
+        console.error(`❌ [Screen Share] Failed to activate layer ${layer.id}:`, error);
+      }
+    }
+
+    requestCurrentStreamFrame();
+  }, [getCurrentScene, updateLayer]);
+
   const handleGoLive = useCallback(async () => {
     if (hostingRef.current) return; // de-dupe rapid clicks
     setLiveError(null);
@@ -863,6 +898,9 @@ function PresenterPage() {
       setCompactPresenter(true);
       console.log("✅ [handleGoLive] Now live with compact presenter mode");
 
+      // 7) Activate pending screen shares AFTER compact controls appear (prevents feedback loop)
+      await activatePendingScreenShares();
+
     } catch (e: any) {
       console.error("❌ [handleGoLive] Failed to start:", e);
       setStreamingStatus('error');
@@ -874,7 +912,7 @@ function PresenterPage() {
     } finally {
       hostingRef.current = false;
     }
-  }, [goLive, ensureCanvasStreamExists, setStreamingStatus, setCompactPresenter]);
+  }, [goLive, ensureCanvasStreamExists, setStreamingStatus, setCompactPresenter, activatePendingScreenShares]);
 
   const handleResumeStream = useCallback(() => {
     // Resume: go back to compact mode, stream continues
