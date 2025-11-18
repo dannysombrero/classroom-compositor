@@ -791,12 +791,20 @@ function PresenterPage() {
    */
   const activatePendingScreenShares = useCallback(async () => {
     const scene = getCurrentScene();
-    if (!scene) return;
+    if (!scene) {
+      console.log("📺 [Screen Share] No current scene");
+      return;
+    }
+
+    console.log("📺 [Screen Share] Checking for pending screen shares in scene:", scene);
+    console.log("📺 [Screen Share] Total layers:", scene.layers.length);
 
     // Find all screen layers without streamId (pending activation)
     const pendingScreenLayers = scene.layers.filter(
       (layer): layer is ScreenLayer => layer.type === 'screen' && !layer.streamId
     );
+
+    console.log("📺 [Screen Share] Found pending layers:", pendingScreenLayers);
 
     if (pendingScreenLayers.length === 0) {
       console.log("📺 [Screen Share] No pending screen shares to activate");
@@ -807,8 +815,11 @@ function PresenterPage() {
 
     // Activate each pending screen share
     for (const layer of pendingScreenLayers) {
+      console.log(`📺 [Screen Share] Calling startScreenCapture for layer ${layer.id}...`);
       try {
         const result = await startScreenCapture(layer.id);
+        console.log(`📺 [Screen Share] startScreenCapture returned:`, result);
+
         if (!result) {
           console.warn(`⚠️ [Screen Share] User cancelled screen share for layer ${layer.id}`);
           // Don't remove the layer - let them try again later
