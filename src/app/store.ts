@@ -22,7 +22,7 @@ import { saveScene as persistScene } from './persistence';
  * Application state interface.
  */
 type SaveStatus = 'idle' | 'saving' | 'error';
-export type StreamingStatus = 'idle' | 'connecting' | 'live' | 'error';
+export type StreamingStatus = 'idle' | 'connecting' | 'live' | 'paused' | 'error';
 
 interface AppState {
   /** All saved scenes by ID */

@@ -131,6 +131,7 @@ function PresenterPage() {
     selectedLayer && selectedLayer.type === "camera" ? (selectedLayer as CameraLayer) : null;
 
   const compactPresenter = useAppStore((state) => state.compactPresenter);
+  const streamingStatus = useAppStore((state) => state.streamingStatus);
 
   const selectionLength = selectionIds.length;
   const selectedGroup = selectedLayer && selectedLayer.type === "group" ? selectedLayer : null;
@@ -875,6 +876,13 @@ function PresenterPage() {
     }
   }, [goLive, ensureCanvasStreamExists, setStreamingStatus, setCompactPresenter]);
 
+  const handleResumeStream = useCallback(() => {
+    // Resume: go back to compact mode, stream continues
+    setStreamingStatus('live');
+    setCompactPresenter(true);
+    console.log("▶️ Stream resumed - showing compact controls");
+  }, [setStreamingStatus, setCompactPresenter]);
+
   const handleStartStreamTest = useCallback(async () => {
     console.log("🧪 [START STREAM TEST] Starting stream and minimizing browser...");
 
@@ -964,7 +972,39 @@ function PresenterPage() {
           backdropFilter: "blur(4px)",
         }}
       >
-        {!isJoinCodeActive ? (
+        {streamingStatus === 'paused' ? (
+          <>
+            <span
+              style={{
+                display: "inline-flex",
+                width: 8,
+                height: 8,
+                borderRadius: 999,
+                background: "#f59e0b",
+                boxShadow: "0 0 0 6px rgba(245,158,11,0.2)",
+                marginRight: 2,
+              }}
+              title="Paused"
+            />
+            <span style={{ opacity: 0.85, marginRight: 6 }}>PAUSED</span>
+            <button
+              onClick={handleResumeStream}
+              style={{
+                marginLeft: 8,
+                background: "#10b981",
+                color: "white",
+                border: "none",
+                borderRadius: 6,
+                padding: "4px 12px",
+                cursor: "pointer",
+                fontWeight: 700,
+              }}
+              title="Resume streaming"
+            >
+              Resume Stream
+            </button>
+          </>
+        ) : !isJoinCodeActive ? (
           <button
             onClick={handleGoLive}
             style={{

@@ -13,6 +13,13 @@ export function LiveControlPanel() {
   const currentScene = useAppStore((state) => state.getCurrentScene());
   const joinCode = useSessionStore((state) => state.joinCode);
 
+  const handlePauseStream = () => {
+    // Pause: hide compact controls, show full editor, keep stream alive
+    setStreamingStatus('paused');
+    setCompactPresenter(false);
+    console.log("⏸️ Stream paused - showing full editor");
+  };
+
   const handleStopStream = () => {
     // TODO: Add actual stream stop logic here when implemented
     setStreamingStatus('idle');
@@ -106,8 +113,23 @@ export function LiveControlPanel() {
           <div style={{ fontWeight: 500 }}>{currentScene?.name || 'Untitled Scene'}</div>
         </div>
 
-        {/* Stop Stream Button */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
+        {/* Action Buttons */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
+          <button
+            onClick={handlePauseStream}
+            style={{
+              background: '#f59e0b',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              padding: '8px 16px',
+              fontSize: '14px',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            Pause Stream
+          </button>
           <button
             onClick={handleStopStream}
             style={{
