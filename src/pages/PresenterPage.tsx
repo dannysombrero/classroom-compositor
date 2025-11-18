@@ -799,6 +799,16 @@ function PresenterPage() {
     console.log("📺 [Screen Share] Checking for pending screen shares in scene:", scene);
     console.log("📺 [Screen Share] Total layers:", scene.layers.length);
 
+    // Debug: log all layers with their types and streamId status
+    scene.layers.forEach((layer, idx) => {
+      console.log(`📺 [Screen Share] Layer ${idx}:`, {
+        id: layer.id,
+        type: layer.type,
+        name: layer.name,
+        streamId: (layer as any).streamId,
+      });
+    });
+
     // Find all screen layers without streamId (pending activation)
     const pendingScreenLayers = scene.layers.filter(
       (layer): layer is ScreenLayer => layer.type === 'screen' && !layer.streamId
