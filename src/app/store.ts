@@ -17,12 +17,14 @@ import type {
   GroupLayer,
 } from '../types/scene';
 import { saveScene as persistScene } from './persistence';
+import type { MonitorDetectionResult } from '../utils/monitorDetection';
 
 /**
  * Application state interface.
  */
 type SaveStatus = 'idle' | 'saving' | 'error';
 export type StreamingStatus = 'idle' | 'connecting' | 'live' | 'paused' | 'error';
+export type MonitorMode = 'auto' | 'manual-1-2' | 'manual-3+';
 
 interface AppState {
   /** All saved scenes by ID */
@@ -43,6 +45,12 @@ interface AppState {
   streamingStatus: StreamingStatus;
   /** Whether to show compact presenter control panel */
   compactPresenter: boolean;
+  /** Monitor detection mode */
+  monitorMode: MonitorMode;
+  /** Last detected monitor information */
+  lastMonitorDetection: MonitorDetectionResult | null;
+  /** Effective screen count (auto-detected or manual override) */
+  effectiveScreenCount: number;
 }
 
 /**
@@ -118,6 +126,21 @@ interface AppActions {
    * Set compact presenter mode.
    */
   setCompactPresenter: (compact: boolean) => void;
+
+  /**
+   * Set monitor mode (auto-detect or manual override).
+   */
+  setMonitorMode: (mode: MonitorMode) => void;
+
+  /**
+   * Update monitor detection results.
+   */
+  updateMonitorDetection: (result: MonitorDetectionResult) => void;
+
+  /**
+   * Get whether delayed screen share should be used based on current settings.
+   */
+  shouldUseDelayedScreenShare: () => boolean;
 }
 
 /**
@@ -263,6 +286,9 @@ export const useAppStore = create<AppStore>((set, get) => {
   lastSaveError: null,
   streamingStatus: 'idle',
   compactPresenter: false,
+  monitorMode: 'auto',
+  lastMonitorDetection: null,
+  effectiveScreenCount: 1,
 
   // Actions
   getCurrentScene: () => {
@@ -495,6 +521,42 @@ export const useAppStore = create<AppStore>((set, get) => {
 
   setCompactPresenter: (compact: boolean) => {
     set({ compactPresenter: compact });
+  },
+
+  setMonitorMode: (mode: MonitorMode) => {
+    set((state) => {
+      let effectiveScreenCount = state.effectiveScreenCount;
+
+      // Update effective screen count based on mode
+      if (mode === 'manual-1-2') {
+        effectiveScreenCount = 2;
+      } else if (mode === 'manual-3+') {
+        effectiveScreenCount = 3;
+      } else if (mode === 'auto' && state.lastMonitorDetection) {
+        effectiveScreenCount = state.lastMonitorDetection.screenCount;
+      }
+
+      return { monitorMode: mode, effectiveScreenCount };
+    });
+  },
+
+  updateMonitorDetection: (result: MonitorDetectionResult) => {
+    set((state) => {
+      // Only update effective screen count if in auto mode
+      const effectiveScreenCount = state.monitorMode === 'auto'
+        ? result.screenCount
+        : state.effectiveScreenCount;
+
+      return {
+        lastMonitorDetection: result,
+        effectiveScreenCount,
+      };
+    });
+  },
+
+  shouldUseDelayedScreenShare: () => {
+    const { effectiveScreenCount } = get();
+    return effectiveScreenCount < 3;
   },
   };
 });

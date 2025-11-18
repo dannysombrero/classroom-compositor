@@ -53,6 +53,7 @@ import type { KeyBindingMap } from "tinykeys";
 import { useBackgroundEffectTrack } from "../hooks/useBackgroundEffectTrack";
 import { replaceHostVideoTrack } from "../utils/webrtc";
 import { LiveControlPanel } from "../components/LiveControlPanel";
+import { detectMonitors, onScreenChange } from "../utils/monitorDetection";
 
 const EMPTY_LAYERS: Layer[] = [];
 const LAYERS_PANEL_WIDTH = 280;
@@ -230,15 +231,45 @@ function PresenterPage() {
     const layerId = createId("layer");
     const layer = createScreenLayer(layerId, scene.width, scene.height);
 
-    // For 1-2 monitors: Add placeholder layer without activating screen share
-    // Screen share will activate when "Go Live" is pressed (after compact controls appear)
     setIsAddingScreen(true);
     addLayer(layer);
     useAppStore.getState().setSelection([layerId]);
-    setIsAddingScreen(false);
 
-    console.log("📺 [Screen Layer] Added placeholder - will activate on Go Live");
-  }, [addLayer, getCurrentScene, isAddingScreen]);
+    // Check if we should use delayed activation based on monitor count
+    const shouldDelay = useAppStore.getState().shouldUseDelayedScreenShare();
+
+    if (shouldDelay) {
+      // 1-2 monitors: Add placeholder layer without activating screen share
+      // Screen share will activate when "Go Live" is pressed (after compact controls appear)
+      setIsAddingScreen(false);
+      console.log("📺 [Screen Layer] Added placeholder - will activate on Go Live (1-2 monitor mode)");
+    } else {
+      // 3+ monitors: Activate screen share immediately
+      try {
+        const result = await startScreenCapture(layerId);
+        if (!result) {
+          removeLayer(layerId);
+          setIsAddingScreen(false);
+          return;
+        }
+        const track = result.stream.getVideoTracks()[0];
+        if (track) {
+          updateLayer(layerId, { streamId: track.id });
+          track.addEventListener("ended", () => {
+            stopSource(layerId);
+            useAppStore.getState().removeLayer(layerId);
+          });
+          console.log("📺 [Screen Layer] Activated immediately (3+ monitor mode)");
+        }
+        requestCurrentStreamFrame();
+      } catch (error) {
+        console.error("❌ [Screen Layer] Failed to activate:", error);
+        removeLayer(layerId);
+      } finally {
+        setIsAddingScreen(false);
+      }
+    }
+  }, [addLayer, getCurrentScene, isAddingScreen, removeLayer, updateLayer]);
 
   const addCameraLayer = useCallback(async () => {
     if (isAddingCamera) return;
@@ -727,6 +758,33 @@ function PresenterPage() {
 
   const isEditingSelectedText = selectedLayer?.type === "text" && editingTextId === selectedLayer.id;
   const controlStripShouldBeVisible = isPresentationMode ? true : controlStripVisible;
+
+  // Initialize monitor detection
+  useEffect(() => {
+    const initMonitorDetection = async () => {
+      const result = await detectMonitors();
+      if (result) {
+        useAppStore.getState().updateMonitorDetection(result);
+        console.log("🖥️ [Monitor Detection] Detected", result.screenCount, "screen(s)");
+        console.log("🖥️ [Monitor Detection] Mode:", result.supported ? "Window Management API" : "Fallback");
+        if (result.screens.length > 0) {
+          result.screens.forEach((screen, idx) => {
+            console.log(`  Screen ${idx + 1}: ${screen.label} (${screen.width}x${screen.height})`);
+          });
+        }
+      }
+    };
+
+    initMonitorDetection();
+
+    // Listen for screen changes (monitor added/removed)
+    const cleanup = onScreenChange(() => {
+      console.log("🖥️ [Monitor Detection] Screen configuration changed, re-detecting...");
+      initMonitorDetection();
+    });
+
+    return cleanup;
+  }, []);
 
   // Initialize / load scene
   useEffect(() => {
