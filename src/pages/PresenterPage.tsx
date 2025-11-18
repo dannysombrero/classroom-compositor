@@ -40,7 +40,7 @@ import {
 import { FloatingPanel } from "../components/FloatingPanel";
 import { LayersPanel } from "../components/LayersPanel";
 import { TransformControls } from "../components/TransformControls";
-import type { Layer, CameraLayer, TextLayer, Scene } from "../types/scene";
+import type { Layer, CameraLayer, ScreenLayer, TextLayer, Scene } from "../types/scene";
 import { CameraOverlayControls } from "../components/CameraOverlayControls";
 import { TextEditOverlay } from "../components/TextEditOverlay";
 import { ControlStrip } from "../components/ControlStrip";
@@ -52,6 +52,7 @@ import { tinykeys } from "tinykeys";
 import type { KeyBindingMap } from "tinykeys";
 import { useBackgroundEffectTrack } from "../hooks/useBackgroundEffectTrack";
 import { replaceHostVideoTrack } from "../utils/webrtc";
+import { LiveControlPanel } from "../components/LiveControlPanel";
 
 const EMPTY_LAYERS: Layer[] = [];
 const LAYERS_PANEL_WIDTH = 280;
@@ -129,6 +130,9 @@ function PresenterPage() {
   const selectedCameraLayer =
     selectedLayer && selectedLayer.type === "camera" ? (selectedLayer as CameraLayer) : null;
 
+  const compactPresenter = useAppStore((state) => state.compactPresenter);
+  const streamingStatus = useAppStore((state) => state.streamingStatus);
+
   const selectionLength = selectionIds.length;
   const selectedGroup = selectedLayer && selectedLayer.type === "group" ? selectedLayer : null;
   const activeGroupChildIds = selectedGroup ? selectedGroup.children : [];
@@ -139,7 +143,7 @@ function PresenterPage() {
       ? selectionIds
       : [];
 
-  const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLayer, undo, redo } = useAppStore();
+  const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLayer, undo, redo, setStreamingStatus, setCompactPresenter } = useAppStore();
 
   // Copy link UX
   const [copied, setCopied] = useState(false);
@@ -226,29 +230,15 @@ function PresenterPage() {
     const layerId = createId("layer");
     const layer = createScreenLayer(layerId, scene.width, scene.height);
 
+    // For 1-2 monitors: Add placeholder layer without activating screen share
+    // Screen share will activate when "Go Live" is pressed (after compact controls appear)
     setIsAddingScreen(true);
     addLayer(layer);
+    useAppStore.getState().setSelection([layerId]);
+    setIsAddingScreen(false);
 
-    try {
-      const result = await startScreenCapture(layerId);
-      if (!result) {
-        removeLayer(layerId);
-        return;
-      }
-      useAppStore.getState().setSelection([layerId]);
-      const track = result.stream.getVideoTracks()[0];
-      if (track) {
-        updateLayer(layerId, { streamId: track.id });
-        track.addEventListener("ended", () => {
-          stopSource(layerId);
-          useAppStore.getState().removeLayer(layerId);
-        });
-      }
-      requestCurrentStreamFrame();
-    } finally {
-      setIsAddingScreen(false);
-    }
-  }, [addLayer, getCurrentScene, isAddingScreen, removeLayer, updateLayer]);
+    console.log("📺 [Screen Layer] Added placeholder - will activate on Go Live");
+  }, [addLayer, getCurrentScene, isAddingScreen]);
 
   const addCameraLayer = useCallback(async () => {
     if (isAddingCamera) return;
@@ -795,15 +785,87 @@ function PresenterPage() {
   // pull the actions/state from the zustand store
   const { goLive, joinCode, isJoinCodeActive } = useSessionStore();
 
+  /**
+   * Activate pending screen share layers (those without streamId).
+   * Called after compact controls appear to prevent feedback loop.
+   */
+  const activatePendingScreenShares = useCallback(async () => {
+    const scene = getCurrentScene();
+    if (!scene) {
+      console.log("📺 [Screen Share] No current scene");
+      return;
+    }
+
+    console.log("📺 [Screen Share] Checking for pending screen shares in scene:", scene);
+    console.log("📺 [Screen Share] Total layers:", scene.layers.length);
+
+    // Debug: log all layers with their types and streamId status
+    scene.layers.forEach((layer, idx) => {
+      console.log(`📺 [Screen Share] Layer ${idx}:`, {
+        id: layer.id,
+        type: layer.type,
+        name: layer.name,
+        streamId: (layer as any).streamId,
+      });
+    });
+
+    // Find all screen layers without streamId (pending activation)
+    const pendingScreenLayers = scene.layers.filter(
+      (layer): layer is ScreenLayer => layer.type === 'screen' && !layer.streamId
+    );
+
+    console.log("📺 [Screen Share] Found pending layers:", pendingScreenLayers);
+
+    if (pendingScreenLayers.length === 0) {
+      console.log("📺 [Screen Share] No pending screen shares to activate");
+      return;
+    }
+
+    console.log(`📺 [Screen Share] Activating ${pendingScreenLayers.length} pending screen share(s)...`);
+
+    // Activate each pending screen share
+    for (const layer of pendingScreenLayers) {
+      console.log(`📺 [Screen Share] Calling startScreenCapture for layer ${layer.id}...`);
+      try {
+        const result = await startScreenCapture(layer.id);
+        console.log(`📺 [Screen Share] startScreenCapture returned:`, result);
+
+        if (!result) {
+          console.warn(`⚠️ [Screen Share] User cancelled screen share for layer ${layer.id}`);
+          // Don't remove the layer - let them try again later
+          continue;
+        }
+
+        const track = result.stream.getVideoTracks()[0];
+        if (track) {
+          updateLayer(layer.id, { streamId: track.id }, { recordHistory: false });
+          track.addEventListener("ended", () => {
+            stopSource(layer.id);
+            // Reset to pending state instead of removing
+            updateLayer(layer.id, { streamId: undefined }, { recordHistory: false });
+            console.log(`📺 [Screen Share] Track ended for layer ${layer.id} - reset to pending`);
+          });
+          console.log(`✅ [Screen Share] Activated screen share for layer ${layer.id}`);
+        }
+      } catch (error) {
+        console.error(`❌ [Screen Share] Failed to activate layer ${layer.id}:`, error);
+      }
+    }
+
+    requestCurrentStreamFrame();
+  }, [getCurrentScene, updateLayer]);
+
   const handleGoLive = useCallback(async () => {
     if (hostingRef.current) return; // de-dupe rapid clicks
     setLiveError(null);
+    setStreamingStatus('connecting');
 
     try {
       // 1) Ensure a session exists in Firestore
       await goLive(HOST_ID);
       const s = useSessionStore.getState().session;
       if (!s?.id) {
+        setStreamingStatus('error');
         setLiveError("Couldn't create a session. Check Firestore rules/connection.");
         return;
       }
@@ -852,8 +914,17 @@ function PresenterPage() {
       const { codePretty } = await activateJoinCode(s.id);
       useSessionStore.setState({ joinCode: codePretty, isJoinCodeActive: true });
 
+      // 6) Update UI state to show compact control panel
+      setStreamingStatus('live');
+      setCompactPresenter(true);
+      console.log("✅ [handleGoLive] Now live with compact presenter mode");
+
+      // 7) Activate pending screen shares AFTER compact controls appear (prevents feedback loop)
+      await activatePendingScreenShares();
+
     } catch (e: any) {
       console.error("❌ [handleGoLive] Failed to start:", e);
+      setStreamingStatus('error');
       setLiveError(
         e?.name === "NotAllowedError"
           ? 'Go Live was blocked by the browser. Click again and press "Allow".'
@@ -862,7 +933,44 @@ function PresenterPage() {
     } finally {
       hostingRef.current = false;
     }
-  }, [goLive, ensureCanvasStreamExists]);
+  }, [goLive, ensureCanvasStreamExists, setStreamingStatus, setCompactPresenter, activatePendingScreenShares]);
+
+  const handleResumeStream = useCallback(() => {
+    // Resume: go back to compact mode, stream continues
+    setStreamingStatus('live');
+    setCompactPresenter(true);
+    console.log("▶️ Stream resumed - showing compact controls");
+  }, [setStreamingStatus, setCompactPresenter]);
+
+  const handleStartStreamTest = useCallback(async () => {
+    console.log("🧪 [START STREAM TEST] Testing delayed screen share flow...");
+
+    // 1) Ensure canvas stream is running
+    const stream = ensureCanvasStreamExists();
+    if (!stream) {
+      console.error("❌ [START STREAM TEST] Failed to create stream");
+      return;
+    }
+
+    const track = stream.getVideoTracks()[0];
+    console.log("✅ [START STREAM TEST] Stream active:", {
+      streamId: stream.id,
+      trackId: track?.id,
+      trackState: track?.readyState,
+    });
+
+    // 2) Show compact controls FIRST
+    setStreamingStatus('live');
+    setCompactPresenter(true);
+    console.log("✅ [START STREAM TEST] Compact controls shown");
+
+    // 3) THEN activate pending screen shares (after compact controls appear)
+    setTimeout(async () => {
+      console.log("🧪 [START STREAM TEST] Now activating screen shares...");
+      await activatePendingScreenShares();
+    }, 500); // Small delay to ensure compact controls are rendered
+
+  }, [ensureCanvasStreamExists, setStreamingStatus, setCompactPresenter, activatePendingScreenShares]);
 
   return (
     <div
@@ -898,7 +1006,39 @@ function PresenterPage() {
           backdropFilter: "blur(4px)",
         }}
       >
-        {!isJoinCodeActive ? (
+        {streamingStatus === 'paused' ? (
+          <>
+            <span
+              style={{
+                display: "inline-flex",
+                width: 8,
+                height: 8,
+                borderRadius: 999,
+                background: "#f59e0b",
+                boxShadow: "0 0 0 6px rgba(245,158,11,0.2)",
+                marginRight: 2,
+              }}
+              title="Paused"
+            />
+            <span style={{ opacity: 0.85, marginRight: 6 }}>PAUSED</span>
+            <button
+              onClick={handleResumeStream}
+              style={{
+                marginLeft: 8,
+                background: "#10b981",
+                color: "white",
+                border: "none",
+                borderRadius: 6,
+                padding: "4px 12px",
+                cursor: "pointer",
+                fontWeight: 700,
+              }}
+              title="Resume streaming"
+            >
+              Resume Stream
+            </button>
+          </>
+        ) : !isJoinCodeActive ? (
           <button
             onClick={handleGoLive}
             style={{
@@ -1001,6 +1141,27 @@ function PresenterPage() {
           </>
         )}
 
+        {/* START STREAM (temp) button - always visible for testing */}
+        <button
+          onClick={handleStartStreamTest}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            background: "#3b82f6",
+            color: "white",
+            border: "none",
+            borderRadius: 8,
+            padding: "6px 12px",
+            cursor: "pointer",
+            fontWeight: 700,
+            marginLeft: 12,
+          }}
+          title="Test stream with browser minimize"
+        >
+          START STREAM (temp)
+        </button>
+
         {/* 👇 New: inline error feedback */}
       </div>
 
@@ -1053,27 +1214,26 @@ function PresenterPage() {
         </div>
       )}
 
-      <FloatingPanel
-        title="Objects & Layers"
-        position={panelPosition}
-        size={{
-          width: LAYERS_PANEL_WIDTH,
-          height: isLayersPanelCollapsed ? LAYERS_PANEL_COLLAPSED_HEIGHT : LAYERS_PANEL_EXPANDED_HEIGHT,
-        }}
-        onPositionChange={setPanelPosition}
-        collapsible
-        collapsed={isLayersPanelCollapsed}
-        onToggleCollapse={() => setLayersPanelCollapsed((prev) => !prev)}
-      >
-        <LayersPanel
-          layers={sceneLayers}
-          onAddScreen={addScreenCaptureLayer}
-          onAddCamera={addCameraLayer}
-          onAddText={addTextLayer}
-          onAddImage={addImageLayer}
-          onAddShape={addShapeLayer}
-        />
-      </FloatingPanel>
+      {!compactPresenter && (
+        <FloatingPanel
+          title="Objects & Layers"
+          position={panelPosition}
+          size={{
+            width: LAYERS_PANEL_WIDTH,
+            height: isLayersPanelCollapsed ? LAYERS_PANEL_COLLAPSED_HEIGHT : LAYERS_PANEL_EXPANDED_HEIGHT,
+          }}
+          onPositionChange={setPanelPosition}
+        >
+          <LayersPanel
+            layers={sceneLayers}
+            onAddScreen={addScreenCaptureLayer}
+            onAddCamera={addCameraLayer}
+            onAddText={addTextLayer}
+            onAddImage={addImageLayer}
+            onAddShape={addShapeLayer}
+          />
+        </FloatingPanel>
+      )}
 
       {canvasLayout &&
         currentScene &&
@@ -1147,6 +1307,8 @@ function PresenterPage() {
         active={isPresentationMode}
         onExit={exitPresentationMode}
       />
+
+      <LiveControlPanel />
     </div>
   );
 }

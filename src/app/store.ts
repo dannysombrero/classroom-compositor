@@ -22,6 +22,7 @@ import { saveScene as persistScene } from './persistence';
  * Application state interface.
  */
 type SaveStatus = 'idle' | 'saving' | 'error';
+export type StreamingStatus = 'idle' | 'connecting' | 'live' | 'paused' | 'error';
 
 interface AppState {
   /** All saved scenes by ID */
@@ -38,6 +39,10 @@ interface AppState {
   saveStatus: SaveStatus;
   /** Last persistence error, if any */
   lastSaveError: string | null;
+  /** Streaming status */
+  streamingStatus: StreamingStatus;
+  /** Whether to show compact presenter control panel */
+  compactPresenter: boolean;
 }
 
 /**
@@ -103,6 +108,16 @@ interface AppActions {
   reorderLayers: (layerIds: string[]) => void;
   undo: () => void;
   redo: () => void;
+
+  /**
+   * Set streaming status.
+   */
+  setStreamingStatus: (status: StreamingStatus) => void;
+
+  /**
+   * Set compact presenter mode.
+   */
+  setCompactPresenter: (compact: boolean) => void;
 }
 
 /**
@@ -246,6 +261,8 @@ export const useAppStore = create<AppStore>((set, get) => {
   future: [],
   saveStatus: 'idle',
   lastSaveError: null,
+  streamingStatus: 'idle',
+  compactPresenter: false,
 
   // Actions
   getCurrentScene: () => {
@@ -470,6 +487,14 @@ export const useAppStore = create<AppStore>((set, get) => {
       future: future.slice(1),
     });
     queuePersist(nextScene);
+  },
+
+  setStreamingStatus: (status: StreamingStatus) => {
+    set({ streamingStatus: status });
+  },
+
+  setCompactPresenter: (compact: boolean) => {
+    set({ compactPresenter: compact });
   },
   };
 });
