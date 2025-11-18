@@ -759,33 +759,6 @@ function PresenterPage() {
   const isEditingSelectedText = selectedLayer?.type === "text" && editingTextId === selectedLayer.id;
   const controlStripShouldBeVisible = isPresentationMode ? true : controlStripVisible;
 
-  // Initialize monitor detection
-  useEffect(() => {
-    const initMonitorDetection = async () => {
-      const result = await detectMonitors();
-      if (result) {
-        useAppStore.getState().updateMonitorDetection(result);
-        console.log("🖥️ [Monitor Detection] Detected", result.screenCount, "screen(s)");
-        console.log("🖥️ [Monitor Detection] Mode:", result.supported ? "Window Management API" : "Fallback");
-        if (result.screens.length > 0) {
-          result.screens.forEach((screen, idx) => {
-            console.log(`  Screen ${idx + 1}: ${screen.label} (${screen.width}x${screen.height})`);
-          });
-        }
-      }
-    };
-
-    initMonitorDetection();
-
-    // Listen for screen changes (monitor added/removed)
-    const cleanup = onScreenChange(() => {
-      console.log("🖥️ [Monitor Detection] Screen configuration changed, re-detecting...");
-      initMonitorDetection();
-    });
-
-    return cleanup;
-  }, []);
-
   // Initialize / load scene
   useEffect(() => {
     const initializeScene = async () => {
@@ -842,6 +815,24 @@ function PresenterPage() {
 
   // pull the actions/state from the zustand store
   const { goLive, joinCode, isJoinCodeActive } = useSessionStore();
+
+  /**
+   * Detect monitors and update store with results.
+   * Called when user starts a session (requires user gesture for permission).
+   */
+  const detectAndUpdateMonitors = useCallback(async () => {
+    const result = await detectMonitors();
+    if (result) {
+      useAppStore.getState().updateMonitorDetection(result);
+      console.log("🖥️ [Monitor Detection] Detected", result.screenCount, "screen(s)");
+      console.log("🖥️ [Monitor Detection] Mode:", result.supported ? "Window Management API" : "Fallback");
+      if (result.screens.length > 0) {
+        result.screens.forEach((screen, idx) => {
+          console.log(`  Screen ${idx + 1}: ${screen.label} (${screen.width}x${screen.height})`);
+        });
+      }
+    }
+  }, []);
 
   /**
    * Activate pending screen share layers (those without streamId).
@@ -919,7 +910,10 @@ function PresenterPage() {
     setStreamingStatus('connecting');
 
     try {
-      // 1) Ensure a session exists in Firestore
+      // 1) Detect monitors (requires user gesture, so do it here when user clicks "Go Live")
+      await detectAndUpdateMonitors();
+
+      // 2) Ensure a session exists in Firestore
       await goLive(HOST_ID);
       const s = useSessionStore.getState().session;
       if (!s?.id) {
@@ -928,10 +922,10 @@ function PresenterPage() {
         return;
       }
 
-      // 2) Get or create canvas stream (will reuse if already exists!)
+      // 3) Get or create canvas stream (will reuse if already exists!)
       const displayStream = ensureCanvasStreamExists() || undefined;
 
-      // 3) Attach the track to WebRTC BEFORE creating the offer
+      // 4) Attach the track to WebRTC BEFORE creating the offer
       if (displayStream) {
         const track = displayStream.getVideoTracks()[0];
         if (track) {
@@ -958,7 +952,7 @@ function PresenterPage() {
         console.log("✅ [handleGoLive] Canvas stream ready for WebRTC");
       }
 
-      // 4) Start WebRTC host with the canvas stream
+      // 5) Start WebRTC host with the canvas stream
       hostingRef.current = true;
       hostRef.current = await startHost(s.id, {
         displayStream,
@@ -968,16 +962,16 @@ function PresenterPage() {
       });
       console.log("✅ [handleGoLive] WebRTC host started");
 
-      // 5) Activate join code and reflect it in UI
+      // 6) Activate join code and reflect it in UI
       const { codePretty } = await activateJoinCode(s.id);
       useSessionStore.setState({ joinCode: codePretty, isJoinCodeActive: true });
 
-      // 6) Update UI state to show compact control panel
+      // 7) Update UI state to show compact control panel
       setStreamingStatus('live');
       setCompactPresenter(true);
       console.log("✅ [handleGoLive] Now live with compact presenter mode");
 
-      // 7) Activate pending screen shares AFTER compact controls appear (prevents feedback loop)
+      // 8) Activate pending screen shares AFTER compact controls appear (prevents feedback loop)
       await activatePendingScreenShares();
 
     } catch (e: any) {
@@ -991,7 +985,7 @@ function PresenterPage() {
     } finally {
       hostingRef.current = false;
     }
-  }, [goLive, ensureCanvasStreamExists, setStreamingStatus, setCompactPresenter, activatePendingScreenShares]);
+  }, [goLive, ensureCanvasStreamExists, setStreamingStatus, setCompactPresenter, activatePendingScreenShares, detectAndUpdateMonitors]);
 
   const handleResumeStream = useCallback(() => {
     // Resume: go back to compact mode, stream continues
@@ -1003,7 +997,10 @@ function PresenterPage() {
   const handleStartStreamTest = useCallback(async () => {
     console.log("🧪 [START STREAM TEST] Testing delayed screen share flow...");
 
-    // 1) Ensure canvas stream is running
+    // 1) Detect monitors (requires user gesture, so do it here when user clicks button)
+    await detectAndUpdateMonitors();
+
+    // 2) Ensure canvas stream is running
     const stream = ensureCanvasStreamExists();
     if (!stream) {
       console.error("❌ [START STREAM TEST] Failed to create stream");
@@ -1017,18 +1014,18 @@ function PresenterPage() {
       trackState: track?.readyState,
     });
 
-    // 2) Show compact controls FIRST
+    // 3) Show compact controls FIRST
     setStreamingStatus('live');
     setCompactPresenter(true);
     console.log("✅ [START STREAM TEST] Compact controls shown");
 
-    // 3) THEN activate pending screen shares (after compact controls appear)
+    // 4) THEN activate pending screen shares (after compact controls appear)
     setTimeout(async () => {
       console.log("🧪 [START STREAM TEST] Now activating screen shares...");
       await activatePendingScreenShares();
     }, 500); // Small delay to ensure compact controls are rendered
 
-  }, [ensureCanvasStreamExists, setStreamingStatus, setCompactPresenter, activatePendingScreenShares]);
+  }, [ensureCanvasStreamExists, setStreamingStatus, setCompactPresenter, activatePendingScreenShares, detectAndUpdateMonitors]);
 
   return (
     <div
