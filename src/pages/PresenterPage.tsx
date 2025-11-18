@@ -52,6 +52,7 @@ import { tinykeys } from "tinykeys";
 import type { KeyBindingMap } from "tinykeys";
 import { useBackgroundEffectTrack } from "../hooks/useBackgroundEffectTrack";
 import { replaceHostVideoTrack } from "../utils/webrtc";
+import { LiveControlPanel } from "../components/LiveControlPanel";
 
 const EMPTY_LAYERS: Layer[] = [];
 const LAYERS_PANEL_WIDTH = 280;
@@ -129,6 +130,8 @@ function PresenterPage() {
   const selectedCameraLayer =
     selectedLayer && selectedLayer.type === "camera" ? (selectedLayer as CameraLayer) : null;
 
+  const compactPresenter = useAppStore((state) => state.compactPresenter);
+
   const selectionLength = selectionIds.length;
   const selectedGroup = selectedLayer && selectedLayer.type === "group" ? selectedLayer : null;
   const activeGroupChildIds = selectedGroup ? selectedGroup.children : [];
@@ -139,7 +142,7 @@ function PresenterPage() {
       ? selectionIds
       : [];
 
-  const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLayer, undo, redo } = useAppStore();
+  const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLayer, undo, redo, setStreamingStatus, setCompactPresenter } = useAppStore();
 
   // Copy link UX
   const [copied, setCopied] = useState(false);
@@ -798,12 +801,14 @@ function PresenterPage() {
   const handleGoLive = useCallback(async () => {
     if (hostingRef.current) return; // de-dupe rapid clicks
     setLiveError(null);
+    setStreamingStatus('connecting');
 
     try {
       // 1) Ensure a session exists in Firestore
       await goLive(HOST_ID);
       const s = useSessionStore.getState().session;
       if (!s?.id) {
+        setStreamingStatus('error');
         setLiveError("Couldn't create a session. Check Firestore rules/connection.");
         return;
       }
@@ -852,8 +857,14 @@ function PresenterPage() {
       const { codePretty } = await activateJoinCode(s.id);
       useSessionStore.setState({ joinCode: codePretty, isJoinCodeActive: true });
 
+      // 6) Update UI state to show compact control panel
+      setStreamingStatus('live');
+      setCompactPresenter(true);
+      console.log("✅ [handleGoLive] Now live with compact presenter mode");
+
     } catch (e: any) {
       console.error("❌ [handleGoLive] Failed to start:", e);
+      setStreamingStatus('error');
       setLiveError(
         e?.name === "NotAllowedError"
           ? 'Go Live was blocked by the browser. Click again and press "Allow".'
@@ -862,7 +873,7 @@ function PresenterPage() {
     } finally {
       hostingRef.current = false;
     }
-  }, [goLive, ensureCanvasStreamExists]);
+  }, [goLive, ensureCanvasStreamExists, setStreamingStatus, setCompactPresenter]);
 
   const handleStartStreamTest = useCallback(async () => {
     console.log("🧪 [START STREAM TEST] Starting stream and minimizing browser...");
@@ -1129,27 +1140,29 @@ function PresenterPage() {
         </div>
       )}
 
-      <FloatingPanel
-        title="Objects & Layers"
-        position={panelPosition}
-        size={{
-          width: LAYERS_PANEL_WIDTH,
-          height: isLayersPanelCollapsed ? LAYERS_PANEL_COLLAPSED_HEIGHT : LAYERS_PANEL_EXPANDED_HEIGHT,
-        }}
-        onPositionChange={setPanelPosition}
-        collapsible
-        collapsed={isLayersPanelCollapsed}
-        onToggleCollapse={() => setLayersPanelCollapsed((prev) => !prev)}
-      >
-        <LayersPanel
-          layers={sceneLayers}
-          onAddScreen={addScreenCaptureLayer}
-          onAddCamera={addCameraLayer}
-          onAddText={addTextLayer}
-          onAddImage={addImageLayer}
-          onAddShape={addShapeLayer}
-        />
-      </FloatingPanel>
+      {!compactPresenter && (
+        <FloatingPanel
+          title="Objects & Layers"
+          position={panelPosition}
+          size={{
+            width: LAYERS_PANEL_WIDTH,
+            height: isLayersPanelCollapsed ? LAYERS_PANEL_COLLAPSED_HEIGHT : LAYERS_PANEL_EXPANDED_HEIGHT,
+          }}
+          onPositionChange={setPanelPosition}
+          collapsible
+          collapsed={isLayersPanelCollapsed}
+          onToggleCollapse={() => setLayersPanelCollapsed((prev) => !prev)}
+        >
+          <LayersPanel
+            layers={sceneLayers}
+            onAddScreen={addScreenCaptureLayer}
+            onAddCamera={addCameraLayer}
+            onAddText={addTextLayer}
+            onAddImage={addImageLayer}
+            onAddShape={addShapeLayer}
+          />
+        </FloatingPanel>
+      )}
 
       {canvasLayout &&
         currentScene &&
@@ -1223,6 +1236,8 @@ function PresenterPage() {
         active={isPresentationMode}
         onExit={exitPresentationMode}
       />
+
+      <LiveControlPanel />
     </div>
   );
 }
