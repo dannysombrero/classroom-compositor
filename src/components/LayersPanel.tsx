@@ -255,10 +255,8 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                 : 'transparent';
 
               return (
-                <button
+                <div
                   key={layer.id}
-                  type="button"
-                  onClick={(event) => handleRowClick(event, layer.id)}
                   draggable
                   onDragStart={(event) => handleDragStart(event, layer.id)}
                   onDragOver={(event) => handleDragOver(event, layer.id)}
@@ -276,6 +274,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                     cursor: 'pointer',
                     borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
                   }}
+                  onClick={(event) => handleRowClick(event, layer.id)}
                 >
                   <div
                     style={{
@@ -420,7 +419,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                       </svg>
                     </button>
                   </div>
-                </button>
+                </div>
               );
             })
           )}

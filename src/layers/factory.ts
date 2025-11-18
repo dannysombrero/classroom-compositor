@@ -34,7 +34,7 @@ export function createScreenLayer(
     locked: false,
     z: 0,
     transform: createBaseTransform(sceneWidth / 2, sceneHeight / 2),
-    streamId: id,
+    // streamId is undefined initially - will be set when screen share is activated
   };
 }
 
