@@ -54,6 +54,12 @@ import { useBackgroundEffectTrack } from "../hooks/useBackgroundEffectTrack";
 import { replaceHostVideoTrack } from "../utils/webrtc";
 import { LiveControlPanel } from "../components/LiveControlPanel";
 import { detectMonitors, onScreenChange } from "../utils/monitorDetection";
+import { MonitorDetectionToast } from "../components/MonitorDetectionToast";
+import { MonitorDetectionTestPanel } from "../components/MonitorDetectionTestPanel";
+import type { MonitorDetectionResult } from "../utils/monitorDetection";
+
+// Set to true to show the monitor detection test panel (development tool)
+const SHOW_MONITOR_TEST_PANEL = true;
 
 const EMPTY_LAYERS: Layer[] = [];
 const LAYERS_PANEL_WIDTH = 280;
@@ -104,6 +110,7 @@ function PresenterPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const controlStripTimerRef = useRef<number | null>(null);
   const clipboardRef = useRef<Layer[] | null>(null);
+  const [detectionToastResult, setDetectionToastResult] = useState<MonitorDetectionResult | null>(null);
 
   const [cameraTrackForEffects, setCameraTrackForEffects] = useState<MediaStreamTrack | null>(null);
   const [cameraLayerForEffects, setCameraLayerForEffects] = useState<string | null>(null);
@@ -831,6 +838,9 @@ function PresenterPage() {
           console.log(`  Screen ${idx + 1}: ${screen.label} (${screen.width}x${screen.height})`);
         });
       }
+
+      // Show toast notification with detection results
+      setDetectionToastResult(result);
     }
   }, []);
 
@@ -1214,6 +1224,28 @@ function PresenterPage() {
           START SESSION
         </button>
 
+        {/* TEST: Manual monitor detection button */}
+        <button
+          onClick={detectAndUpdateMonitors}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            background: "rgba(147, 51, 234, 0.2)",
+            color: "#c084fc",
+            border: "1px solid rgba(147, 51, 234, 0.4)",
+            borderRadius: 6,
+            padding: "4px 10px",
+            cursor: "pointer",
+            fontWeight: 600,
+            marginLeft: 8,
+            fontSize: 11,
+          }}
+          title="Test monitor detection"
+        >
+          🖥️ Test Detection
+        </button>
+
         {/* 👇 New: inline error feedback */}
       </div>
 
@@ -1361,6 +1393,13 @@ function PresenterPage() {
       />
 
       <LiveControlPanel />
+
+      <MonitorDetectionToast
+        result={detectionToastResult}
+        onClose={() => setDetectionToastResult(null)}
+      />
+
+      {SHOW_MONITOR_TEST_PANEL && <MonitorDetectionTestPanel />}
     </div>
   );
 }
