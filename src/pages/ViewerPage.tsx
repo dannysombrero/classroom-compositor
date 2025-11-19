@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { startViewer } from "../utils/webrtc";
 import { attachStreamToVideo } from "../utils/webrtc";
+import { ChatPanel, initializeChat, sendMessageAsCurrentUser } from "../ai";
 
 
 export default function ViewerPage() {
@@ -10,6 +11,7 @@ export default function ViewerPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const startedRef = useRef(false);
   const userTapRef = useRef(false);
+  const chatUnsubscribeRef = useRef<(() => void) | null>(null);
 
   const [needsTap, setNeedsTap] = useState(false);
   const [connecting, setConnecting] = useState(true);
@@ -88,6 +90,12 @@ export default function ViewerPage() {
       const { pc, stop } = await startViewer(sessionId, attachStreamAndAutoplay);
       stopFn = stop;
 
+      // Initialize chat for viewer
+      const viewerId = `viewer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const viewerName = `Student ${Math.floor(Math.random() * 1000)}`;
+      chatUnsubscribeRef.current = initializeChat(sessionId, viewerId, viewerName, 'student');
+      console.log("💬 [Chat] Initialized for viewer:", viewerName);
+
       const onIce = () => {
         setIceState(pc.iceConnectionState);
         if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
@@ -124,6 +132,13 @@ export default function ViewerPage() {
 
     return () => {
       try { stopFn?.(); } catch {}
+
+      // Cleanup chat
+      if (chatUnsubscribeRef.current) {
+        chatUnsubscribeRef.current();
+        console.log("💬 [Chat] Unsubscribed from chat messages");
+      }
+
       const v = videoRef.current;
       if (v && (v as any).__onResize) {
         v.removeEventListener("resize", (v as any).__onResize);
@@ -188,6 +203,13 @@ export default function ViewerPage() {
           </div>
         </div>
       </div>
+
+      {sessionId && (
+        <ChatPanel
+          sessionId={sessionId}
+          onSendMessage={(text) => sendMessageAsCurrentUser(sessionId, text)}
+        />
+      )}
     </div>
   );
 }

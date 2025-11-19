@@ -57,6 +57,7 @@ import { detectMonitors, onScreenChange } from "../utils/monitorDetection";
 import { MonitorDetectionToast } from "../components/MonitorDetectionToast";
 import { MonitorDetectionTestPanel } from "../components/MonitorDetectionTestPanel";
 import type { MonitorDetectionResult } from "../utils/monitorDetection";
+import { ChatPanel, initializeChat, sendMessageAsCurrentUser } from "../ai";
 
 // Set to true to show the monitor detection test panel (development tool)
 const SHOW_MONITOR_TEST_PANEL = true;
@@ -111,6 +112,7 @@ function PresenterPage() {
   const controlStripTimerRef = useRef<number | null>(null);
   const clipboardRef = useRef<Layer[] | null>(null);
   const [detectionToastResult, setDetectionToastResult] = useState<MonitorDetectionResult | null>(null);
+  const chatUnsubscribeRef = useRef<(() => void) | null>(null);
 
   const [cameraTrackForEffects, setCameraTrackForEffects] = useState<MediaStreamTrack | null>(null);
   const [cameraLayerForEffects, setCameraLayerForEffects] = useState<string | null>(null);
@@ -200,6 +202,16 @@ function PresenterPage() {
     return () => {
       if (controlStripTimerRef.current !== null) {
         window.clearTimeout(controlStripTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Chat cleanup
+  useEffect(() => {
+    return () => {
+      if (chatUnsubscribeRef.current) {
+        chatUnsubscribeRef.current();
+        console.log("💬 [Chat] Unsubscribed from chat messages");
       }
     };
   }, []);
@@ -1027,6 +1039,14 @@ function PresenterPage() {
       openViewer();
       console.log("✅ [START SESSION] Viewer window opened");
 
+      // 4) Initialize chat for this session
+      setSessionId(s.id);
+      if (chatUnsubscribeRef.current) {
+        chatUnsubscribeRef.current();
+      }
+      chatUnsubscribeRef.current = initializeChat(s.id, HOST_ID, 'Teacher', 'teacher');
+      console.log("✅ [START SESSION] Chat initialized");
+
       console.log("✅ [START SESSION] Ready to start streaming");
 
     } catch (error) {
@@ -1400,6 +1420,13 @@ function PresenterPage() {
       />
 
       {SHOW_MONITOR_TEST_PANEL && <MonitorDetectionTestPanel />}
+
+      {sessionId && (
+        <ChatPanel
+          sessionId={sessionId}
+          onSendMessage={(text) => sendMessageAsCurrentUser(sessionId, text)}
+        />
+      )}
     </div>
   );
 }
