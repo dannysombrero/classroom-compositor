@@ -138,6 +138,10 @@ export function drawScene(
         // Groups will be handled recursively in a future iteration
         drawGroupLayer(ctx, layer);
         break;
+      case 'chat':
+        // Chat layers are rendered as DOM overlays, not on canvas
+        // See ChatLayerOverlay component
+        break;
       default:
         // Unknown layer type, skip
         console.warn('Unknown layer type:', layer);
