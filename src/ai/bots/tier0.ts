@@ -86,8 +86,14 @@ export function startBot(sessionId: string, bot: Tier0Bot): void {
 
   const sendNextMessage = async () => {
     const message = bot.messages[messageIndex];
-    await sendBotMessage(sessionId, message, bot.id, bot.displayName);
-    console.log(`🤖 [Tier 0] ${bot.displayName}: ${message}`);
+    console.log(`🤖 [Tier 0] Sending from ${bot.displayName}: "${message}"`);
+
+    try {
+      await sendBotMessage(sessionId, message, bot.id, bot.displayName);
+      console.log(`✅ [Tier 0] Message sent successfully`);
+    } catch (error) {
+      console.error(`❌ [Tier 0] Failed to send message:`, error);
+    }
 
     messageIndex = (messageIndex + 1) % bot.messages.length;
   };

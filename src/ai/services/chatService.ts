@@ -83,7 +83,6 @@ export function subscribeToChatMessages(
   const messagesRef = collection(db, 'sessions', sessionId, 'chat');
   const q = query(
     messagesRef,
-    where('sessionId', '==', sessionId),
     orderBy('timestamp', 'asc'),
     limit(messageLimit)
   );
@@ -112,6 +111,11 @@ export function subscribeToChatMessages(
       // Update store with all messages
       useChatStore.getState().setMessages(messages);
       console.log(`💬 [Chat] Received ${messages.length} message(s)`);
+
+      // Log each message for debugging
+      messages.forEach(msg => {
+        console.log(`  📨 ${msg.from}: ${msg.text.substring(0, 40)}...`);
+      });
     },
     (error) => {
       console.error('❌ [Chat] Error subscribing to messages:', error);
