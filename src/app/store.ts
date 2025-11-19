@@ -15,6 +15,7 @@ import type {
   TextLayer,
   ShapeLayer,
   GroupLayer,
+  ChatLayer,
 } from '../types/scene';
 import { saveScene as persistScene } from './persistence';
 import type { MonitorDetectionResult } from '../utils/monitorDetection';
@@ -183,6 +184,8 @@ function applyLayerUpdates(layer: Layer, updates: Partial<Layer>): Layer {
       return merged as ShapeLayer;
     case 'group':
       return merged as GroupLayer;
+    case 'chat':
+      return merged as ChatLayer;
     default: {
       const exhaustiveCheck: never = layer;
       return exhaustiveCheck;
