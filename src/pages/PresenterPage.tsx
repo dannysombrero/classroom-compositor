@@ -1013,8 +1013,9 @@ function PresenterPage() {
       useSessionStore.setState({ joinCode: codePretty, isJoinCodeActive: true });
       console.log("✅ [START SESSION] Session created with join code:", codePretty);
 
-      // 3) Optionally open viewer window for local preview
-      // openViewer(); // Uncomment if you want viewer to open automatically
+      // 3) Open viewer window for local preview (if not already open)
+      openViewer();
+      console.log("✅ [START SESSION] Viewer window opened");
 
       console.log("✅ [START SESSION] Ready to start streaming");
 
