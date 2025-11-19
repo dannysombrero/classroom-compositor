@@ -12,12 +12,13 @@ interface LayersPanelProps {
   onAddText: () => Promise<void> | void;
   onAddImage: () => Promise<void> | void;
   onAddShape: () => Promise<void> | void;
+  onAddChat?: () => Promise<void> | void;
 }
 
 /**
  * Layer list with quick visibility toggles and add-source menu.
  */
-export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAddImage, onAddShape }: LayersPanelProps) {
+export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAddImage, onAddShape, onAddChat }: LayersPanelProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const updateLayer = useAppStore((state) => state.updateLayer);
   const removeLayer = useAppStore((state) => state.removeLayer);
@@ -227,6 +228,21 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                 >
                   Shape Overlay
                 </button>
+                {onAddChat && (
+                  <>
+                    <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.06)' }} />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeMenu();
+                        void onAddChat();
+                      }}
+                      style={menuItemStyle}
+                    >
+                      💬 AI Chat
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>

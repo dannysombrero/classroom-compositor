@@ -29,6 +29,7 @@ import {
   createTextLayer,
   createImageLayer,
   createShapeLayer,
+  createChatLayer,
 } from "../layers/factory";
 import {
   startScreenCapture,
@@ -40,7 +41,7 @@ import {
 import { FloatingPanel } from "../components/FloatingPanel";
 import { LayersPanel } from "../components/LayersPanel";
 import { TransformControls } from "../components/TransformControls";
-import type { Layer, CameraLayer, ScreenLayer, TextLayer, Scene } from "../types/scene";
+import type { Layer, CameraLayer, ScreenLayer, TextLayer, ChatLayer, Scene } from "../types/scene";
 import { CameraOverlayControls } from "../components/CameraOverlayControls";
 import { TextEditOverlay } from "../components/TextEditOverlay";
 import { ControlStrip } from "../components/ControlStrip";
@@ -58,9 +59,12 @@ import { MonitorDetectionToast } from "../components/MonitorDetectionToast";
 import { MonitorDetectionTestPanel } from "../components/MonitorDetectionTestPanel";
 import type { MonitorDetectionResult } from "../utils/monitorDetection";
 import { ChatPanel, initializeChat, sendMessageAsCurrentUser } from "../ai";
+import { ChatLayerOverlay } from "../components/ChatLayerOverlay";
+import { BotControlPanel } from "../components/BotControlPanel";
 
 // Set to true to show the monitor detection test panel (development tool)
 const SHOW_MONITOR_TEST_PANEL = true;
+const SHOW_BOT_CONTROL_PANEL = true;
 
 const EMPTY_LAYERS: Layer[] = [];
 const LAYERS_PANEL_WIDTH = 280;
@@ -383,6 +387,17 @@ function PresenterPage() {
     addLayer(layer);
     useAppStore.getState().setSelection([layerId]);
     requestCurrentStreamFrame();
+  }, [addLayer, getCurrentScene]);
+
+  const addChatLayer = useCallback(() => {
+    const scene = getCurrentScene();
+    if (!scene) return;
+    const layerId = createId("layer");
+    const layer = createChatLayer(layerId, scene.width, scene.height);
+    addLayer(layer);
+    useAppStore.getState().setSelection([layerId]);
+    requestCurrentStreamFrame();
+    console.log("💬 [Chat Layer] Added to canvas");
   }, [addLayer, getCurrentScene]);
 
   const addImageLayer = useCallback(() => {
@@ -1335,6 +1350,7 @@ function PresenterPage() {
             onAddText={addTextLayer}
             onAddImage={addImageLayer}
             onAddShape={addShapeLayer}
+            onAddChat={addChatLayer}
           />
         </FloatingPanel>
       )}
@@ -1385,6 +1401,14 @@ function PresenterPage() {
           />
         )}
 
+      {/* Chat Layer Overlays */}
+      {canvasLayout && currentScene && (
+        <ChatLayerOverlay
+          layers={currentScene.layers.filter((l) => l.type === 'chat')}
+          canvasLayout={canvasLayout}
+        />
+      )}
+
       <input ref={fileInputRef} type="file" accept="image/*" style={{ display: "none" }} />
 
       <ControlStrip
@@ -1420,6 +1444,8 @@ function PresenterPage() {
       />
 
       {SHOW_MONITOR_TEST_PANEL && <MonitorDetectionTestPanel />}
+
+      {SHOW_BOT_CONTROL_PANEL && <BotControlPanel />}
 
       {sessionId && (
         <ChatPanel

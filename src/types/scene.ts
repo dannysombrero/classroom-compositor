@@ -136,9 +136,22 @@ export interface GroupLayer extends BaseLayer {
 }
 
 /**
+ * Chat layer for AI bot messages and student interactions.
+ */
+export interface ChatLayer extends BaseLayer {
+  type: 'chat';
+  /** Width in pixels */
+  width: number;
+  /** Height in pixels */
+  height: number;
+  /** Enable/disable AI bots for this chat */
+  botsEnabled: boolean;
+}
+
+/**
  * Discriminated union of all layer types.
  */
-export type Layer = ScreenLayer | CameraLayer | ImageLayer | TextLayer | ShapeLayer | GroupLayer;
+export type Layer = ScreenLayer | CameraLayer | ImageLayer | TextLayer | ShapeLayer | GroupLayer | ChatLayer;
 
 /**
  * Scene data structure containing canvas dimensions and layers.
