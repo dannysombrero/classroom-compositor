@@ -210,7 +210,29 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
 
       const px = Math.max(0, Math.min(48, blurRef.current | 0));
 
-      if (mode === "replace") {
+      if (mode === "remove") {
+        // BACKGROUND REMOVAL MODE - transparent background with foreground only
+        const maskCanvas = segmenterRef.current?.getLatestMask() ?? null;
+
+        if (!maskCanvas || !fc || !fctx) {
+          // Fallback: no segmentation available, show original video
+          octx.clearRect(0, 0, oc.width, oc.height);
+          octx.drawImage(v, 0, 0, oc.width, oc.height);
+        } else {
+          // Clear output canvas (transparent background)
+          octx.clearRect(0, 0, oc.width, oc.height);
+
+          // Extract foreground (person) with mask
+          fctx.clearRect(0, 0, fc.width, fc.height);
+          fctx.drawImage(v, 0, 0, fc.width, fc.height);
+          fctx.globalCompositeOperation = "destination-in";
+          fctx.drawImage(maskCanvas, 0, 0, fc.width, fc.height);
+          fctx.globalCompositeOperation = "source-over";
+
+          // Draw only the foreground on transparent background
+          octx.drawImage(fc, 0, 0, oc.width, oc.height);
+        }
+      } else if (mode === "replace") {
         // BACKGROUND REPLACEMENT MODE
         const maskCanvas = segmenterRef.current?.getLatestMask() ?? null;
 

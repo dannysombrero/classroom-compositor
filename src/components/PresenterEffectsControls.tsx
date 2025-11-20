@@ -26,6 +26,7 @@ export function PresenterEffectsControls() {
         >
           <option value="off">Off</option>
           <option value="blur">Blur</option>
+          <option value="remove">BG Removal</option>
           <option value="replace">Replace</option>
         </select>
       </label>
