@@ -1238,7 +1238,19 @@ function PresenterPage() {
         </div>
       )}
 
-      {/* PREVIEW button - opens viewer window */}
+      {/* Top toolbar with buttons */}
+      <div
+        style={{
+          position: "fixed",
+          top: 16,
+          right: 16,
+          zIndex: 10001,
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+        }}
+      >
+        {/* PREVIEW button - opens viewer window */}
         {!compactPresenter && (
           <button
             onClick={openViewer}
