@@ -63,7 +63,7 @@ import { ChatLayerOverlay } from "../components/ChatLayerOverlay";
 import { BotControlPanel } from "../components/BotControlPanel";
 
 // Set to true to show the monitor detection test panel (development tool)
-const SHOW_MONITOR_TEST_PANEL = true;
+const SHOW_MONITOR_TEST_PANEL = false; // Changed to false for cleaner UI
 const SHOW_BOT_CONTROL_PANEL = true;
 
 const EMPTY_LAYERS: Layer[] = [];
@@ -947,10 +947,7 @@ function PresenterPage() {
     setStreamingStatus('connecting');
 
     try {
-      // 1) Detect monitors (requires user gesture, so do it here when user clicks "Go Live")
-      await detectAndUpdateMonitors();
-
-      // 2) Ensure a session exists in Firestore
+      // 1) Ensure a session exists in Firestore (should already exist from Start Session)
       await goLive(HOST_ID);
       const s = useSessionStore.getState().session;
       if (!s?.id) {
@@ -1022,7 +1019,7 @@ function PresenterPage() {
     } finally {
       hostingRef.current = false;
     }
-  }, [goLive, ensureCanvasStreamExists, setStreamingStatus, setCompactPresenter, activatePendingScreenShares, detectAndUpdateMonitors]);
+  }, [goLive, ensureCanvasStreamExists, setStreamingStatus, setCompactPresenter, activatePendingScreenShares]);
 
   const handleResumeStream = useCallback(() => {
     // Resume: go back to compact mode, stream continues
@@ -1238,79 +1235,110 @@ function PresenterPage() {
           </>
         )}
 
-        {/* START SESSION button - creates room and shows join code */}
-        <button
-          onClick={handleStartSession}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 8,
-            background: "#3b82f6",
-            color: "white",
-            border: "none",
-            borderRadius: 8,
-            padding: "6px 12px",
-            cursor: "pointer",
-            fontWeight: 700,
-            marginLeft: 12,
-          }}
-          title="Create room and generate join code"
-        >
-          START SESSION
-        </button>
+        {/* PREVIEW button - opens viewer window */}
+        {!compactPresenter && (
+          <button
+            onClick={openViewer}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              background: "rgba(59, 130, 246, 0.2)",
+              color: "#60a5fa",
+              border: "1px solid rgba(59, 130, 246, 0.4)",
+              borderRadius: 8,
+              padding: "6px 12px",
+              cursor: "pointer",
+              fontWeight: 600,
+              marginLeft: 12,
+            }}
+            title="Open viewer window for preview"
+          >
+            👁️ Preview
+          </button>
+        )}
 
-        {/* TEST: Manual monitor detection button */}
-        <button
-          onClick={detectAndUpdateMonitors}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            background: "rgba(147, 51, 234, 0.2)",
-            color: "#c084fc",
-            border: "1px solid rgba(147, 51, 234, 0.4)",
-            borderRadius: 6,
-            padding: "4px 10px",
-            cursor: "pointer",
-            fontWeight: 600,
-            marginLeft: 8,
-            fontSize: 11,
-          }}
-          title="Test monitor detection"
-        >
-          🖥️ Test Detection
-        </button>
+        {/* START SESSION / GO LIVE button */}
+        {!compactPresenter && (
+          <button
+            onClick={isJoinCodeActive ? handleGoLive : handleStartSession}
+            disabled={streamingStatus === 'connecting'}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              background: isJoinCodeActive ? "#10b981" : "#3b82f6",
+              color: "white",
+              border: "none",
+              borderRadius: 8,
+              padding: "6px 12px",
+              cursor: streamingStatus === 'connecting' ? "wait" : "pointer",
+              fontWeight: 700,
+              marginLeft: 8,
+              opacity: streamingStatus === 'connecting' ? 0.6 : 1,
+            }}
+            title={isJoinCodeActive ? "Start streaming to viewers" : "Create room and generate join code"}
+          >
+            {streamingStatus === 'connecting' ? '⏳ Connecting...' : isJoinCodeActive ? '🔴 Go Live' : '▶️ Start Session'}
+          </button>
+        )}
+
+        {/* TEST: Manual monitor detection button (dev mode only) */}
+        {SHOW_MONITOR_TEST_PANEL && !compactPresenter && (
+          <button
+            onClick={detectAndUpdateMonitors}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              background: "rgba(147, 51, 234, 0.2)",
+              color: "#c084fc",
+              border: "1px solid rgba(147, 51, 234, 0.4)",
+              borderRadius: 6,
+              padding: "4px 10px",
+              cursor: "pointer",
+              fontWeight: 600,
+              marginLeft: 8,
+              fontSize: 11,
+            }}
+            title="Test monitor detection"
+          >
+            🖥️ Test Detection
+          </button>
+        )}
 
         {/* 👇 New: inline error feedback */}
       </div>
 
-      {/* Main canvas area */}
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          position: "relative",
-        }}
-      >
-        <PresenterCanvas
-          ref={handleCanvasRef}
-          fitToContainer
-          onLayoutChange={handleCanvasLayoutChange}
-          skipLayerIds={editingTextId ? [editingTextId] : undefined}
-        />
-        {canvasLayout && (
-          <CanvasSelectionOverlay
-            layout={canvasLayout}
-            scene={currentScene}
+      {/* Main canvas area - hidden when in Console View (compact mode) */}
+      {!compactPresenter && (
+        <div
+          style={{
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            position: "relative",
+          }}
+        >
+          <PresenterCanvas
+            ref={handleCanvasRef}
+            fitToContainer
+            onLayoutChange={handleCanvasLayoutChange}
             skipLayerIds={editingTextId ? [editingTextId] : undefined}
           />
-        )}
-        {canvasLayout && currentScene && groupTransformIds.length > 0 && (
-          <GroupTransformControls layout={canvasLayout} scene={currentScene} layerIds={groupTransformIds} />
-        )}
-      </div>
+          {canvasLayout && (
+            <CanvasSelectionOverlay
+              layout={canvasLayout}
+              scene={currentScene}
+              skipLayerIds={editingTextId ? [editingTextId] : undefined}
+            />
+          )}
+          {canvasLayout && currentScene && groupTransformIds.length > 0 && (
+            <GroupTransformControls layout={canvasLayout} scene={currentScene} layerIds={groupTransformIds} />
+          )}
+        </div>
+      )}
 
       {isSceneLoading && (
         <div
@@ -1355,7 +1383,8 @@ function PresenterPage() {
         </FloatingPanel>
       )}
 
-      {canvasLayout &&
+      {/* Canvas editing overlays - only shown when not in Console View */}
+      {!compactPresenter && canvasLayout &&
         currentScene &&
         selectedLayer &&
         selectionLength === 1 &&
@@ -1372,7 +1401,7 @@ function PresenterPage() {
           />
         )}
 
-      {canvasLayout &&
+      {!compactPresenter && canvasLayout &&
         currentScene &&
         selectedLayer?.type === "camera" &&
         selectionLength === 1 &&
@@ -1385,7 +1414,7 @@ function PresenterPage() {
           />
         )}
 
-      {canvasLayout &&
+      {!compactPresenter && canvasLayout &&
         currentScene &&
         selectedLayer?.type === "text" &&
         selectionLength === 1 &&
@@ -1402,7 +1431,7 @@ function PresenterPage() {
         )}
 
       {/* Chat Layer Overlays */}
-      {canvasLayout && currentScene && (
+      {!compactPresenter && canvasLayout && currentScene && (
         <ChatLayerOverlay
           layers={currentScene.layers.filter((l) => l.type === 'chat')}
           canvasLayout={canvasLayout}
@@ -1411,15 +1440,17 @@ function PresenterPage() {
 
       <input ref={fileInputRef} type="file" accept="image/*" style={{ display: "none" }} />
 
-      <ControlStrip
-        visible={controlStripShouldBeVisible}
-        onTogglePresentation={togglePresentationMode}
-        presentationActive={isPresentationMode}
-        onToggleConfidence={toggleConfidencePreview}
-        confidenceActive={isConfidencePreviewVisible}
-        onOpenViewer={openViewer}
-        viewerOpen={isViewerOpen}
-      />
+      {!compactPresenter && (
+        <ControlStrip
+          visible={controlStripShouldBeVisible}
+          onTogglePresentation={togglePresentationMode}
+          presentationActive={isPresentationMode}
+          onToggleConfidence={toggleConfidencePreview}
+          confidenceActive={isConfidencePreviewVisible}
+          onOpenViewer={openViewer}
+          viewerOpen={isViewerOpen}
+        />
+      )}
 
       <ConfidencePreview
         stream={streamRef.current}
