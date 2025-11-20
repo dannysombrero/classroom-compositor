@@ -10,7 +10,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { db, collection, doc, setDoc, onSnapshot, addDoc } from '../firebase';
+import { db, collection, doc, setDoc, onSnapshot, addDoc, getDoc } from '../firebase';
 
 // Reuse the WebRTC helpers from the main webrtc.ts file
 function getUfrag(
@@ -137,9 +137,23 @@ export default function PhoneCameraPage() {
     }
 
     setState('connecting');
-    setConnectionInfo('Creating peer connection...');
+    setConnectionInfo('Checking if host is ready...');
 
     try {
+      // FIX: Validate session exists and host is ready (same pattern as ViewerPage)
+      const readyDoc = doc(db, "sessions", sessionId, "host_ready", "status");
+      const readySnap = await getDoc(readyDoc);
+      const readyData = readySnap.data() as any;
+
+      if (!readyData?.ready) {
+        setError('Host is not streaming yet. Please ask the host to go live first.');
+        setState('failed');
+        return;
+      }
+
+      console.log('[PhoneCamera] Host is ready, establishing connection...');
+      setConnectionInfo('Creating peer connection...');
+
       // Create peer connection
       const pc = new RTCPeerConnection(rtcConfig());
       pcRef.current = pc;

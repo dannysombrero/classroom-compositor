@@ -3,6 +3,7 @@
  */
 
 import { useEffect, useRef } from 'react';
+import QRCode from 'qrcode';
 
 interface PhoneCameraModalProps {
   isOpen: boolean;
@@ -16,39 +17,38 @@ export function PhoneCameraModal({ isOpen, onClose, sessionId, cameraId }: Phone
 
   const phoneCameraUrl = `${window.location.origin}/phone-camera/${sessionId}?cameraId=${cameraId}`;
 
-  // Generate QR code on canvas
+  // Generate QR code on canvas (client-side, no external API)
   useEffect(() => {
     if (!isOpen || !canvasRef.current) return;
 
     const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
 
-    // Simple QR code generation using a free API
-    // For production, you might want to use a library like qrcode or generate client-side
-    const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(phoneCameraUrl)}`;
+    // Generate QR code directly on canvas
+    QRCode.toCanvas(canvas, phoneCameraUrl, {
+      width: 300,
+      margin: 2,
+      color: {
+        dark: '#000000',
+        light: '#FFFFFF',
+      },
+    }).catch((err) => {
+      console.error('[PhoneCameraModal] Failed to generate QR code:', err);
 
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      canvas.width = 300;
-      canvas.height = 300;
-      ctx.drawImage(img, 0, 0, 300, 300);
-    };
-    img.onerror = () => {
-      // Fallback: just show text
-      canvas.width = 300;
-      canvas.height = 300;
-      ctx.fillStyle = '#fff';
-      ctx.fillRect(0, 0, 300, 300);
-      ctx.fillStyle = '#000';
-      ctx.font = '14px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('QR Code', 150, 140);
-      ctx.fillText('Generation', 150, 160);
-      ctx.fillText('Failed', 150, 180);
-    };
-    img.src = qrApiUrl;
+      // Fallback: draw error message on canvas
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        canvas.width = 300;
+        canvas.height = 300;
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, 300, 300);
+        ctx.fillStyle = '#000';
+        ctx.font = '14px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('QR Code', 150, 140);
+        ctx.fillText('Generation', 150, 160);
+        ctx.fillText('Failed', 150, 180);
+      }
+    });
   }, [isOpen, phoneCameraUrl]);
 
   const copyUrl = async () => {
