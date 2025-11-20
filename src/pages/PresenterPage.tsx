@@ -41,7 +41,6 @@ import { FloatingPanel } from "../components/FloatingPanel";
 import { LayersPanel } from "../components/LayersPanel";
 import { TransformControls } from "../components/TransformControls";
 import type { Layer, CameraLayer, TextLayer, Scene } from "../types/scene";
-import { CameraOverlayControls } from "../components/CameraOverlayControls";
 import { TextEditOverlay } from "../components/TextEditOverlay";
 import { ControlStrip } from "../components/ControlStrip";
 import { ConfidencePreview } from "../components/ConfidencePreview";
@@ -1078,7 +1077,6 @@ function PresenterPage() {
         selectionLength === 1 &&
         selectedLayer.type !== "group" &&
         !selectedLayer.locked &&
-        selectedLayer.type !== "camera" &&
         selectedLayer.type !== "screen" &&
         !isEditingSelectedText && (
           <TransformControls
@@ -1086,19 +1084,6 @@ function PresenterPage() {
             layer={selectedLayer}
             scene={currentScene}
             onRequestEdit={selectedLayer.type === "text" ? () => setEditingTextId(selectedLayer.id) : undefined}
-          />
-        )}
-
-      {canvasLayout &&
-        currentScene &&
-        selectedLayer?.type === "camera" &&
-        selectionLength === 1 &&
-        !selectedLayer.locked && (
-          <CameraOverlayControls
-            layout={canvasLayout}
-            layer={selectedLayer as CameraLayer}
-            sceneWidth={currentScene.width}
-            sceneHeight={currentScene.height}
           />
         )}
 

@@ -49,19 +49,13 @@ type ResizeHandle = 'top-left' | 'top-right' | 'bottom-right' | 'bottom-left';
 const CONTENT_HANDLES: ResizeHandle[] = ['top-left', 'top-right', 'bottom-right', 'bottom-left'];
 
 function getVideoBaseDimensions(layer: CameraLayer): { width: number; height: number } {
-  const diameter = layer.diameter ?? MIN_DIAMETER;
   const video = getVideoForLayer(layer.id);
   if (video && video.videoWidth > 0 && video.videoHeight > 0) {
-    const aspect = video.videoWidth / video.videoHeight;
-    if (aspect > 1) {
-      return { width: diameter * aspect, height: diameter };
-    }
-    return { width: diameter, height: diameter / aspect };
+    return { width: video.videoWidth, height: video.videoHeight };
   }
-  return { width: diameter, height: diameter };
+  // Default 16:9 camera dimensions
+  return { width: 1280, height: 720 };
 }
-
-const MIN_DIAMETER = 120;
 
 /**
  * Interaction overlay for camera layers – supports drag position and resize crop.

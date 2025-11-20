@@ -3,8 +3,8 @@ import { useVideoEffectsStore, type EffectMode, type EffectQuality } from "../st
 
 export function PresenterEffectsControls() {
   const {
-    enabled, mode, quality,
-    setEnabled, setMode, setQuality,
+    enabled, mode, quality, background,
+    setEnabled, setMode, setQuality, setBackground,
   } = useVideoEffectsStore();
 
   return (
@@ -27,6 +27,7 @@ export function PresenterEffectsControls() {
           <option value="off">Off</option>
           <option value="blur">Blur</option>
           <option value="remove">BG Removal</option>
+          <option value="replace">Replace</option>
         </select>
       </label>
 
@@ -40,6 +41,17 @@ export function PresenterEffectsControls() {
           <option value="balanced">Balanced</option>
           <option value="high">High</option>
         </select>
+      </label>
+
+      <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ width: 72, opacity: 0.8 }}>Background</span>
+        <input
+          type="text"
+          placeholder="(optional) URL or data URI"
+          value={background ?? ""}
+          onChange={(e) => setBackground(e.target.value || null)}
+          style={{ flex: 1 }}
+        />
       </label>
     </div>
   );

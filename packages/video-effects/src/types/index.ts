@@ -1,6 +1,6 @@
 export type Engine = 'mediapipe' | 'onnx-modnet';
 
-export type Mode = 'off' | 'blur' | 'remove' | 'chroma';
+export type Mode = 'off' | 'blur' | 'replace' | 'remove' | 'chroma';
 
 export type Quality = 'fast' | 'balanced' | 'high';
 

@@ -50,7 +50,8 @@ export function getLayerBaseSize(layer: Layer, scene: Scene): Size {
     case 'screen':
       return { width: scene.width, height: scene.height };
     case 'camera':
-      return { width: layer.diameter, height: layer.diameter };
+      // Default camera dimensions (16:9 aspect ratio)
+      return { width: 1280, height: 720 };
     case 'image':
       return { width: layer.width, height: layer.height };
     case 'shape':

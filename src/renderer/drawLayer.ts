@@ -59,7 +59,7 @@ export function drawScreenLayer(
 }
 
 /**
- * Draw a camera layer with a circular mask and soft border.
+ * Draw a camera layer (rectangular, similar to screen layer).
  */
 export function drawCameraLayer(
   ctx: CanvasRenderingContext2D,
@@ -75,53 +75,10 @@ export function drawCameraLayer(
     return;
   }
 
-  const diameter = layer.diameter ?? 320;
-  const radius = diameter / 2;
+  const width = video.videoWidth || 1280;
+  const height = video.videoHeight || 720;
 
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(0, 0, radius, 0, Math.PI * 2);
-  ctx.closePath();
-  ctx.clip();
-
-  const videoWidth = video.videoWidth || diameter;
-  const videoHeight = video.videoHeight || diameter;
-  let drawWidth = diameter;
-  let drawHeight = diameter;
-
-  if (videoWidth > 0 && videoHeight > 0) {
-    const aspect = videoWidth / videoHeight;
-    if (aspect > 1) {
-      drawHeight = diameter;
-      drawWidth = diameter * aspect;
-    } else {
-      drawWidth = diameter;
-      drawHeight = diameter / aspect;
-    }
-  }
-
-  const scale = layer.videoScale ?? 1;
-  const scaledWidth = drawWidth * scale;
-  const scaledHeight = drawHeight * scale;
-  const offset = layer.videoOffset ?? { x: 0, y: 0 };
-  ctx.drawImage(
-    video,
-    -scaledWidth / 2 - offset.x,
-    -scaledHeight / 2 - offset.y,
-    scaledWidth,
-    scaledHeight
-  );
-  ctx.restore();
-
-  const gradient = ctx.createRadialGradient(0, 0, radius * 0.7, 0, 0, radius);
-  gradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
-  gradient.addColorStop(1, 'rgba(255, 255, 255, 0.6)');
-
-  ctx.lineWidth = Math.max(6, radius * 0.12);
-  ctx.strokeStyle = gradient;
-  ctx.beginPath();
-  ctx.arc(0, 0, radius - ctx.lineWidth / 2, 0, Math.PI * 2);
-  ctx.stroke();
+  ctx.drawImage(video, -width / 2, -height / 2, width, height);
 
   ctx.restore();
 }
