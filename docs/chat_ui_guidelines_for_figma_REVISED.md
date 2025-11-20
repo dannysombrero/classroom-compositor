@@ -3,6 +3,7 @@
 Design a **reusable chat widget** that works in multiple contexts with minimal styling constraints.
 
 ---
+AI Chat Bot Feature Guidelines can be found below: 
 
 ## Core Requirement
 
@@ -66,26 +67,6 @@ interface ChatMessage {
 ✅ **Timestamps** (subtle, small)
 ✅ **Visual distinction** between teacher/bot/student
 ✅ **Responsive to width/height props**
-
----
-
-## Visual Guidelines (Flexible)
-
-### You decide on:
-- Exact colors (just keep dark theme)
-- Font sizes/weights (readable at 380px width)
-- Spacing/padding
-- Border radius
-- Animations/transitions
-
-### Keep consistent with:
-- Existing app dark theme
-- Purple accent color family (`#9333ea` range)
-
-### Sender Styling Suggestions (not mandatory):
-- **Teacher**: Blue-ish accent
-- **Bot**: Purple/neutral with icon
-- **Student**: Neutral gray
 
 ---
 
