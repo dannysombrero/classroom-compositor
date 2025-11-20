@@ -17,11 +17,17 @@ export function CameraEffectsSection({ heading }: CameraEffectsSectionProps) {
     quality,
     background,
     blurRadius,
+    edgeSmoothing,
+    edgeRefinement,
+    threshold,
     setEnabled,
     setMode,
     setQuality,
     setBackground,
     setBlurRadius,
+    setEdgeSmoothing,
+    setEdgeRefinement,
+    setThreshold,
   } = useVideoEffectsStore();
 
   const renderHeading = heading ? (
@@ -95,6 +101,64 @@ export function CameraEffectsSection({ heading }: CameraEffectsSectionProps) {
             }}
           />
         </label>
+      )}
+
+      {(mode === "remove" || mode === "replace") && (
+        <>
+          <label style={styles.sliderGroup}>
+            <span style={styles.sliderLabel}>
+              <span>Edge Smoothing</span>
+              <span style={styles.sliderValue}>{Math.round(edgeSmoothing * 100)}%</span>
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={edgeSmoothing}
+              onChange={(event) => {
+                setEdgeSmoothing(event.currentTarget.valueAsNumber);
+                requestCurrentStreamFrame();
+              }}
+            />
+          </label>
+
+          <label style={styles.sliderGroup}>
+            <span style={styles.sliderLabel}>
+              <span>Edge Refinement</span>
+              <span style={styles.sliderValue}>{edgeRefinement > 0 ? '+' : ''}{edgeRefinement}</span>
+            </span>
+            <input
+              type="range"
+              min={-10}
+              max={10}
+              step={1}
+              value={edgeRefinement}
+              onChange={(event) => {
+                setEdgeRefinement(event.currentTarget.valueAsNumber);
+                requestCurrentStreamFrame();
+              }}
+            />
+          </label>
+
+          <label style={styles.sliderGroup}>
+            <span style={styles.sliderLabel}>
+              <span>Threshold</span>
+              <span style={styles.sliderValue}>{Math.round(threshold * 100)}%</span>
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={threshold}
+              onChange={(event) => {
+                setThreshold(event.currentTarget.valueAsNumber);
+                requestCurrentStreamFrame();
+              }}
+            />
+          </label>
+        </>
       )}
 
       {mode === "replace" && (

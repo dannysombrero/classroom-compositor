@@ -37,15 +37,35 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
 
   const segmenterRef = useRef<MediaPipeSegmenter | null>(null);
   const backgroundImageRef = useRef<HTMLImageElement | null>(null);
+  const previousMaskRef = useRef<ImageData | null>(null);
 
-  const { enabled, mode, engine, blurRadius, background } = useVideoEffectsStore();
+  const { enabled, mode, engine, blurRadius, background, edgeSmoothing, edgeRefinement, threshold } = useVideoEffectsStore();
 
-  // Live slider value (don’t rebuild pipeline when it changes)
+  // Live slider values (don't rebuild pipeline when they change)
   const blurRef = useRef<number>(blurRadius);
+  const edgeSmoothingRef = useRef<number>(edgeSmoothing);
+  const edgeRefinementRef = useRef<number>(edgeRefinement);
+  const thresholdRef = useRef<number>(threshold);
+
   useEffect(() => {
     blurRef.current = blurRadius;
     log("blurRadius changed ->", blurRadius);
   }, [blurRadius]);
+
+  useEffect(() => {
+    edgeSmoothingRef.current = edgeSmoothing;
+    log("edgeSmoothing changed ->", edgeSmoothing);
+  }, [edgeSmoothing]);
+
+  useEffect(() => {
+    edgeRefinementRef.current = edgeRefinement;
+    log("edgeRefinement changed ->", edgeRefinement);
+  }, [edgeRefinement]);
+
+  useEffect(() => {
+    thresholdRef.current = threshold;
+    log("threshold changed ->", threshold);
+  }, [threshold]);
 
   const teardown = () => {
     if (loopRef.current != null) {
@@ -210,23 +230,116 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
 
       const px = Math.max(0, Math.min(48, blurRef.current | 0));
 
+      // Helper function to process the segmentation mask with threshold, smoothing, and refinement
+      const processMask = (maskCanvas: HTMLCanvasElement): HTMLCanvasElement => {
+        if (!oc) return maskCanvas;
+
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = maskCanvas.width;
+        tempCanvas.height = maskCanvas.height;
+        const tempCtx = tempCanvas.getContext('2d');
+        if (!tempCtx) return maskCanvas;
+
+        // Draw the raw mask
+        tempCtx.drawImage(maskCanvas, 0, 0);
+        const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+        const data = imageData.data;
+
+        // Apply threshold
+        const thresh = thresholdRef.current;
+        for (let i = 0; i < data.length; i += 4) {
+          const alpha = data[i + 3] / 255;
+          data[i + 3] = alpha >= thresh ? 255 : 0;
+        }
+
+        // Apply temporal smoothing (EMA)
+        const smoothing = edgeSmoothingRef.current;
+        if (previousMaskRef.current && smoothing > 0) {
+          const prevData = previousMaskRef.current.data;
+          for (let i = 3; i < data.length; i += 4) {
+            const current = data[i] / 255;
+            const previous = prevData[i] / 255;
+            data[i] = Math.round((smoothing * previous + (1 - smoothing) * current) * 255);
+          }
+        }
+
+        // Store current mask for next frame
+        previousMaskRef.current = tempCtx.createImageData(tempCanvas.width, tempCanvas.height);
+        previousMaskRef.current.data.set(data);
+
+        // Apply edge refinement (dilate/erode)
+        const refinement = Math.round(edgeRefinementRef.current);
+        if (refinement !== 0) {
+          const kernelSize = Math.abs(refinement);
+          const refined = new Uint8ClampedArray(data.length);
+          refined.set(data);
+
+          for (let y = 0; y < tempCanvas.height; y++) {
+            for (let x = 0; x < tempCanvas.width; x++) {
+              const idx = (y * tempCanvas.width + x) * 4 + 3;
+
+              if (refinement > 0) {
+                // Dilate (grow mask): if any neighbor is opaque, make this opaque
+                let maxAlpha = data[idx];
+                for (let dy = -kernelSize; dy <= kernelSize; dy++) {
+                  for (let dx = -kernelSize; dx <= kernelSize; dx++) {
+                    const ny = y + dy;
+                    const nx = x + dx;
+                    if (ny >= 0 && ny < tempCanvas.height && nx >= 0 && nx < tempCanvas.width) {
+                      const nidx = (ny * tempCanvas.width + nx) * 4 + 3;
+                      maxAlpha = Math.max(maxAlpha, data[nidx]);
+                    }
+                  }
+                }
+                refined[idx] = maxAlpha;
+              } else {
+                // Erode (shrink mask): if any neighbor is transparent, make this transparent
+                let minAlpha = data[idx];
+                for (let dy = -kernelSize; dy <= kernelSize; dy++) {
+                  for (let dx = -kernelSize; dx <= kernelSize; dx++) {
+                    const ny = y + dy;
+                    const nx = x + dx;
+                    if (ny >= 0 && ny < tempCanvas.height && nx >= 0 && nx < tempCanvas.width) {
+                      const nidx = (ny * tempCanvas.width + nx) * 4 + 3;
+                      minAlpha = Math.min(minAlpha, data[nidx]);
+                    }
+                  }
+                }
+                refined[idx] = minAlpha;
+              }
+            }
+          }
+
+          // Copy refined alpha back
+          for (let i = 3; i < data.length; i += 4) {
+            data[i] = refined[i];
+          }
+        }
+
+        tempCtx.putImageData(imageData, 0, 0);
+        return tempCanvas;
+      };
+
       if (mode === "remove") {
         // BACKGROUND REMOVAL MODE - transparent background with foreground only
-        const maskCanvas = segmenterRef.current?.getLatestMask() ?? null;
+        const rawMask = segmenterRef.current?.getLatestMask() ?? null;
 
-        if (!maskCanvas || !fc || !fctx) {
+        if (!rawMask || !fc || !fctx) {
           // Fallback: no segmentation available, show original video
           octx.clearRect(0, 0, oc.width, oc.height);
           octx.drawImage(v, 0, 0, oc.width, oc.height);
         } else {
+          // Process the mask with threshold, smoothing, and refinement
+          const processedMask = processMask(rawMask);
+
           // Clear output canvas (transparent background)
           octx.clearRect(0, 0, oc.width, oc.height);
 
-          // Extract foreground (person) with mask
+          // Extract foreground (person) with processed mask
           fctx.clearRect(0, 0, fc.width, fc.height);
           fctx.drawImage(v, 0, 0, fc.width, fc.height);
           fctx.globalCompositeOperation = "destination-in";
-          fctx.drawImage(maskCanvas, 0, 0, fc.width, fc.height);
+          fctx.drawImage(processedMask, 0, 0, fc.width, fc.height);
           fctx.globalCompositeOperation = "source-over";
 
           // Draw only the foreground on transparent background
@@ -234,13 +347,16 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
         }
       } else if (mode === "replace") {
         // BACKGROUND REPLACEMENT MODE
-        const maskCanvas = segmenterRef.current?.getLatestMask() ?? null;
+        const rawMask = segmenterRef.current?.getLatestMask() ?? null;
 
-        if (!maskCanvas || !fc || !fctx) {
+        if (!rawMask || !fc || !fctx) {
           // Fallback: no segmentation available, show original video
           octx.clearRect(0, 0, oc.width, oc.height);
           octx.drawImage(v, 0, 0, oc.width, oc.height);
         } else {
+          // Process the mask with threshold, smoothing, and refinement
+          const processedMask = processMask(rawMask);
+
           // Clear output canvas
           octx.clearRect(0, 0, oc.width, oc.height);
 
@@ -271,11 +387,11 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
             octx.fillRect(0, 0, oc.width, oc.height);
           }
 
-          // Extract foreground (person) with mask
+          // Extract foreground (person) with processed mask
           fctx.clearRect(0, 0, fc.width, fc.height);
           fctx.drawImage(v, 0, 0, fc.width, fc.height);
           fctx.globalCompositeOperation = "destination-in";
-          fctx.drawImage(maskCanvas, 0, 0, fc.width, fc.height);
+          fctx.drawImage(processedMask, 0, 0, fc.width, fc.height);
           fctx.globalCompositeOperation = "source-over";
 
           // Composite foreground over replacement background
