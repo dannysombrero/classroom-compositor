@@ -146,24 +146,46 @@ track.addEventListener("ended", () => {
 
 ## 🟡 MODERATE ISSUES FOUND
 
-### 6. No Session Validation on Phone Page
+### 6. No Session Validation on Phone Page ✅ FIXED
 **File:** `src/pages/PhoneCameraPage.tsx`
 
 **Issue:** Phone page doesn't validate if sessionId exists in Firestore before attempting connection.
 
+**Fix:** Added same validation pattern as ViewerPage - checks `host_ready` status before connecting:
+```typescript
+const readyDoc = doc(db, "sessions", sessionId, "host_ready", "status");
+const readySnap = await getDoc(readyDoc);
+if (!readyData?.ready) {
+  setError('Host is not streaming yet. Please ask the host to go live first.');
+  setState('failed');
+  return;
+}
+```
+
 **Risk Level:** LOW - User sees "connecting" forever
-**Fix Required:** Optional - Better UX
+**Status:** ✅ FIXED
 
 ---
 
-### 7. QR Code API Dependency
+### 7. QR Code API Dependency ✅ FIXED
 **File:** `src/components/PhoneCameraModal.tsx`
 **Line:** 22-40
 
-**Issue:** Relies on external API `api.qrserver.com` which could be down or blocked.
+**Issue:** Relies on external API `api.qrserver.com` which could be down or blocked by school firewalls.
+
+**Fix:** Replaced with client-side `qrcode` npm package:
+```typescript
+import QRCode from 'qrcode';
+
+QRCode.toCanvas(canvas, phoneCameraUrl, {
+  width: 300,
+  margin: 2,
+  color: { dark: '#000000', light: '#FFFFFF' },
+});
+```
 
 **Risk Level:** LOW - Fallback shows error message
-**Fix Required:** Optional - Could use client-side QR library
+**Status:** ✅ FIXED
 
 ---
 
@@ -649,15 +671,25 @@ Target metrics:
 ## 🚨 DEPLOYMENT BLOCKERS
 
 **Must fix before production:**
-1. ✅ Fix #4: Firestore Listener Leak
-2. ✅ Fix #5: Missing Track Ended Listener
-3. ✅ Fix #2: Pagehide cleanup
+1. ✅ Fix #4: Firestore Listener Leak - FIXED
+2. ✅ Fix #5: Missing Track Ended Listener - FIXED
+3. ✅ Fix #2: Pagehide cleanup - FIXED
 
 **Should fix before production:**
-4. Fix #3: Race condition with duplicate camera IDs
-5. Fix #1: MediaStream leak on camera flip
+4. ✅ Fix #3: Race condition with duplicate camera IDs - FIXED
+5. ✅ Fix #1: MediaStream leak on camera flip - FIXED
 
-**Nice to have:**
-6. Session validation
-7. Client-side QR generation
-8. Better error recovery UX
+**Production readiness improvements:**
+6. ✅ Session validation - FIXED
+7. ✅ Client-side QR generation - FIXED
+8. 🟡 Better error recovery UX - Optional (better camera permission UI)
+
+## ✅ ALL CRITICAL AND MODERATE ISSUES RESOLVED
+
+The phone camera feature is now production-ready with:
+- ✅ No memory leaks
+- ✅ Guaranteed resource cleanup
+- ✅ No external API dependencies
+- ✅ Proper session validation
+- ✅ Reliable reconnection support
+- ✅ Stale closure protection
