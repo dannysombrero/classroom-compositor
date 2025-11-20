@@ -6,7 +6,7 @@ import type { Layer, ChatLayer } from '../types/scene';
 import { getVideoForLayer } from '../media/sourceManager';
 import { getImageElement } from './imageCache';
 import { measureTextBlock } from '../utils/layerGeometry';
-import { useChatStore, getSenderDisplayName } from '../ai/stores/chatStore';
+import { useChatStore, getSenderDisplayName, formatMessageTime } from '../ai/stores/chatStore';
 
 /**
  * Apply transform to canvas context.
@@ -360,14 +360,22 @@ export function drawChatLayer(
 
   for (const msg of messages) {
     // Check if we have space for at least one line
-    if (y + 40 > height) break;
+    if (y + 50 > height) break;
 
-    // Draw sender name
+    // Draw sender name and timestamp on same line
     const senderColor =
       msg.from === 'bot' ? '#c084fc' : msg.from === 'teacher' ? '#60a5fa' : '#86efac';
     ctx.fillStyle = senderColor;
     ctx.font = 'bold 11px system-ui, -apple-system, sans-serif';
-    ctx.fillText(getSenderDisplayName(msg), padding, y);
+    const senderName = getSenderDisplayName(msg);
+    ctx.fillText(senderName, padding, y);
+
+    // Draw timestamp next to sender name
+    const timestamp = formatMessageTime(msg.timestamp);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.font = '10px system-ui, -apple-system, sans-serif';
+    const senderWidth = ctx.measureText(senderName).width;
+    ctx.fillText(` • ${timestamp}`, padding + senderWidth, y);
     y += 16;
 
     // Draw message text with wrapping
