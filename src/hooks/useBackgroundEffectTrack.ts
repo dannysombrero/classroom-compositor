@@ -93,7 +93,7 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
     log("Hook init:", { enabled, mode, engine, rawId: rawTrack.id });
 
     // Effects off or unsupported mode -> passthrough
-    if (!enabled || (mode !== "blur" && mode !== "replace")) {
+    if (!enabled || (mode !== "blur" && mode !== "replace" && mode !== "remove")) {
       setProcessed(rawTrack);
       currentTrackRef.current = rawTrack;
       log("Mode OFF or unsupported -> passthrough", { trackId: rawTrack.id });
@@ -147,8 +147,8 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
       log("captureStream not available -> passthrough");
     }
 
-    // MediaPipe required for replace mode, or if explicitly selected for blur
-    const useMP = mode === "replace" || engine === "mediapipe";
+    // MediaPipe required for replace/remove modes, or if explicitly selected for blur
+    const useMP = mode === "replace" || mode === "remove" || engine === "mediapipe";
     if (useMP) {
       log("Initializing MediaPipe segmenter…");
       const seg = new MediaPipeSegmenter();
