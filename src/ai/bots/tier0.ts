@@ -69,9 +69,17 @@ interface BotSchedule {
   bot: Tier0Bot;
   nextMessageIndex: number;
   intervalId: number;
+  isPaused: boolean;
+  sessionId: string;
 }
 
 const activeBots = new Map<string, BotSchedule>();
+
+// Grace period after resume before any bot can send (ms)
+const RESUME_GRACE_PERIOD = 5000; // 5 seconds
+// Random buffer range per bot after grace period (ms)
+const MIN_RANDOM_BUFFER = 5000; // 5 seconds
+const MAX_RANDOM_BUFFER = 10000; // 10 seconds
 
 /**
  * Start a bot with timed messages
@@ -110,6 +118,8 @@ export function startBot(sessionId: string, bot: Tier0Bot): void {
     bot,
     nextMessageIndex: 1,
     intervalId,
+    isPaused: false,
+    sessionId,
   });
 
   console.log(`🤖 [Tier 0] Started bot: ${bot.displayName} (interval: ${bot.intervalSeconds}s)`);
@@ -153,4 +163,65 @@ export function getActiveBots(): Tier0Bot[] {
  */
 export function isBotActive(botId: string): boolean {
   return activeBots.has(botId);
+}
+
+/**
+ * Pause all active bots (stops timers but keeps state)
+ */
+export function pauseAllBots(): void {
+  for (const [botId, schedule] of activeBots) {
+    if (!schedule.isPaused) {
+      window.clearInterval(schedule.intervalId);
+      schedule.isPaused = true;
+      console.log(`⏸️ [Tier 0] Paused bot: ${schedule.bot.displayName}`);
+    }
+  }
+  console.log(`⏸️ [Tier 0] All bots paused`);
+}
+
+/**
+ * Resume all paused bots with grace period + randomized buffer
+ */
+export function resumeAllBots(): void {
+  for (const [botId, schedule] of activeBots) {
+    if (schedule.isPaused) {
+      // Calculate total delay: grace period + random buffer per bot
+      const randomBuffer = MIN_RANDOM_BUFFER + Math.random() * (MAX_RANDOM_BUFFER - MIN_RANDOM_BUFFER);
+      const totalDelay = RESUME_GRACE_PERIOD + randomBuffer;
+
+      console.log(
+        `▶️ [Tier 0] Resuming bot: ${schedule.bot.displayName} in ${(totalDelay / 1000).toFixed(1)}s ` +
+        `(${RESUME_GRACE_PERIOD / 1000}s grace + ${(randomBuffer / 1000).toFixed(1)}s buffer)`
+      );
+
+      // Schedule first message after delay
+      setTimeout(() => {
+        const sendNextMessage = async () => {
+          const message = schedule.bot.messages[schedule.nextMessageIndex];
+          console.log(`🤖 [Tier 0] Sending from ${schedule.bot.displayName}: "${message}"`);
+
+          try {
+            await sendBotMessage(schedule.sessionId, message, schedule.bot.id, schedule.bot.displayName);
+            console.log(`✅ [Tier 0] Message sent successfully`);
+          } catch (error) {
+            console.error(`❌ [Tier 0] Failed to send message:`, error);
+          }
+
+          schedule.nextMessageIndex = (schedule.nextMessageIndex + 1) % schedule.bot.messages.length;
+        };
+
+        // Send first message
+        void sendNextMessage();
+
+        // Resume regular interval
+        const intervalId = window.setInterval(() => {
+          void sendNextMessage();
+        }, schedule.bot.intervalSeconds * 1000);
+
+        schedule.intervalId = intervalId;
+        schedule.isPaused = false;
+      }, totalDelay);
+    }
+  }
+  console.log(`▶️ [Tier 0] All bots resuming with grace period`);
 }

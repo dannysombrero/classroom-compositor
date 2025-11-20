@@ -5,6 +5,7 @@
 
 import { useAppStore } from "../app/store";
 import { useSessionStore } from "../stores/sessionStore";
+import { pauseAllBots } from "../ai";
 
 export function LiveControlPanel() {
   const compactPresenter = useAppStore((state) => state.compactPresenter);
@@ -17,6 +18,10 @@ export function LiveControlPanel() {
     // Pause: hide compact controls, show full editor, keep stream alive
     setStreamingStatus('paused');
     setCompactPresenter(false);
+
+    // Pause all active bots
+    pauseAllBots();
+
     console.log("⏸️ Stream paused - showing full editor");
   };
 

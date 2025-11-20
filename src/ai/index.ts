@@ -18,5 +18,5 @@ export { ChatPanel, ChatWidget, ChatMessage, ChatInput } from './components/chat
 export { initializeChat, sendMessageAsCurrentUser, sendBotMessage, sendChatMessage, subscribeToChatMessages } from './services/chatService';
 
 // Bots
-export { startBot, stopBot, stopAllBots, getActiveBots, isBotActive, ENGAGEMENT_BOT, ENCOURAGEMENT_BOT, CHECK_IN_BOT } from './bots/tier0';
+export { startBot, stopBot, stopAllBots, pauseAllBots, resumeAllBots, getActiveBots, isBotActive, ENGAGEMENT_BOT, ENCOURAGEMENT_BOT, CHECK_IN_BOT } from './bots/tier0';
 export type { Tier0Bot } from './bots/tier0';

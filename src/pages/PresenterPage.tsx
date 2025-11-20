@@ -58,7 +58,7 @@ import { detectMonitors, onScreenChange } from "../utils/monitorDetection";
 import { MonitorDetectionToast } from "../components/MonitorDetectionToast";
 import { MonitorDetectionTestPanel } from "../components/MonitorDetectionTestPanel";
 import type { MonitorDetectionResult } from "../utils/monitorDetection";
-import { ChatPanel, initializeChat, sendMessageAsCurrentUser } from "../ai";
+import { ChatPanel, initializeChat, sendMessageAsCurrentUser, resumeAllBots } from "../ai";
 import { ChatLayerOverlay } from "../components/ChatLayerOverlay";
 import { BotControlPanel } from "../components/BotControlPanel";
 
@@ -1025,6 +1025,10 @@ function PresenterPage() {
     // Resume: go back to compact mode, stream continues
     setStreamingStatus('live');
     setCompactPresenter(true);
+
+    // Resume all paused bots with grace period + randomized buffer
+    resumeAllBots();
+
     console.log("▶️ Stream resumed - showing compact controls");
   }, [setStreamingStatus, setCompactPresenter]);
 
