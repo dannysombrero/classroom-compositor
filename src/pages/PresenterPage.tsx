@@ -1258,16 +1258,27 @@ function PresenterPage() {
           </button>
         )}
 
-        {/* START SESSION / GO LIVE button */}
+        {/* START SESSION / GO LIVE / RESUME button */}
         {!compactPresenter && (
           <button
-            onClick={isJoinCodeActive ? handleGoLive : handleStartSession}
+            onClick={
+              streamingStatus === 'paused'
+                ? handleResumeStream
+                : isJoinCodeActive
+                  ? handleGoLive
+                  : handleStartSession
+            }
             disabled={streamingStatus === 'connecting'}
             style={{
               display: "inline-flex",
               alignItems: "center",
               gap: 8,
-              background: isJoinCodeActive ? "#10b981" : "#3b82f6",
+              background:
+                streamingStatus === 'paused'
+                  ? "#10b981"
+                  : isJoinCodeActive
+                    ? "#10b981"
+                    : "#3b82f6",
               color: "white",
               border: "none",
               borderRadius: 8,
@@ -1277,9 +1288,21 @@ function PresenterPage() {
               marginLeft: 8,
               opacity: streamingStatus === 'connecting' ? 0.6 : 1,
             }}
-            title={isJoinCodeActive ? "Start streaming to viewers" : "Create room and generate join code"}
+            title={
+              streamingStatus === 'paused'
+                ? "Resume streaming"
+                : isJoinCodeActive
+                  ? "Start streaming to viewers"
+                  : "Create room and generate join code"
+            }
           >
-            {streamingStatus === 'connecting' ? '⏳ Connecting...' : isJoinCodeActive ? '🔴 Go Live' : '▶️ Start Session'}
+            {streamingStatus === 'connecting'
+              ? '⏳ Connecting...'
+              : streamingStatus === 'paused'
+                ? '▶️ Resume Stream'
+                : isJoinCodeActive
+                  ? '🔴 Go Live'
+                  : '▶️ Start Session'}
           </button>
         )}
 
