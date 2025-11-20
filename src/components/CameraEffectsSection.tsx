@@ -3,7 +3,6 @@ import {
   useVideoEffectsStore,
   type EffectMode,
   type EffectQuality,
-  type EffectEngine,
 } from "../stores/videoEffects";
 import { requestCurrentStreamFrame } from "../utils/viewerStream";
 
@@ -16,13 +15,11 @@ export function CameraEffectsSection({ heading }: CameraEffectsSectionProps) {
     enabled,
     mode,
     quality,
-    engine,
     background,
     blurRadius,
     setEnabled,
     setMode,
     setQuality,
-    setEngine,
     setBackground,
     setBlurRadius,
   } = useVideoEffectsStore();
@@ -59,7 +56,6 @@ export function CameraEffectsSection({ heading }: CameraEffectsSectionProps) {
           <option value="off">Off</option>
           <option value="blur">Blur</option>
           <option value="replace">Replace</option>
-          <option value="chroma">Chroma</option>
         </select>
       </label>
 
@@ -79,21 +75,6 @@ export function CameraEffectsSection({ heading }: CameraEffectsSectionProps) {
         </select>
       </label>
 
-      <label style={styles.row}>
-        <span style={styles.rowLabel}>Engine</span>
-        <select
-          value={engine}
-          onChange={(event) => {
-            setEngine(event.target.value as EffectEngine);
-            requestCurrentStreamFrame();
-          }}
-          style={styles.select}
-        >
-          <option value="mock">Mock</option>
-          <option value="mediapipe">MediaPipe</option>
-          <option value="onnx">ONNX</option>
-        </select>
-      </label>
 
       {mode === "blur" && (
         <label style={styles.sliderGroup}>

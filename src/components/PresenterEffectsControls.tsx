@@ -1,10 +1,10 @@
 import React from "react";
-import { useVideoEffectsStore, type EffectMode, type EffectQuality, type EffectEngine } from "../stores/videoEffects";
+import { useVideoEffectsStore, type EffectMode, type EffectQuality } from "../stores/videoEffects";
 
 export function PresenterEffectsControls() {
   const {
-    enabled, mode, quality, engine, background,
-    setEnabled, setMode, setQuality, setEngine, setBackground,
+    enabled, mode, quality, background,
+    setEnabled, setMode, setQuality, setBackground,
   } = useVideoEffectsStore();
 
   return (
@@ -27,7 +27,6 @@ export function PresenterEffectsControls() {
           <option value="off">Off</option>
           <option value="blur">Blur</option>
           <option value="replace">Replace</option>
-          <option value="chroma">Chroma</option>
         </select>
       </label>
 
@@ -40,18 +39,6 @@ export function PresenterEffectsControls() {
           <option value="fast">Fast</option>
           <option value="balanced">Balanced</option>
           <option value="high">High</option>
-        </select>
-      </label>
-
-      <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ width: 72, opacity: 0.8 }}>Engine</span>
-        <select
-          value={engine}
-          onChange={(e) => setEngine(e.target.value as EffectEngine)}
-        >
-          <option value="mock">Mock</option>
-          <option value="mediapipe">MediaPipe</option>
-          <option value="onnx">ONNX</option>
         </select>
       </label>
 

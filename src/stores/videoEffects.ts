@@ -27,7 +27,7 @@ export const useVideoEffectsStore = create<VideoEffectsState>((set) => ({
   enabled: false,
   mode: "off",
   quality: "balanced",
-  engine: "mock",
+  engine: "mediapipe",
   background: null,
 
   blurRadius: 12,
