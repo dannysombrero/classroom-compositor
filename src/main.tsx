@@ -10,6 +10,7 @@ import App from "./App";
 import JoinPage from "./pages/JoinPage";
 import ViewerPage from "./pages/ViewerPage";
 import { ViewerHostPage } from "./pages/ViewerHostPage";
+import PhoneCameraPage from "./pages/PhoneCameraPage";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 
 function RouteError() {
@@ -26,6 +27,7 @@ const router = createBrowserRouter([
   { path: "/join", element: <JoinPage />, errorElement: <RouteError /> },
   { path: "/view/:sessionId", element: <ViewerPage />, errorElement: <RouteError /> },
   { path: "/viewer", element: <ViewerHostPage />, errorElement: <RouteError /> },
+  { path: "/phone-camera/:sessionId", element: <PhoneCameraPage />, errorElement: <RouteError /> },
 ]);
 
 const isStandaloneViewer = window.location.pathname === "/viewer";

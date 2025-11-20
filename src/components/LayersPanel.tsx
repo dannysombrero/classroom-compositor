@@ -9,6 +9,7 @@ interface LayersPanelProps {
   layers: Layer[];
   onAddScreen: () => Promise<void> | void;
   onAddCamera: () => Promise<void> | void;
+  onAddPhoneCamera?: () => Promise<void> | void;
   onAddText: () => Promise<void> | void;
   onAddImage: () => Promise<void> | void;
   onAddShape: () => Promise<void> | void;
@@ -17,7 +18,7 @@ interface LayersPanelProps {
 /**
  * Layer list with quick visibility toggles and add-source menu.
  */
-export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAddImage, onAddShape }: LayersPanelProps) {
+export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddPhoneCamera, onAddText, onAddImage, onAddShape }: LayersPanelProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const updateLayer = useAppStore((state) => state.updateLayer);
   const removeLayer = useAppStore((state) => state.removeLayer);
@@ -196,6 +197,18 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddText, onAdd
                 >
                   Camera…
                 </button>
+                {onAddPhoneCamera && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      closeMenu();
+                      void onAddPhoneCamera();
+                    }}
+                    style={menuItemStyle}
+                  >
+                    📱 Phone Camera…
+                  </button>
+                )}
                 <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.06)' }} />
                 <button
                   type="button"

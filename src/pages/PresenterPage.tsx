@@ -8,6 +8,12 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useSessionStore } from "../stores/sessionStore";
 import { activateJoinCode } from "../utils/joinCodes";
 import { startHost, type HostHandle } from "../utils/webrtc";
+import {
+  startPhoneCameraHost,
+  stopPhoneCameraHost,
+  setPhoneCameraStreamCallback,
+  setPhoneCameraDisconnectCallback,
+} from "../utils/phoneCameraWebRTC";
 
 
 import { PresenterCanvas, type CanvasLayout } from "../components/PresenterCanvas";
@@ -36,6 +42,7 @@ import {
   stopSource,
   replaceVideoTrack,
   getActiveVideoTrack,
+  registerPhoneCameraSource,
 } from "../media/sourceManager";
 import { FloatingPanel } from "../components/FloatingPanel";
 import { LayersPanel } from "../components/LayersPanel";
@@ -52,6 +59,8 @@ import { tinykeys } from "tinykeys";
 import type { KeyBindingMap } from "tinykeys";
 import { useBackgroundEffectTrack } from "../hooks/useBackgroundEffectTrack";
 import { replaceHostVideoTrack } from "../utils/webrtc";
+import { PhoneCameraModal } from "../components/PhoneCameraModal";
+import { createId } from "../utils/id";
 
 const EMPTY_LAYERS: Layer[] = [];
 const LAYERS_PANEL_WIDTH = 280;
@@ -90,6 +99,8 @@ function PresenterPage() {
   const [isViewerOpen, setIsViewerOpen] = useState(false);
   const [isAddingScreen, setIsAddingScreen] = useState(false);
   const [isAddingCamera, setIsAddingCamera] = useState(false);
+  const [isPhoneCameraModalOpen, setIsPhoneCameraModalOpen] = useState(false);
+  const [phoneCameraId, setPhoneCameraId] = useState<string>("");
   const layerIdsRef = useRef<string[]>([]);
   const [panelPosition, setPanelPosition] = useState({ x: 24, y: 24 });
   const [isLayersPanelCollapsed, setLayersPanelCollapsed] = useState(false);
@@ -163,6 +174,55 @@ function PresenterPage() {
       setSessionId(id);
     }
   }, [sessionId]);
+
+  // Phone camera stream handler
+  useEffect(() => {
+    // Set up callback for when phone camera connects
+    setPhoneCameraStreamCallback(async (cameraId: string, stream: MediaStream) => {
+      console.log("📱 [PresenterPage] Phone camera connected:", cameraId);
+
+      const scene = getCurrentScene();
+      if (!scene) {
+        console.warn("📱 [PresenterPage] No scene available for phone camera");
+        return;
+      }
+
+      // Create a camera layer for this phone
+      const layerId = createId("layer");
+      const layer = createCameraLayer(layerId, scene.width, scene.height);
+      layer.name = `Phone Camera (${cameraId.substring(0, 8)})`;
+
+      addLayer(layer);
+
+      // Register the stream
+      const result = await registerPhoneCameraSource(layerId, stream);
+      if (!result) {
+        console.error("📱 [PresenterPage] Failed to register phone camera source");
+        removeLayer(layerId);
+        return;
+      }
+
+      // Update layer with stream ID
+      const track = stream.getVideoTracks()[0];
+      if (track) {
+        updateLayer(layerId, { streamId: track.id });
+        console.log("✅ [PresenterPage] Phone camera layer created:", layerId);
+      }
+
+      requestCurrentStreamFrame();
+    });
+
+    // Set up disconnect callback
+    setPhoneCameraDisconnectCallback((cameraId: string) => {
+      console.log("📱 [PresenterPage] Phone camera disconnected:", cameraId);
+      // Note: The layer will be cleaned up automatically via track ended event
+    });
+
+    return () => {
+      // Clean up phone camera host on unmount
+      stopPhoneCameraHost();
+    };
+  }, [getCurrentScene, addLayer, removeLayer, updateLayer]);
 
   // Floating controls auto-hide
   const showControlStrip = useCallback(() => {
@@ -344,6 +404,13 @@ function PresenterPage() {
     useAppStore.getState().setSelection([layerId]);
     requestCurrentStreamFrame();
   }, [addLayer, getCurrentScene]);
+
+  const openPhoneCameraModal = useCallback(() => {
+    // Generate a new camera ID for this phone camera session
+    const newCameraId = crypto.randomUUID?.() || `camera_${Date.now()}`;
+    setPhoneCameraId(newCameraId);
+    setIsPhoneCameraModalOpen(true);
+  }, []);
 
   const addImageLayer = useCallback(() => {
     const scene = getCurrentScene();
@@ -848,7 +915,11 @@ function PresenterPage() {
       });
       console.log("✅ [handleGoLive] WebRTC host started");
 
-      // 5) Activate join code and reflect it in UI
+      // 5) Start phone camera host
+      await startPhoneCameraHost(s.id);
+      console.log("✅ [handleGoLive] Phone camera host started");
+
+      // 6) Activate join code and reflect it in UI
       const { codePretty } = await activateJoinCode(s.id);
       useSessionStore.setState({ joinCode: codePretty, isJoinCodeActive: true });
 
@@ -1072,8 +1143,16 @@ function PresenterPage() {
           onAddText={addTextLayer}
           onAddImage={addImageLayer}
           onAddShape={addShapeLayer}
+          onAddPhoneCamera={openPhoneCameraModal}
         />
       </FloatingPanel>
+
+      <PhoneCameraModal
+        isOpen={isPhoneCameraModalOpen}
+        onClose={() => setIsPhoneCameraModalOpen(false)}
+        sessionId={sessionId}
+        cameraId={phoneCameraId}
+      />
 
       {canvasLayout &&
         currentScene &&

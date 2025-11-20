@@ -5,7 +5,7 @@
  * state remains serializable while draw routines can fetch the latest frame.
  */
 
-type SourceType = 'screen' | 'camera';
+type SourceType = 'screen' | 'camera' | 'phone-camera';
 
 interface ActiveSource {
   stream: MediaStream;
@@ -84,6 +84,21 @@ export async function startCameraCapture(layerId: string): Promise<ActiveSource 
     return registerSource(layerId, stream, 'camera');
   } catch (error) {
     console.error('Failed to start camera capture:', error);
+    return null;
+  }
+}
+
+/**
+ * Register a phone camera stream (from remote phone via WebRTC).
+ */
+export async function registerPhoneCameraSource(
+  layerId: string,
+  stream: MediaStream
+): Promise<ActiveSource | null> {
+  try {
+    return registerSource(layerId, stream, 'phone-camera');
+  } catch (error) {
+    console.error('Failed to register phone camera source:', error);
     return null;
   }
 }
