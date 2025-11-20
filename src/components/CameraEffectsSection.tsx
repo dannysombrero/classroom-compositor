@@ -3,7 +3,6 @@ import {
   useVideoEffectsStore,
   type EffectMode,
   type EffectQuality,
-  type EffectEngine,
 } from "../stores/videoEffects";
 import { requestCurrentStreamFrame } from "../utils/viewerStream";
 
@@ -16,15 +15,19 @@ export function CameraEffectsSection({ heading }: CameraEffectsSectionProps) {
     enabled,
     mode,
     quality,
-    engine,
     background,
     blurRadius,
+    edgeSmoothing,
+    edgeRefinement,
+    threshold,
     setEnabled,
     setMode,
     setQuality,
-    setEngine,
     setBackground,
     setBlurRadius,
+    setEdgeSmoothing,
+    setEdgeRefinement,
+    setThreshold,
   } = useVideoEffectsStore();
 
   const renderHeading = heading ? (
@@ -58,8 +61,8 @@ export function CameraEffectsSection({ heading }: CameraEffectsSectionProps) {
         >
           <option value="off">Off</option>
           <option value="blur">Blur</option>
+          <option value="remove">BG Removal</option>
           <option value="replace">Replace</option>
-          <option value="chroma">Chroma</option>
         </select>
       </label>
 
@@ -79,21 +82,6 @@ export function CameraEffectsSection({ heading }: CameraEffectsSectionProps) {
         </select>
       </label>
 
-      <label style={styles.row}>
-        <span style={styles.rowLabel}>Engine</span>
-        <select
-          value={engine}
-          onChange={(event) => {
-            setEngine(event.target.value as EffectEngine);
-            requestCurrentStreamFrame();
-          }}
-          style={styles.select}
-        >
-          <option value="mock">Mock</option>
-          <option value="mediapipe">MediaPipe</option>
-          <option value="onnx">ONNX</option>
-        </select>
-      </label>
 
       {mode === "blur" && (
         <label style={styles.sliderGroup}>
@@ -113,6 +101,64 @@ export function CameraEffectsSection({ heading }: CameraEffectsSectionProps) {
             }}
           />
         </label>
+      )}
+
+      {(mode === "remove" || mode === "replace") && (
+        <>
+          <label style={styles.sliderGroup}>
+            <span style={styles.sliderLabel}>
+              <span>Edge Smoothing</span>
+              <span style={styles.sliderValue}>{Math.round(edgeSmoothing * 100)}%</span>
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={edgeSmoothing}
+              onChange={(event) => {
+                setEdgeSmoothing(event.currentTarget.valueAsNumber);
+                requestCurrentStreamFrame();
+              }}
+            />
+          </label>
+
+          <label style={styles.sliderGroup}>
+            <span style={styles.sliderLabel}>
+              <span>Edge Refinement</span>
+              <span style={styles.sliderValue}>{edgeRefinement > 0 ? '+' : ''}{edgeRefinement}</span>
+            </span>
+            <input
+              type="range"
+              min={-10}
+              max={10}
+              step={1}
+              value={edgeRefinement}
+              onChange={(event) => {
+                setEdgeRefinement(event.currentTarget.valueAsNumber);
+                requestCurrentStreamFrame();
+              }}
+            />
+          </label>
+
+          <label style={styles.sliderGroup}>
+            <span style={styles.sliderLabel}>
+              <span>Threshold</span>
+              <span style={styles.sliderValue}>{Math.round(threshold * 100)}%</span>
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={threshold}
+              onChange={(event) => {
+                setThreshold(event.currentTarget.valueAsNumber);
+                requestCurrentStreamFrame();
+              }}
+            />
+          </label>
+        </>
       )}
 
       {mode === "replace" && (

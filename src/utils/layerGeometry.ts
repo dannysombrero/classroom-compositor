@@ -1,5 +1,6 @@
 import type { Layer } from '../types/scene';
 import type { Scene } from '../types/scene';
+import { getVideoForLayer } from '../media/sourceManager';
 
 interface Size {
   width: number;
@@ -49,8 +50,15 @@ export function getLayerBaseSize(layer: Layer, scene: Scene): Size {
   switch (layer.type) {
     case 'screen':
       return { width: scene.width, height: scene.height };
-    case 'camera':
-      return { width: layer.diameter, height: layer.diameter };
+    case 'camera': {
+      // Get actual video dimensions if available
+      const video = getVideoForLayer(layer.id);
+      if (video && video.videoWidth > 0 && video.videoHeight > 0) {
+        return { width: video.videoWidth, height: video.videoHeight };
+      }
+      // Fallback: default camera dimensions (16:9 aspect ratio)
+      return { width: 1280, height: 720 };
+    }
     case 'image':
       return { width: layer.width, height: layer.height };
     case 'shape':

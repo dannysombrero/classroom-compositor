@@ -46,18 +46,12 @@ export interface ScreenLayer extends BaseLayer {
 }
 
 /**
- * Camera (webcam) layer with circle mask and soft border.
+ * Camera (webcam) layer.
  */
 export interface CameraLayer extends BaseLayer {
   type: 'camera';
   /** MediaStream track ID for camera */
   streamId?: string;
-  /** Diameter in pixels for the circular mask before transform scale */
-  diameter: number;
-  /** Offset of the video content relative to the mask center (scene units) */
-  videoOffset?: { x: number; y: number };
-  /** Additional scale factor applied to the video inside the mask */
-  videoScale?: number;
 }
 
 /**

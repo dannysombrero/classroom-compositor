@@ -7,8 +7,6 @@ import type {
   Transform,
 } from '../types/scene';
 
-const DEFAULT_CAMERA_DIAMETER = 320;
-
 function createBaseTransform(
   x: number,
   y: number
@@ -50,11 +48,8 @@ export function createCameraLayer(
     visible: true,
     locked: false,
     z: 0,
-    transform: createBaseTransform(sceneWidth - DEFAULT_CAMERA_DIAMETER, sceneHeight - DEFAULT_CAMERA_DIAMETER),
+    transform: createBaseTransform(sceneWidth / 2, sceneHeight / 2),
     streamId: id,
-    diameter: DEFAULT_CAMERA_DIAMETER,
-    videoOffset: { x: 0, y: 0 },
-    videoScale: 1,
   };
 }
 
