@@ -10,6 +10,7 @@ import {
   drawTextLayer,
   drawShapeLayer,
   drawGroupLayer,
+  drawChatLayer,
 } from './drawLayer';
 
 /**
@@ -139,8 +140,8 @@ export function drawScene(
         drawGroupLayer(ctx, layer);
         break;
       case 'chat':
-        // Chat layers are rendered as DOM overlays, not on canvas
-        // See ChatLayerOverlay component
+        // Draw chat messages directly on canvas so they appear in the viewer stream
+        drawChatLayer(ctx, layer);
         break;
       default:
         // Unknown layer type, skip
