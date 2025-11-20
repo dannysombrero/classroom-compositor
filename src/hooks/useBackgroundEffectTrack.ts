@@ -36,9 +36,8 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
   const currentTrackRef = useRef<MediaStreamTrack | null>(null);
 
   const segmenterRef = useRef<MediaPipeSegmenter | null>(null);
-  const backgroundImageRef = useRef<HTMLImageElement | null>(null);
 
-  const { enabled, mode, engine, blurRadius, background } = useVideoEffectsStore();
+  const { enabled, mode, engine, blurRadius } = useVideoEffectsStore();
 
   // Live slider value (don’t rebuild pipeline when it changes)
   const blurRef = useRef<number>(blurRadius);
@@ -93,7 +92,7 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
     log("Hook init:", { enabled, mode, engine, rawId: rawTrack.id });
 
     // Effects off or unsupported mode -> passthrough
-    if (!enabled || (mode !== "blur" && mode !== "replace" && mode !== "remove")) {
+    if (!enabled || (mode !== "blur" && mode !== "remove")) {
       setProcessed(rawTrack);
       currentTrackRef.current = rawTrack;
       log("Mode OFF or unsupported -> passthrough", { trackId: rawTrack.id });
@@ -147,8 +146,8 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
       log("captureStream not available -> passthrough");
     }
 
-    // MediaPipe required for replace/remove modes, or if explicitly selected for blur
-    const useMP = mode === "replace" || mode === "remove" || engine === "mediapipe";
+    // MediaPipe required for remove mode, or if explicitly selected for blur
+    const useMP = mode === "remove" || engine === "mediapipe";
     if (useMP) {
       log("Initializing MediaPipe segmenter…");
       const seg = new MediaPipeSegmenter();
@@ -164,22 +163,6 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
         });
     } else {
       log("Engine is mock -> full-frame effect path");
-    }
-
-    // Load background image if provided for replace mode
-    if (mode === "replace" && background) {
-      log("Loading background image:", background);
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => {
-        log("Background image loaded successfully");
-        backgroundImageRef.current = img;
-      };
-      img.onerror = (e) => {
-        log("Background image failed to load:", e);
-        backgroundImageRef.current = null;
-      };
-      img.src = background;
     }
 
     const draw = () => {
@@ -230,55 +213,6 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
           fctx.globalCompositeOperation = "source-over";
 
           // Draw only the foreground on transparent background
-          octx.drawImage(fc, 0, 0, oc.width, oc.height);
-        }
-      } else if (mode === "replace") {
-        // BACKGROUND REPLACEMENT MODE
-        const maskCanvas = segmenterRef.current?.getLatestMask() ?? null;
-
-        if (!maskCanvas || !fc || !fctx) {
-          // Fallback: no segmentation available, show original video
-          octx.clearRect(0, 0, oc.width, oc.height);
-          octx.drawImage(v, 0, 0, oc.width, oc.height);
-        } else {
-          // Clear output canvas
-          octx.clearRect(0, 0, oc.width, oc.height);
-
-          // Draw replacement background (image or solid color)
-          const bgImg = backgroundImageRef.current;
-          if (bgImg && bgImg.complete) {
-            // Draw background image (cover fit)
-            const imgAspect = bgImg.width / bgImg.height;
-            const canvasAspect = oc.width / oc.height;
-            let drawWidth, drawHeight, drawX, drawY;
-
-            if (imgAspect > canvasAspect) {
-              drawHeight = oc.height;
-              drawWidth = drawHeight * imgAspect;
-              drawX = (oc.width - drawWidth) / 2;
-              drawY = 0;
-            } else {
-              drawWidth = oc.width;
-              drawHeight = drawWidth / imgAspect;
-              drawX = 0;
-              drawY = (oc.height - drawHeight) / 2;
-            }
-
-            octx.drawImage(bgImg, drawX, drawY, drawWidth, drawHeight);
-          } else {
-            // Default: green screen effect (solid green background)
-            octx.fillStyle = "#00ff00";
-            octx.fillRect(0, 0, oc.width, oc.height);
-          }
-
-          // Extract foreground (person) with mask
-          fctx.clearRect(0, 0, fc.width, fc.height);
-          fctx.drawImage(v, 0, 0, fc.width, fc.height);
-          fctx.globalCompositeOperation = "destination-in";
-          fctx.drawImage(maskCanvas, 0, 0, fc.width, fc.height);
-          fctx.globalCompositeOperation = "source-over";
-
-          // Composite foreground over replacement background
           octx.drawImage(fc, 0, 0, oc.width, oc.height);
         }
       } else if (!useMP) {
@@ -351,7 +285,7 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
       log("Tearing down effects pipeline.");
       teardown();
     };
-  }, [rawTrack, enabled, mode, engine, background]);
+  }, [rawTrack, enabled, mode, engine]);
 
   return processed;
 }

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type EffectMode = "off" | "blur" | "replace" | "remove" | "chroma";
+export type EffectMode = "off" | "blur" | "remove" | "chroma";
 export type EffectQuality = "fast" | "balanced" | "high";
 export type EffectEngine = "mediapipe" | "onnx" | "mock";
 

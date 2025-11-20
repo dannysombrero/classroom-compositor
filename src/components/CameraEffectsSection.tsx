@@ -56,7 +56,6 @@ export function CameraEffectsSection({ heading }: CameraEffectsSectionProps) {
           <option value="off">Off</option>
           <option value="blur">Blur</option>
           <option value="remove">BG Removal</option>
-          <option value="replace">Replace</option>
         </select>
       </label>
 
@@ -94,26 +93,6 @@ export function CameraEffectsSection({ heading }: CameraEffectsSectionProps) {
               requestCurrentStreamFrame();
             }}
           />
-        </label>
-      )}
-
-      {mode === "replace" && (
-        <label style={styles.column}>
-          <span>Background (optional URL/data URI)</span>
-          <input
-            type="text"
-            value={background ?? ""}
-            onChange={(event) => {
-              const value = event.target.value;
-              setBackground(value || null);
-              requestCurrentStreamFrame();
-            }}
-            placeholder="https://… or data:image/png;base64,…"
-            style={styles.textInput}
-          />
-          <span style={styles.hint}>
-            Leave empty for green screen effect
-          </span>
         </label>
       )}
     </div>
