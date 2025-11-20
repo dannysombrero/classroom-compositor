@@ -1079,27 +1079,28 @@ function PresenterPage() {
         position: "relative",
       }}
     >
-      {/* Floating live pill at top-center */}
-      <div
-        style={{
-          position: "fixed",
-          top: 16,
-          left: "50%",
-          transform: "translateX(-50%)",
-          zIndex: 10001,
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          background: "rgba(20,20,20,0.85)",
-          border: "1px solid rgba(255,255,255,0.08)",
-          borderRadius: 10,
-          padding: "6px 10px",
-          color: "#eaeaea",
-          fontSize: 12,
-          boxShadow: "0 6px 24px rgba(0,0,0,0.35)",
-          backdropFilter: "blur(4px)",
-        }}
-      >
+      {/* Floating live pill at top-center - only shown in Console View */}
+      {compactPresenter && (
+        <div
+          style={{
+            position: "fixed",
+            top: 16,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 10001,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            background: "rgba(20,20,20,0.85)",
+            border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 10,
+            padding: "6px 10px",
+            color: "#eaeaea",
+            fontSize: 12,
+            boxShadow: "0 6px 24px rgba(0,0,0,0.35)",
+            backdropFilter: "blur(4px)",
+          }}
+        >
         {streamingStatus === 'paused' ? (
           <>
             <span
@@ -1234,8 +1235,10 @@ function PresenterPage() {
             )}
           </>
         )}
+        </div>
+      )}
 
-        {/* PREVIEW button - opens viewer window */}
+      {/* PREVIEW button - opens viewer window */}
         {!compactPresenter && (
           <button
             onClick={openViewer}
@@ -1333,35 +1336,33 @@ function PresenterPage() {
         {/* 👇 New: inline error feedback */}
       </div>
 
-      {/* Main canvas area - hidden when in Console View (compact mode) */}
-      {!compactPresenter && (
-        <div
-          style={{
-            flex: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            position: "relative",
-          }}
-        >
-          <PresenterCanvas
-            ref={handleCanvasRef}
-            fitToContainer
-            onLayoutChange={handleCanvasLayoutChange}
+      {/* Main canvas area - hidden when in Console View but still renders for stream */}
+      <div
+        style={{
+          flex: 1,
+          display: compactPresenter ? "none" : "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          position: "relative",
+        }}
+      >
+        <PresenterCanvas
+          ref={handleCanvasRef}
+          fitToContainer
+          onLayoutChange={handleCanvasLayoutChange}
+          skipLayerIds={editingTextId ? [editingTextId] : undefined}
+        />
+        {!compactPresenter && canvasLayout && (
+          <CanvasSelectionOverlay
+            layout={canvasLayout}
+            scene={currentScene}
             skipLayerIds={editingTextId ? [editingTextId] : undefined}
           />
-          {canvasLayout && (
-            <CanvasSelectionOverlay
-              layout={canvasLayout}
-              scene={currentScene}
-              skipLayerIds={editingTextId ? [editingTextId] : undefined}
-            />
-          )}
-          {canvasLayout && currentScene && groupTransformIds.length > 0 && (
-            <GroupTransformControls layout={canvasLayout} scene={currentScene} layerIds={groupTransformIds} />
-          )}
-        </div>
-      )}
+        )}
+        {!compactPresenter && canvasLayout && currentScene && groupTransformIds.length > 0 && (
+          <GroupTransformControls layout={canvasLayout} scene={currentScene} layerIds={groupTransformIds} />
+        )}
+      </div>
 
       {isSceneLoading && (
         <div
