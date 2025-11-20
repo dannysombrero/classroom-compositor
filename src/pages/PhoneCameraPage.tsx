@@ -297,11 +297,9 @@ export default function PhoneCameraPage() {
 
     init();
 
-    // Cleanup
-    return () => {
-      // Unsubscribe from Firestore listeners
-      unsubscribersRef.current.forEach(unsub => unsub());
-      unsubscribersRef.current = [];
+    // FIX: Add pagehide listener for guaranteed cleanup
+    const handlePageHide = () => {
+      console.log('[PhoneCamera] Page hiding, cleaning up...');
 
       // Close peer connection
       if (pcRef.current) {
@@ -313,6 +311,18 @@ export default function PhoneCameraPage() {
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
       }
+
+      // Unsubscribe listeners
+      unsubscribersRef.current.forEach(unsub => unsub());
+      unsubscribersRef.current = [];
+    };
+
+    window.addEventListener('pagehide', handlePageHide);
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('pagehide', handlePageHide);
+      handlePageHide(); // Call cleanup
     };
   }, []); // Only run on mount
 
@@ -320,6 +330,14 @@ export default function PhoneCameraPage() {
   const flipCamera = async () => {
     const newFacing = facingMode === 'user' ? 'environment' : 'user';
     setFacingMode(newFacing);
+
+    // FIX: Stop old stream tracks before creating new one
+    if (stream) {
+      stream.getTracks().forEach(track => {
+        track.stop();
+        console.log('[PhoneCamera] Stopped old camera track');
+      });
+    }
 
     const mediaStream = await startCamera(newFacing);
     if (mediaStream && pcRef.current) {

@@ -206,6 +206,14 @@ function PresenterPage() {
       const track = stream.getVideoTracks()[0];
       if (track) {
         updateLayer(layerId, { streamId: track.id });
+
+        // FIX: Add track ended listener to clean up layer when phone disconnects
+        track.addEventListener("ended", () => {
+          console.log("📱 [PresenterPage] Phone camera track ended:", layerId);
+          stopSource(layerId);
+          useAppStore.getState().removeLayer(layerId);
+        });
+
         console.log("✅ [PresenterPage] Phone camera layer created:", layerId);
       }
 
@@ -219,6 +227,10 @@ function PresenterPage() {
     });
 
     return () => {
+      // FIX: Clear callbacks before stopping host to prevent stale closures
+      setPhoneCameraStreamCallback(() => {});
+      setPhoneCameraDisconnectCallback(() => {});
+
       // Clean up phone camera host on unmount
       stopPhoneCameraHost();
     };

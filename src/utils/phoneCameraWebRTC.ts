@@ -109,10 +109,19 @@ async function handlePhoneCameraOffer(
 ): Promise<void> {
   console.log("📱 [HOST] Handling phone camera offer:", cameraId);
 
-  // Skip if we already have a connection for this camera
-  if (phoneCameraConnections.has(cameraId)) {
-    console.log("⚠️ [HOST] Already have connection for camera:", cameraId);
-    return;
+  // FIX: Check if we already have a connection for this camera
+  const existingConn = phoneCameraConnections.get(cameraId);
+  if (existingConn) {
+    // Check if connection is still alive
+    if (existingConn.pc.connectionState === 'connected' ||
+        existingConn.pc.connectionState === 'connecting') {
+      console.log("⚠️ [HOST] Already have active connection for camera:", cameraId);
+      return;
+    } else {
+      // Clean up stale connection and allow reconnection
+      console.log("🔄 [HOST] Cleaning up stale connection for camera:", cameraId);
+      stopPhoneCamera(cameraId);
+    }
   }
 
   try {
