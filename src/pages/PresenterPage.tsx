@@ -472,6 +472,14 @@ function PresenterPage() {
   }, [addLayer, getCurrentScene]);
 
   const openPhoneCameraModal = useCallback(() => {
+    // Ensure session exists (user must Go Live first)
+    const currentSession = useSessionStore.getState().session;
+    if (!currentSession?.id) {
+      console.warn("📱 [Phone Camera] Cannot open modal - no active session. Go Live first.");
+      alert("Please click 'Go Live' first before adding a phone camera.");
+      return;
+    }
+
     // Generate a new camera ID for this phone camera session
     const newCameraId = crypto.randomUUID?.() || `camera_${Date.now()}`;
     setPhoneCameraId(newCameraId);
