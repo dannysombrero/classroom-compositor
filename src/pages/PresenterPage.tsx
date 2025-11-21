@@ -472,11 +472,11 @@ function PresenterPage() {
   }, [addLayer, getCurrentScene]);
 
   const openPhoneCameraModal = useCallback(() => {
-    // Ensure session exists (user must Go Live first)
+    // Ensure session exists (user must Start Session first)
     const currentSession = useSessionStore.getState().session;
     if (!currentSession?.id) {
-      console.warn("📱 [Phone Camera] Cannot open modal - no active session. Go Live first.");
-      alert("Please click 'Go Live' first before adding a phone camera.");
+      console.warn("📱 [Phone Camera] Cannot open modal - no active session. Start Session first.");
+      alert("Please click 'Start Session' first before adding a phone camera.");
       return;
     }
 
@@ -1082,11 +1082,8 @@ function PresenterPage() {
       });
       console.log("✅ [handleGoLive] WebRTC host started");
 
-      // 6) Start phone camera host
-      await startPhoneCameraHost(s.id);
-      console.log("✅ [handleGoLive] Phone camera host started");
-
       // 6) Activate join code and reflect it in UI
+      // Note: Phone camera host is already started in handleStartSession
       const { codePretty } = await activateJoinCode(s.id);
       useSessionStore.setState({ joinCode: codePretty, isJoinCodeActive: true });
 
@@ -1141,7 +1138,11 @@ function PresenterPage() {
       useSessionStore.setState({ joinCode: codePretty, isJoinCodeActive: true });
       console.log("✅ [START SESSION] Session created with join code:", codePretty);
 
-      // 3) Open viewer window for local preview (if not already open)
+      // 3) Start phone camera host to listen for phone connections
+      await startPhoneCameraHost(s.id);
+      console.log("✅ [START SESSION] Phone camera host started");
+
+      // 4) Open viewer window for local preview (if not already open)
       openViewer();
       console.log("✅ [START SESSION] Viewer window opened");
 
