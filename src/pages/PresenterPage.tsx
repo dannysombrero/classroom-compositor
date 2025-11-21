@@ -926,7 +926,7 @@ function PresenterPage() {
   const [liveError, setLiveError] = useState<string | null>(null);
 
   // pull the actions/state from the zustand store
-  const { goLive, joinCode, isJoinCodeActive } = useSessionStore();
+  const { goLive, joinCode, isJoinCodeActive, session } = useSessionStore();
 
   /**
    * Detect monitors and update store with results.
@@ -1509,7 +1509,7 @@ function PresenterPage() {
       <PhoneCameraModal
         isOpen={isPhoneCameraModalOpen}
         onClose={() => setIsPhoneCameraModalOpen(false)}
-        sessionId={sessionId}
+        sessionId={session?.id ?? ""}
         cameraId={phoneCameraId}
       />
 
