@@ -35,6 +35,7 @@ import {
   createTextLayer,
   createImageLayer,
   createShapeLayer,
+  createChatLayer,
 } from "../layers/factory";
 import {
   startScreenCapture,
@@ -47,7 +48,7 @@ import {
 import { FloatingPanel } from "../components/FloatingPanel";
 import { LayersPanel } from "../components/LayersPanel";
 import { TransformControls } from "../components/TransformControls";
-import type { Layer, CameraLayer, TextLayer, Scene } from "../types/scene";
+import type { Layer, CameraLayer, ScreenLayer, TextLayer, ChatLayer, Scene } from "../types/scene";
 import { CameraOverlayControls } from "../components/CameraOverlayControls";
 import { TextEditOverlay } from "../components/TextEditOverlay";
 import { ControlStrip } from "../components/ControlStrip";
@@ -59,8 +60,19 @@ import { tinykeys } from "tinykeys";
 import type { KeyBindingMap } from "tinykeys";
 import { useBackgroundEffectTrack } from "../hooks/useBackgroundEffectTrack";
 import { replaceHostVideoTrack } from "../utils/webrtc";
+import { LiveControlPanel } from "../components/LiveControlPanel";
+import { detectMonitors, onScreenChange } from "../utils/monitorDetection";
+import { MonitorDetectionToast } from "../components/MonitorDetectionToast";
+import { MonitorDetectionTestPanel } from "../components/MonitorDetectionTestPanel";
+import type { MonitorDetectionResult } from "../utils/monitorDetection";
+import { ChatPanel, initializeChat, sendMessageAsCurrentUser, resumeAllBots } from "../ai";
+import { ChatLayerOverlay } from "../components/ChatLayerOverlay";
+import { BotControlPanel } from "../components/BotControlPanel";
+
+// Set to true to show the monitor detection test panel (development tool)
+const SHOW_MONITOR_TEST_PANEL = false; // Changed to false for cleaner UI
+const SHOW_BOT_CONTROL_PANEL = true;
 import { PhoneCameraModal } from "../components/PhoneCameraModal";
-import { createId } from "../utils/id";
 
 const EMPTY_LAYERS: Layer[] = [];
 const LAYERS_PANEL_WIDTH = 280;
@@ -113,6 +125,8 @@ function PresenterPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const controlStripTimerRef = useRef<number | null>(null);
   const clipboardRef = useRef<Layer[] | null>(null);
+  const [detectionToastResult, setDetectionToastResult] = useState<MonitorDetectionResult | null>(null);
+  const chatUnsubscribeRef = useRef<(() => void) | null>(null);
 
   const [cameraTrackForEffects, setCameraTrackForEffects] = useState<MediaStreamTrack | null>(null);
   const [cameraLayerForEffects, setCameraLayerForEffects] = useState<string | null>(null);
@@ -140,6 +154,9 @@ function PresenterPage() {
   const selectedCameraLayer =
     selectedLayer && selectedLayer.type === "camera" ? (selectedLayer as CameraLayer) : null;
 
+  const compactPresenter = useAppStore((state) => state.compactPresenter);
+  const streamingStatus = useAppStore((state) => state.streamingStatus);
+
   const selectionLength = selectionIds.length;
   const selectedGroup = selectedLayer && selectedLayer.type === "group" ? selectedLayer : null;
   const activeGroupChildIds = selectedGroup ? selectedGroup.children : [];
@@ -150,7 +167,7 @@ function PresenterPage() {
       ? selectionIds
       : [];
 
-  const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLayer, undo, redo } = useAppStore();
+  const { getCurrentScene, createScene, saveScene, addLayer, removeLayer, updateLayer, undo, redo, setStreamingStatus, setCompactPresenter } = useAppStore();
 
   // Copy link UX
   const [copied, setCopied] = useState(false);
@@ -264,6 +281,16 @@ function PresenterPage() {
     };
   }, []);
 
+  // Chat cleanup
+  useEffect(() => {
+    return () => {
+      if (chatUnsubscribeRef.current) {
+        chatUnsubscribeRef.current();
+        console.log("💬 [Chat] Unsubscribed from chat messages");
+      }
+    };
+  }, []);
+
   // Canvas ref
   const handleCanvasRef = (canvas: HTMLCanvasElement | null) => {
     if (canvas && canvasRef.current !== canvas) {
@@ -300,25 +327,41 @@ function PresenterPage() {
 
     setIsAddingScreen(true);
     addLayer(layer);
+    useAppStore.getState().setSelection([layerId]);
 
-    try {
-      const result = await startScreenCapture(layerId);
-      if (!result) {
-        removeLayer(layerId);
-        return;
-      }
-      useAppStore.getState().setSelection([layerId]);
-      const track = result.stream.getVideoTracks()[0];
-      if (track) {
-        updateLayer(layerId, { streamId: track.id });
-        track.addEventListener("ended", () => {
-          stopSource(layerId);
-          useAppStore.getState().removeLayer(layerId);
-        });
-      }
-      requestCurrentStreamFrame();
-    } finally {
+    // Check if we should use delayed activation based on monitor count
+    const shouldDelay = useAppStore.getState().shouldUseDelayedScreenShare();
+
+    if (shouldDelay) {
+      // 1-2 monitors: Add placeholder layer without activating screen share
+      // Screen share will activate when "Go Live" is pressed (after compact controls appear)
       setIsAddingScreen(false);
+      console.log("📺 [Screen Layer] Added placeholder - will activate on Go Live (1-2 monitor mode)");
+    } else {
+      // 3+ monitors: Activate screen share immediately
+      try {
+        const result = await startScreenCapture(layerId);
+        if (!result) {
+          removeLayer(layerId);
+          setIsAddingScreen(false);
+          return;
+        }
+        const track = result.stream.getVideoTracks()[0];
+        if (track) {
+          updateLayer(layerId, { streamId: track.id });
+          track.addEventListener("ended", () => {
+            stopSource(layerId);
+            useAppStore.getState().removeLayer(layerId);
+          });
+          console.log("📺 [Screen Layer] Activated immediately (3+ monitor mode)");
+        }
+        requestCurrentStreamFrame();
+      } catch (error) {
+        console.error("❌ [Screen Layer] Failed to activate:", error);
+        removeLayer(layerId);
+      } finally {
+        setIsAddingScreen(false);
+      }
     }
   }, [addLayer, getCurrentScene, isAddingScreen, removeLayer, updateLayer]);
 
@@ -415,6 +458,17 @@ function PresenterPage() {
     addLayer(layer);
     useAppStore.getState().setSelection([layerId]);
     requestCurrentStreamFrame();
+  }, [addLayer, getCurrentScene]);
+
+  const addChatLayer = useCallback(() => {
+    const scene = getCurrentScene();
+    if (!scene) return;
+    const layerId = createId("layer");
+    const layer = createChatLayer(layerId, scene.width, scene.height);
+    addLayer(layer);
+    useAppStore.getState().setSelection([layerId]);
+    requestCurrentStreamFrame();
+    console.log("💬 [Chat Layer] Added to canvas");
   }, [addLayer, getCurrentScene]);
 
   const openPhoneCameraModal = useCallback(() => {
@@ -874,23 +928,116 @@ function PresenterPage() {
   // pull the actions/state from the zustand store
   const { goLive, joinCode, isJoinCodeActive } = useSessionStore();
 
+  /**
+   * Detect monitors and update store with results.
+   * Called when user starts a session (requires user gesture for permission).
+   */
+  const detectAndUpdateMonitors = useCallback(async () => {
+    const result = await detectMonitors();
+    if (result) {
+      useAppStore.getState().updateMonitorDetection(result);
+      console.log("🖥️ [Monitor Detection] Detected", result.screenCount, "screen(s)");
+      console.log("🖥️ [Monitor Detection] Mode:", result.supported ? "Window Management API" : "Fallback");
+      if (result.screens.length > 0) {
+        result.screens.forEach((screen, idx) => {
+          console.log(`  Screen ${idx + 1}: ${screen.label} (${screen.width}x${screen.height})`);
+        });
+      }
+
+      // Show toast notification with detection results
+      setDetectionToastResult(result);
+    }
+  }, []);
+
+  /**
+   * Activate pending screen share layers (those without streamId).
+   * Called after compact controls appear to prevent feedback loop.
+   */
+  const activatePendingScreenShares = useCallback(async () => {
+    const scene = getCurrentScene();
+    if (!scene) {
+      console.log("📺 [Screen Share] No current scene");
+      return;
+    }
+
+    console.log("📺 [Screen Share] Checking for pending screen shares in scene:", scene);
+    console.log("📺 [Screen Share] Total layers:", scene.layers.length);
+
+    // Debug: log all layers with their types and streamId status
+    scene.layers.forEach((layer, idx) => {
+      console.log(`📺 [Screen Share] Layer ${idx}:`, {
+        id: layer.id,
+        type: layer.type,
+        name: layer.name,
+        streamId: (layer as any).streamId,
+      });
+    });
+
+    // Find all screen layers without streamId (pending activation)
+    const pendingScreenLayers = scene.layers.filter(
+      (layer): layer is ScreenLayer => layer.type === 'screen' && !layer.streamId
+    );
+
+    console.log("📺 [Screen Share] Found pending layers:", pendingScreenLayers);
+
+    if (pendingScreenLayers.length === 0) {
+      console.log("📺 [Screen Share] No pending screen shares to activate");
+      return;
+    }
+
+    console.log(`📺 [Screen Share] Activating ${pendingScreenLayers.length} pending screen share(s)...`);
+
+    // Activate each pending screen share
+    for (const layer of pendingScreenLayers) {
+      console.log(`📺 [Screen Share] Calling startScreenCapture for layer ${layer.id}...`);
+      try {
+        const result = await startScreenCapture(layer.id);
+        console.log(`📺 [Screen Share] startScreenCapture returned:`, result);
+
+        if (!result) {
+          console.warn(`⚠️ [Screen Share] User cancelled screen share for layer ${layer.id}`);
+          // Don't remove the layer - let them try again later
+          continue;
+        }
+
+        const track = result.stream.getVideoTracks()[0];
+        if (track) {
+          updateLayer(layer.id, { streamId: track.id }, { recordHistory: false });
+          track.addEventListener("ended", () => {
+            stopSource(layer.id);
+            // Reset to pending state instead of removing
+            updateLayer(layer.id, { streamId: undefined }, { recordHistory: false });
+            console.log(`📺 [Screen Share] Track ended for layer ${layer.id} - reset to pending`);
+          });
+          console.log(`✅ [Screen Share] Activated screen share for layer ${layer.id}`);
+        }
+      } catch (error) {
+        console.error(`❌ [Screen Share] Failed to activate layer ${layer.id}:`, error);
+      }
+    }
+
+    requestCurrentStreamFrame();
+  }, [getCurrentScene, updateLayer]);
+
   const handleGoLive = useCallback(async () => {
     if (hostingRef.current) return; // de-dupe rapid clicks
     setLiveError(null);
+    setStreamingStatus('connecting');
 
     try {
-      // 1) Ensure a session exists in Firestore
+      // 1) Ensure a session exists in Firestore (should already exist from Start Session)
       await goLive(HOST_ID);
       const s = useSessionStore.getState().session;
       if (!s?.id) {
+        setStreamingStatus('error');
         setLiveError("Couldn't create a session. Check Firestore rules/connection.");
         return;
       }
 
-      // 2) Get or create canvas stream (will reuse if already exists!)
+      // 3) Get or create canvas stream (will reuse if already exists!)
       const displayStream = ensureCanvasStreamExists() || undefined;
 
-      // 3) Attach the track to WebRTC BEFORE creating the offer
+      // 4) Attach the track to WebRTC BEFORE creating the offer
       if (displayStream) {
         const track = displayStream.getVideoTracks()[0];
         if (track) {
@@ -917,7 +1064,7 @@ function PresenterPage() {
         console.log("✅ [handleGoLive] Canvas stream ready for WebRTC");
       }
 
-      // 4) Start WebRTC host with the canvas stream
+      // 5) Start WebRTC host with the canvas stream
       hostingRef.current = true;
       hostRef.current = await startHost(s.id, {
         displayStream,
@@ -927,7 +1074,7 @@ function PresenterPage() {
       });
       console.log("✅ [handleGoLive] WebRTC host started");
 
-      // 5) Start phone camera host
+      // 6) Start phone camera host
       await startPhoneCameraHost(s.id);
       console.log("✅ [handleGoLive] Phone camera host started");
 
@@ -935,8 +1082,17 @@ function PresenterPage() {
       const { codePretty } = await activateJoinCode(s.id);
       useSessionStore.setState({ joinCode: codePretty, isJoinCodeActive: true });
 
+      // 7) Update UI state to show compact control panel
+      setStreamingStatus('live');
+      setCompactPresenter(true);
+      console.log("✅ [handleGoLive] Now live with compact presenter mode");
+
+      // 8) Activate pending screen shares AFTER compact controls appear (prevents feedback loop)
+      await activatePendingScreenShares();
+
     } catch (e: any) {
       console.error("❌ [handleGoLive] Failed to start:", e);
+      setStreamingStatus('error');
       setLiveError(
         e?.name === "NotAllowedError"
           ? 'Go Live was blocked by the browser. Click again and press "Allow".'
@@ -945,7 +1101,56 @@ function PresenterPage() {
     } finally {
       hostingRef.current = false;
     }
-  }, [goLive, ensureCanvasStreamExists]);
+  }, [goLive, ensureCanvasStreamExists, setStreamingStatus, setCompactPresenter, activatePendingScreenShares]);
+
+  const handleResumeStream = useCallback(() => {
+    // Resume: go back to compact mode, stream continues
+    setStreamingStatus('live');
+    setCompactPresenter(true);
+
+    // Resume all paused bots with grace period + randomized buffer
+    resumeAllBots();
+
+    console.log("▶️ Stream resumed - showing compact controls");
+  }, [setStreamingStatus, setCompactPresenter]);
+
+  const handleStartSession = useCallback(async () => {
+    console.log("🎬 [START SESSION] Creating room and preparing session...");
+
+    try {
+      // 1) Detect monitors (requires user gesture, so do it here when user clicks button)
+      await detectAndUpdateMonitors();
+
+      // 2) Create Firestore session and activate join code
+      await goLive(HOST_ID);
+      const s = useSessionStore.getState().session;
+      if (!s?.id) {
+        console.error("❌ [START SESSION] Couldn't create a session");
+        return;
+      }
+
+      const { codePretty } = await activateJoinCode(s.id);
+      useSessionStore.setState({ joinCode: codePretty, isJoinCodeActive: true });
+      console.log("✅ [START SESSION] Session created with join code:", codePretty);
+
+      // 3) Open viewer window for local preview (if not already open)
+      openViewer();
+      console.log("✅ [START SESSION] Viewer window opened");
+
+      // 4) Initialize chat for this session
+      setSessionId(s.id);
+      if (chatUnsubscribeRef.current) {
+        chatUnsubscribeRef.current();
+      }
+      chatUnsubscribeRef.current = initializeChat(s.id, HOST_ID, 'Teacher', 'teacher');
+      console.log("✅ [START SESSION] Chat initialized");
+
+      console.log("✅ [START SESSION] Ready to start streaming");
+
+    } catch (error) {
+      console.error("❌ [START SESSION] Failed to create session:", error);
+    }
+  }, [detectAndUpdateMonitors, goLive]);
 
   return (
     <div
@@ -960,28 +1165,61 @@ function PresenterPage() {
         position: "relative",
       }}
     >
-      {/* Floating live pill at top-center */}
-      <div
-        style={{
-          position: "fixed",
-          top: 16,
-          left: "50%",
-          transform: "translateX(-50%)",
-          zIndex: 10001,
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          background: "rgba(20,20,20,0.85)",
-          border: "1px solid rgba(255,255,255,0.08)",
-          borderRadius: 10,
-          padding: "6px 10px",
-          color: "#eaeaea",
-          fontSize: 12,
-          boxShadow: "0 6px 24px rgba(0,0,0,0.35)",
-          backdropFilter: "blur(4px)",
-        }}
-      >
-        {!isJoinCodeActive ? (
+      {/* Floating live pill at top-center - only shown in Console View */}
+      {compactPresenter && (
+        <div
+          style={{
+            position: "fixed",
+            top: 16,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 10001,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            background: "rgba(20,20,20,0.85)",
+            border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 10,
+            padding: "6px 10px",
+            color: "#eaeaea",
+            fontSize: 12,
+            boxShadow: "0 6px 24px rgba(0,0,0,0.35)",
+            backdropFilter: "blur(4px)",
+          }}
+        >
+        {streamingStatus === 'paused' ? (
+          <>
+            <span
+              style={{
+                display: "inline-flex",
+                width: 8,
+                height: 8,
+                borderRadius: 999,
+                background: "#f59e0b",
+                boxShadow: "0 0 0 6px rgba(245,158,11,0.2)",
+                marginRight: 2,
+              }}
+              title="Paused"
+            />
+            <span style={{ opacity: 0.85, marginRight: 6 }}>PAUSED</span>
+            <button
+              onClick={handleResumeStream}
+              style={{
+                marginLeft: 8,
+                background: "#10b981",
+                color: "white",
+                border: "none",
+                borderRadius: 6,
+                padding: "4px 12px",
+                cursor: "pointer",
+                fontWeight: 700,
+              }}
+              title="Resume streaming"
+            >
+              Resume Stream
+            </button>
+          </>
+        ) : !isJoinCodeActive ? (
           <button
             onClick={handleGoLive}
             style={{
@@ -1083,15 +1321,124 @@ function PresenterPage() {
             )}
           </>
         )}
+        </div>
+      )}
+
+      {/* Top toolbar with buttons */}
+      <div
+        style={{
+          position: "fixed",
+          top: 16,
+          right: 16,
+          zIndex: 10001,
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+        }}
+      >
+        {/* PREVIEW button - opens viewer window */}
+        {!compactPresenter && (
+          <button
+            onClick={openViewer}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              background: "rgba(59, 130, 246, 0.2)",
+              color: "#60a5fa",
+              border: "1px solid rgba(59, 130, 246, 0.4)",
+              borderRadius: 8,
+              padding: "6px 12px",
+              cursor: "pointer",
+              fontWeight: 600,
+              marginLeft: 12,
+            }}
+            title="Open viewer window for preview"
+          >
+            👁️ Preview
+          </button>
+        )}
+
+        {/* START SESSION / GO LIVE / RESUME button */}
+        {!compactPresenter && (
+          <button
+            onClick={
+              streamingStatus === 'paused'
+                ? handleResumeStream
+                : isJoinCodeActive
+                  ? handleGoLive
+                  : handleStartSession
+            }
+            disabled={streamingStatus === 'connecting'}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              background:
+                streamingStatus === 'paused'
+                  ? "#10b981"
+                  : isJoinCodeActive
+                    ? "#10b981"
+                    : "#3b82f6",
+              color: "white",
+              border: "none",
+              borderRadius: 8,
+              padding: "6px 12px",
+              cursor: streamingStatus === 'connecting' ? "wait" : "pointer",
+              fontWeight: 700,
+              marginLeft: 8,
+              opacity: streamingStatus === 'connecting' ? 0.6 : 1,
+            }}
+            title={
+              streamingStatus === 'paused'
+                ? "Resume streaming"
+                : isJoinCodeActive
+                  ? "Start streaming to viewers"
+                  : "Create room and generate join code"
+            }
+          >
+            {streamingStatus === 'connecting'
+              ? '⏳ Connecting...'
+              : streamingStatus === 'paused'
+                ? '▶️ Resume Stream'
+                : isJoinCodeActive
+                  ? '🔴 Go Live'
+                  : '▶️ Start Session'}
+          </button>
+        )}
+
+        {/* TEST: Manual monitor detection button (dev mode only) */}
+        {SHOW_MONITOR_TEST_PANEL && !compactPresenter && (
+          <button
+            onClick={detectAndUpdateMonitors}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              background: "rgba(147, 51, 234, 0.2)",
+              color: "#c084fc",
+              border: "1px solid rgba(147, 51, 234, 0.4)",
+              borderRadius: 6,
+              padding: "4px 10px",
+              cursor: "pointer",
+              fontWeight: 600,
+              marginLeft: 8,
+              fontSize: 11,
+            }}
+            title="Test monitor detection"
+          >
+            🖥️ Test Detection
+          </button>
+        )}
 
         {/* 👇 New: inline error feedback */}
       </div>
 
-      {/* Main canvas area */}
+      {/* Main canvas area - hidden when in Console View but still renders for stream */}
       <div
         style={{
           flex: 1,
-          display: "flex",
+          display: compactPresenter ? "none" : "flex",
           alignItems: "center",
           justifyContent: "center",
           position: "relative",
@@ -1103,14 +1450,14 @@ function PresenterPage() {
           onLayoutChange={handleCanvasLayoutChange}
           skipLayerIds={editingTextId ? [editingTextId] : undefined}
         />
-        {canvasLayout && (
+        {!compactPresenter && canvasLayout && (
           <CanvasSelectionOverlay
             layout={canvasLayout}
             scene={currentScene}
             skipLayerIds={editingTextId ? [editingTextId] : undefined}
           />
         )}
-        {canvasLayout && currentScene && groupTransformIds.length > 0 && (
+        {!compactPresenter && canvasLayout && currentScene && groupTransformIds.length > 0 && (
           <GroupTransformControls layout={canvasLayout} scene={currentScene} layerIds={groupTransformIds} />
         )}
       </div>
@@ -1136,28 +1483,28 @@ function PresenterPage() {
         </div>
       )}
 
-      <FloatingPanel
-        title="Objects & Layers"
-        position={panelPosition}
-        size={{
-          width: LAYERS_PANEL_WIDTH,
-          height: isLayersPanelCollapsed ? LAYERS_PANEL_COLLAPSED_HEIGHT : LAYERS_PANEL_EXPANDED_HEIGHT,
-        }}
-        onPositionChange={setPanelPosition}
-        collapsible
-        collapsed={isLayersPanelCollapsed}
-        onToggleCollapse={() => setLayersPanelCollapsed((prev) => !prev)}
-      >
-        <LayersPanel
-          layers={sceneLayers}
-          onAddScreen={addScreenCaptureLayer}
-          onAddCamera={addCameraLayer}
-          onAddText={addTextLayer}
-          onAddImage={addImageLayer}
-          onAddShape={addShapeLayer}
-          onAddPhoneCamera={openPhoneCameraModal}
+      {!compactPresenter && (
+        <FloatingPanel
+          title="Objects & Layers"
+          position={panelPosition}
+          size={{
+            width: LAYERS_PANEL_WIDTH,
+            height: isLayersPanelCollapsed ? LAYERS_PANEL_COLLAPSED_HEIGHT : LAYERS_PANEL_EXPANDED_HEIGHT,
+          }}
+          onPositionChange={setPanelPosition}
+        >
+          <LayersPanel
+            layers={sceneLayers}
+            onAddScreen={addScreenCaptureLayer}
+            onAddCamera={addCameraLayer}
+            onAddText={addTextLayer}
+            onAddImage={addImageLayer}
+            onAddShape={addShapeLayer}
+            onAddChat={addChatLayer}
+            onAddPhoneCamera={openPhoneCameraModal}
         />
-      </FloatingPanel>
+        </FloatingPanel>
+      )}
 
       <PhoneCameraModal
         isOpen={isPhoneCameraModalOpen}
@@ -1166,7 +1513,8 @@ function PresenterPage() {
         cameraId={phoneCameraId}
       />
 
-      {canvasLayout &&
+      {/* Canvas editing overlays - only shown when not in Console View */}
+      {!compactPresenter && canvasLayout &&
         currentScene &&
         selectedLayer &&
         selectionLength === 1 &&
@@ -1183,7 +1531,7 @@ function PresenterPage() {
           />
         )}
 
-      {canvasLayout &&
+      {!compactPresenter && canvasLayout &&
         currentScene &&
         selectedLayer?.type === "camera" &&
         selectionLength === 1 &&
@@ -1196,7 +1544,7 @@ function PresenterPage() {
           />
         )}
 
-      {canvasLayout &&
+      {!compactPresenter && canvasLayout &&
         currentScene &&
         selectedLayer?.type === "text" &&
         selectionLength === 1 &&
@@ -1212,17 +1560,27 @@ function PresenterPage() {
           />
         )}
 
+      {/* Chat Layer Overlays */}
+      {!compactPresenter && canvasLayout && currentScene && (
+        <ChatLayerOverlay
+          layers={currentScene.layers.filter((l) => l.type === 'chat')}
+          canvasLayout={canvasLayout}
+        />
+      )}
+
       <input ref={fileInputRef} type="file" accept="image/*" style={{ display: "none" }} />
 
-      <ControlStrip
-        visible={controlStripShouldBeVisible}
-        onTogglePresentation={togglePresentationMode}
-        presentationActive={isPresentationMode}
-        onToggleConfidence={toggleConfidencePreview}
-        confidenceActive={isConfidencePreviewVisible}
-        onOpenViewer={openViewer}
-        viewerOpen={isViewerOpen}
-      />
+      {!compactPresenter && (
+        <ControlStrip
+          visible={controlStripShouldBeVisible}
+          onTogglePresentation={togglePresentationMode}
+          presentationActive={isPresentationMode}
+          onToggleConfidence={toggleConfidencePreview}
+          confidenceActive={isConfidencePreviewVisible}
+          onOpenViewer={openViewer}
+          viewerOpen={isViewerOpen}
+        />
+      )}
 
       <ConfidencePreview
         stream={streamRef.current}
@@ -1238,6 +1596,24 @@ function PresenterPage() {
         active={isPresentationMode}
         onExit={exitPresentationMode}
       />
+
+      <LiveControlPanel />
+
+      <MonitorDetectionToast
+        result={detectionToastResult}
+        onClose={() => setDetectionToastResult(null)}
+      />
+
+      {SHOW_MONITOR_TEST_PANEL && <MonitorDetectionTestPanel />}
+
+      {SHOW_BOT_CONTROL_PANEL && <BotControlPanel />}
+
+      {sessionId && (
+        <ChatPanel
+          sessionId={sessionId}
+          onSendMessage={(text) => sendMessageAsCurrentUser(sessionId, text)}
+        />
+      )}
     </div>
   );
 }

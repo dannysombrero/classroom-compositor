@@ -4,6 +4,7 @@ import type {
   TextLayer,
   ImageLayer,
   ShapeLayer,
+  ChatLayer,
   Transform,
 } from '../types/scene';
 
@@ -34,7 +35,7 @@ export function createScreenLayer(
     locked: false,
     z: 0,
     transform: createBaseTransform(sceneWidth / 2, sceneHeight / 2),
-    streamId: id,
+    // streamId is undefined initially - will be set when screen share is activated
   };
 }
 
@@ -133,5 +134,24 @@ export function createShapeLayer(
     strokeColor: 'rgba(255, 255, 255, 0.45)',
     strokeWidth: 4,
     scaleLocked: true,
+  };
+}
+
+export function createChatLayer(
+  id: string,
+  sceneWidth: number,
+  sceneHeight: number
+): ChatLayer {
+  return {
+    id,
+    type: 'chat',
+    name: 'AI Chat',
+    visible: true,
+    locked: false,
+    z: 0,
+    transform: createBaseTransform(sceneWidth - 200, sceneHeight - 300),
+    width: 380,
+    height: 500,
+    botsEnabled: true,
   };
 }

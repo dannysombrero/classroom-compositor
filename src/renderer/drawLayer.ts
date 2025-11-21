@@ -2,10 +2,11 @@
  * Layer-specific drawing functions for the canvas renderer.
  */
 
-import type { Layer } from '../types/scene';
+import type { Layer, ChatLayer } from '../types/scene';
 import { getVideoForLayer } from '../media/sourceManager';
 import { getImageElement } from './imageCache';
 import { measureTextBlock } from '../utils/layerGeometry';
+import { useChatStore, getSenderDisplayName, formatMessageTime } from '../ai/stores/chatStore';
 
 /**
  * Apply transform to canvas context.
@@ -44,6 +45,43 @@ export function drawScreenLayer(
 
   applyTransform(ctx, layer.transform);
 
+  // Check if this is a pending screen share (no streamId)
+  const isPending = !layer.streamId;
+
+  if (isPending) {
+    // Draw placeholder for pending screen share
+    const width = 1920;
+    const height = 1080;
+
+    // Gray background
+    ctx.fillStyle = '#2a2a2a';
+    ctx.fillRect(-width / 2, -height / 2, width, height);
+
+    // Diagonal lines pattern
+    ctx.strokeStyle = '#404040';
+    ctx.lineWidth = 2;
+    const spacing = 40;
+    for (let i = -width; i < width + height; i += spacing) {
+      ctx.beginPath();
+      ctx.moveTo(i - height / 2, -height / 2);
+      ctx.lineTo(i + height / 2, height / 2);
+      ctx.stroke();
+    }
+
+    // Text: "Screen Share - Will activate when live"
+    ctx.fillStyle = '#888888';
+    ctx.font = 'bold 48px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Screen Share', 0, -40);
+    ctx.font = '32px system-ui, -apple-system, sans-serif';
+    ctx.fillText('Will activate when live', 0, 20);
+
+    ctx.restore();
+    return;
+  }
+
+  // Normal rendering: show video
   const video = getVideoForLayer(layer.id);
   if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
     ctx.restore();
@@ -256,4 +294,122 @@ export function drawGroupLayer(
 
   // Groups are drawn by iterating children in the main renderer
   // This is a placeholder that does nothing
+}
+
+/**
+ * Draw a chat layer with messages from the chat store.
+ */
+export function drawChatLayer(
+  ctx: CanvasRenderingContext2D,
+  layer: Layer
+): void {
+  if (layer.type !== 'chat') return;
+
+  const chatLayer = layer as ChatLayer;
+
+  applyTransform(ctx, layer.transform);
+
+  // Get recent messages from chat store
+  const messages = useChatStore.getState().getRecentMessages(10);
+
+  const { width, height } = chatLayer;
+
+  // Draw background
+  ctx.fillStyle = 'rgba(15, 15, 15, 0.95)';
+  ctx.fillRect(0, 0, width, height);
+
+  // Draw border
+  ctx.strokeStyle = 'rgba(147, 51, 234, 0.3)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0.5, 0.5, width - 1, height - 1);
+
+  // Draw header background
+  const headerHeight = 44;
+  ctx.fillStyle = 'rgba(147, 51, 234, 0.1)';
+  ctx.fillRect(0, 0, width, headerHeight);
+
+  // Draw header border
+  ctx.strokeStyle = 'rgba(147, 51, 234, 0.2)';
+  ctx.beginPath();
+  ctx.moveTo(0, headerHeight);
+  ctx.lineTo(width, headerHeight);
+  ctx.stroke();
+
+  // Draw title
+  ctx.fillStyle = '#c084fc';
+  ctx.font = 'bold 14px system-ui, -apple-system, sans-serif';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('💬 AI Bot Chat', 16, headerHeight / 2);
+
+  // Draw message count
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+  ctx.font = '10px system-ui, -apple-system, sans-serif';
+  ctx.fillText(
+    `${messages.length} message${messages.length !== 1 ? 's' : ''}`,
+    16,
+    headerHeight / 2 + 16
+  );
+
+  // Draw messages
+  let y = headerHeight + 16;
+  const padding = 12;
+  const messageSpacing = 12;
+  const maxWidth = width - padding * 2;
+
+  ctx.textBaseline = 'alphabetic';
+
+  for (const msg of messages) {
+    // Check if we have space for at least one line
+    if (y + 50 > height) break;
+
+    // Draw sender name and timestamp on same line
+    const senderColor =
+      msg.from === 'bot' ? '#c084fc' : msg.from === 'teacher' ? '#60a5fa' : '#86efac';
+    ctx.fillStyle = senderColor;
+    ctx.font = 'bold 11px system-ui, -apple-system, sans-serif';
+    const senderName = getSenderDisplayName(msg);
+    ctx.fillText(senderName, padding, y);
+
+    // Draw timestamp next to sender name
+    const timestamp = formatMessageTime(msg.timestamp);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.font = '10px system-ui, -apple-system, sans-serif';
+    const senderWidth = ctx.measureText(senderName).width;
+    ctx.fillText(` • ${timestamp}`, padding + senderWidth, y);
+    y += 16;
+
+    // Draw message text with wrapping
+    ctx.fillStyle = '#eaeaea';
+    ctx.font = '12px system-ui, -apple-system, sans-serif';
+
+    const words = msg.text.split(' ');
+    let line = '';
+
+    for (let i = 0; i < words.length; i++) {
+      const testLine = line + words[i] + ' ';
+      const metrics = ctx.measureText(testLine);
+
+      if (metrics.width > maxWidth && line !== '') {
+        // Draw current line and start new one
+        ctx.fillText(line.trim(), padding, y);
+        y += 16;
+        line = words[i] + ' ';
+
+        // Stop if we run out of space
+        if (y + 20 > height) break;
+      } else {
+        line = testLine;
+      }
+    }
+
+    // Draw last line if there's space
+    if (y + 16 <= height && line.trim()) {
+      ctx.fillText(line.trim(), padding, y);
+      y += 16;
+    }
+
+    y += messageSpacing;
+  }
+
+  ctx.restore();
 }

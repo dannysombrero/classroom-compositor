@@ -13,12 +13,13 @@ interface LayersPanelProps {
   onAddText: () => Promise<void> | void;
   onAddImage: () => Promise<void> | void;
   onAddShape: () => Promise<void> | void;
+  onAddChat?: () => Promise<void> | void;
 }
 
 /**
  * Layer list with quick visibility toggles and add-source menu.
  */
-export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddPhoneCamera, onAddText, onAddImage, onAddShape }: LayersPanelProps) {
+export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddPhoneCamera, onAddText, onAddImage, onAddShape, onAddChat }: LayersPanelProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const updateLayer = useAppStore((state) => state.updateLayer);
   const removeLayer = useAppStore((state) => state.removeLayer);
@@ -57,7 +58,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddPhoneCamera
 
   const isSelected = (layerId: string) => selection.includes(layerId);
 
-  const handleRowClick = (event: ReactMouseEvent<HTMLButtonElement>, layerId: string) => {
+  const handleRowClick = (event: ReactMouseEvent<HTMLElement>, layerId: string) => {
     const multi = event.shiftKey || event.metaKey || event.ctrlKey;
     if (multi) {
       if (isSelected(layerId)) {
@@ -95,7 +96,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddPhoneCamera
     requestCurrentStreamFrame();
   };
 
-  const handleDragStart = (event: DragEvent<HTMLButtonElement>, layerId: string) => {
+  const handleDragStart = (event: DragEvent<HTMLElement>, layerId: string) => {
     setDraggingId(layerId);
     setDragOverId(layerId);
     event.dataTransfer.effectAllowed = 'move';
@@ -106,7 +107,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddPhoneCamera
     }
   };
 
-  const handleDragOver = (event: DragEvent<HTMLButtonElement>, layerId: string) => {
+  const handleDragOver = (event: DragEvent<HTMLElement>, layerId: string) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
     if (dragOverId !== layerId) {
@@ -114,7 +115,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddPhoneCamera
     }
   };
 
-  const handleDrop = (event: DragEvent<HTMLButtonElement>, targetId: string) => {
+  const handleDrop = (event: DragEvent<HTMLElement>, targetId: string) => {
     event.preventDefault();
     if (!draggingId || draggingId === targetId) {
       setDraggingId(null);
@@ -240,6 +241,21 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddPhoneCamera
                 >
                   Shape Overlay
                 </button>
+                {onAddChat && (
+                  <>
+                    <div style={{ borderTop: '1px solid rgba(255, 255, 255, 0.06)' }} />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeMenu();
+                        void onAddChat();
+                      }}
+                      style={menuItemStyle}
+                    >
+                      💬 AI Chat
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -268,10 +284,8 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddPhoneCamera
                 : 'transparent';
 
               return (
-                <button
+                <div
                   key={layer.id}
-                  type="button"
-                  onClick={(event) => handleRowClick(event, layer.id)}
                   draggable
                   onDragStart={(event) => handleDragStart(event, layer.id)}
                   onDragOver={(event) => handleDragOver(event, layer.id)}
@@ -289,6 +303,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddPhoneCamera
                     cursor: 'pointer',
                     borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
                   }}
+                  onClick={(event) => handleRowClick(event, layer.id)}
                 >
                   <div
                     style={{
@@ -433,7 +448,7 @@ export function LayersPanel({ layers, onAddScreen, onAddCamera, onAddPhoneCamera
                       </svg>
                     </button>
                   </div>
-                </button>
+                </div>
               );
             })
           )}
