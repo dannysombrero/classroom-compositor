@@ -1483,6 +1483,7 @@ function PresenterPage() {
         </div>
       )}
 
+<<<<<<< HEAD
       {!compactPresenter && (
         <FloatingPanel
           title="Objects & Layers"
@@ -1502,6 +1503,25 @@ function PresenterPage() {
             onAddShape={addShapeLayer}
             onAddChat={addChatLayer}
             onAddPhoneCamera={openPhoneCameraModal}
+=======
+      <FloatingPanel
+        title="Objects & Layers"
+        position={panelPosition}
+        size={{
+          width: LAYERS_PANEL_WIDTH,
+          height: isLayersPanelCollapsed ? LAYERS_PANEL_COLLAPSED_HEIGHT : LAYERS_PANEL_EXPANDED_HEIGHT,
+        }}
+        onPositionChange={setPanelPosition}
+      >
+        <LayersPanel
+          layers={sceneLayers}
+          onAddScreen={addScreenCaptureLayer}
+          onAddCamera={addCameraLayer}
+          onAddText={addTextLayer}
+          onAddImage={addImageLayer}
+          onAddShape={addShapeLayer}
+          onAddPhoneCamera={openPhoneCameraModal}
+>>>>>>> 52c337bbe91fce9e10985b68b048ef10afde3ff5
         />
         </FloatingPanel>
       )}
