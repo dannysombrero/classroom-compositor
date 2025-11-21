@@ -242,13 +242,13 @@ describe('Tier 0 Bot System', () => {
       vi.advanceTimersByTime(10000);
       await vi.runOnlyPendingTimersAsync();
 
-      const callsAt10s = sendBotMessage.mock.calls.length;
+      const callsAt10s = vi.mocked(sendBotMessage).mock.calls.length;
 
       // After maximum delay (5s grace + 10s max buffer = 15s)
       vi.advanceTimersByTime(5000);
       await vi.runOnlyPendingTimersAsync();
 
-      const callsAt15s = sendBotMessage.mock.calls.length;
+      const callsAt15s = vi.mocked(sendBotMessage).mock.calls.length;
 
       // All bots should have sent by 15s, but likely at different times
       expect(callsAt15s).toBeGreaterThan(callsAt10s);

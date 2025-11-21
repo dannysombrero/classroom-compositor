@@ -6,7 +6,8 @@ export default defineConfig({
     environment: 'jsdom',
     include: [
       'packages/video-effects/src/tests/**/*.test.ts',
-      'src/**/*.test.ts'
+      'src/**/*.test.ts',
+      'src/**/*.test.tsx'
     ],
     coverage: {
       enabled: false,

@@ -31,7 +31,7 @@ export function PhoneCameraModal({ isOpen, onClose, sessionId, cameraId }: Phone
         dark: '#000000',
         light: '#FFFFFF',
       },
-    }).catch((err) => {
+    }).catch((err: Error) => {
       console.error('[PhoneCameraModal] Failed to generate QR code:', err);
 
       // Fallback: draw error message on canvas
