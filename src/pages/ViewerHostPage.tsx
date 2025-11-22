@@ -6,9 +6,13 @@
 
 import { useEffect, useRef } from 'react';
 
+// Track stream access for debugging leaks
+let viewerStreamAccessCount = 0;
+let viewerSrcObjectSetCount = 0;
+
 /**
  * Viewer page component for the second window that displays the presentation output.
- * 
+ *
  * @returns Video element ready for stream input
  */
 export function ViewerHostPage() {
@@ -16,12 +20,16 @@ export function ViewerHostPage() {
   const sourceStreamRef = useRef<MediaStream | null>(null);
   const playbackStreamRef = useRef<MediaStream | null>(null);
   const isSettingStreamRef = useRef<boolean>(false);
+  const hasSetStreamRef = useRef<boolean>(false); // Prevent multiple stream accesses
 
   /**
    * Full cleanup: clear video srcObject and all stream references
    */
   const fullCleanup = () => {
-    console.log('[VIEWER-CLEANUP] Full cleanup starting');
+    console.log('[VIEWER-CLEANUP] Full cleanup starting', {
+      accessCount: viewerStreamAccessCount,
+      srcObjectSetCount: viewerSrcObjectSetCount
+    });
 
     // Clear video srcObject FIRST - this releases the stream reference
     const video = videoRef.current;
@@ -39,6 +47,9 @@ export function ViewerHostPage() {
       console.log('[VIEWER-CLEANUP] Clearing source stream reference');
       sourceStreamRef.current = null;
     }
+
+    // Reset the hasSetStream flag so we can accept a new stream
+    hasSetStreamRef.current = false;
 
     console.log('[VIEWER-CLEANUP] Full cleanup complete');
   };
@@ -113,28 +124,42 @@ export function ViewerHostPage() {
       }
 
       if (event.data?.type === 'stream') {
-        console.log('Viewer: Received stream message', event.data);
-        
+        console.log('🔔 [VIEWER-MSG] Received stream message', {
+          hasSetStream: hasSetStreamRef.current,
+          accessCount: viewerStreamAccessCount,
+          srcObjectSetCount: viewerSrcObjectSetCount
+        });
+
+        // IMPORTANT: If we already have a stream set, ignore subsequent messages
+        // This prevents React Strict Mode and multiple sendStreamToViewer calls
+        // from creating multiple cross-window wrapper objects
+        if (hasSetStreamRef.current && sourceStreamRef.current) {
+          console.log('⏭️ [VIEWER-MSG] Already have stream, ignoring duplicate message');
+          return;
+        }
+
         let stream: MediaStream | null = null;
-        
+
         // Try to get stream from the message (might work if browser allows reference sharing)
         if (event.data.stream && event.data.stream instanceof MediaStream) {
           stream = event.data.stream;
           console.log('Viewer: Got stream directly from message');
         }
-        
+
         // If no stream in message and we don't already have one, request it from opener
         if (!stream && !sourceStreamRef.current && window.opener && !isSettingStreamRef.current) {
           console.log('Viewer: Requesting stream from opener');
           window.opener.postMessage({ type: 'request-stream' }, window.location.origin);
         }
-        
-        // Also try to get it from opener's global if available
-        if (!stream && window.opener) {
+
+        // Also try to get it from opener's global if available - BUT ONLY ONCE
+        if (!stream && window.opener && !hasSetStreamRef.current) {
+          viewerStreamAccessCount++;
+          console.log(`🔍 [VIEWER-ACCESS] Accessing opener stream (access #${viewerStreamAccessCount})`);
           try {
             // @ts-ignore - accessing function/property from opener's context
             const openerWindow = window.opener as any;
-            
+
             // Try direct property access first
             if (openerWindow.currentStream) {
               const retrievedStream = openerWindow.currentStream;
@@ -143,6 +168,7 @@ export function ViewerHostPage() {
                 hasGetVideoTracks: typeof retrievedStream?.getVideoTracks === 'function',
                 hasTracks: retrievedStream?.getVideoTracks?.()?.length || 0,
                 streamType: typeof retrievedStream,
+                streamId: retrievedStream?.id,
               });
               // Check if it has MediaStream-like interface instead of instanceof
               if (retrievedStream && typeof retrievedStream.getVideoTracks === 'function') {
@@ -150,7 +176,7 @@ export function ViewerHostPage() {
                 console.log('Viewer: Using stream from opener.currentStream');
               }
             }
-            
+
             // Fallback to function
             if (!stream && openerWindow.getCurrentStream && typeof openerWindow.getCurrentStream === 'function') {
               const retrievedStream = openerWindow.getCurrentStream();
@@ -198,12 +224,16 @@ export function ViewerHostPage() {
           // CHANGED: Use source stream directly instead of cloning
           // This avoids creating extra streams that need cleanup
           stopPlaybackStream();
-          console.log('[VIEWER-STREAM] Using source stream directly (no clone)', {
+
+          viewerSrcObjectSetCount++;
+          console.log(`📺 [VIEWER-SRCOBJECT] Setting video.srcObject (set #${viewerSrcObjectSetCount})`, {
             streamId: stream.id,
             tracks: stream.getTracks().map(t => ({ id: t.id, type: t.constructor.name }))
           });
 
           video.srcObject = stream;
+          hasSetStreamRef.current = true; // Mark that we've set the stream
+
           video
             .play()
             .then(() => {
