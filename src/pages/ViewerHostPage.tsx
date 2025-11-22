@@ -17,6 +17,32 @@ export function ViewerHostPage() {
   const playbackStreamRef = useRef<MediaStream | null>(null);
   const isSettingStreamRef = useRef<boolean>(false);
 
+  /**
+   * Full cleanup: clear video srcObject and all stream references
+   */
+  const fullCleanup = () => {
+    console.log('[VIEWER-CLEANUP] Full cleanup starting');
+
+    // Clear video srcObject FIRST - this releases the stream reference
+    const video = videoRef.current;
+    if (video && video.srcObject) {
+      console.log('[VIEWER-CLEANUP] Clearing video.srcObject');
+      video.srcObject = null;
+    }
+
+    // Clear stream references
+    if (playbackStreamRef.current) {
+      console.log('[VIEWER-CLEANUP] Clearing playback stream reference');
+      playbackStreamRef.current = null;
+    }
+    if (sourceStreamRef.current) {
+      console.log('[VIEWER-CLEANUP] Clearing source stream reference');
+      sourceStreamRef.current = null;
+    }
+
+    console.log('[VIEWER-CLEANUP] Full cleanup complete');
+  };
+
   const stopPlaybackStream = () => {
     // NOTE: We no longer clone, so we don't need to stop tracks here.
     // The presenter manages the source stream lifecycle.
@@ -29,39 +55,46 @@ export function ViewerHostPage() {
 
   useEffect(() => {
     console.log('Viewer: Setting up message listener');
-    
+
     const video = videoRef.current;
+
+    // Store event handlers so we can remove them later
+    const handleLoadedMetadata = () => {
+      console.log('Viewer: Video metadata loaded', {
+        readyState: video?.readyState,
+        videoWidth: video?.videoWidth,
+        videoHeight: video?.videoHeight,
+      });
+    };
+
+    const handlePlaying = () => {
+      console.log('Viewer: Video is now playing!', {
+        readyState: video?.readyState,
+        currentTime: video?.currentTime,
+        videoWidth: video?.videoWidth,
+        videoHeight: video?.videoHeight,
+      });
+    };
+
+    const handlePlay = () => {
+      console.log('Viewer: Video play event fired', {
+        readyState: video?.readyState,
+        currentTime: video?.currentTime,
+        videoWidth: video?.videoWidth,
+        videoHeight: video?.videoHeight,
+      });
+    };
+
+    const handleError = (e: Event) => {
+      console.error('Viewer: Video error:', e, video?.error);
+    };
+
     if (video) {
-      // Set up video event listeners once
-      video.addEventListener('loadedmetadata', () => {
-        console.log('Viewer: Video metadata loaded', {
-          readyState: video.readyState,
-          videoWidth: video.videoWidth,
-          videoHeight: video.videoHeight,
-        });
-      });
-      
-      video.addEventListener('playing', () => {
-        console.log('Viewer: Video is now playing!', {
-          readyState: video.readyState,
-          currentTime: video.currentTime,
-          videoWidth: video.videoWidth,
-          videoHeight: video.videoHeight,
-        });
-      });
-      
-      video.addEventListener('play', () => {
-        console.log('Viewer: Video play event fired', {
-          readyState: video.readyState,
-          currentTime: video.currentTime,
-          videoWidth: video.videoWidth,
-          videoHeight: video.videoHeight,
-        });
-      });
-      
-      video.addEventListener('error', (e) => {
-        console.error('Viewer: Video error:', e, video.error);
-      });
+      // Set up video event listeners
+      video.addEventListener('loadedmetadata', handleLoadedMetadata);
+      video.addEventListener('playing', handlePlaying);
+      video.addEventListener('play', handlePlay);
+      video.addEventListener('error', handleError);
     }
     
     const handleMessage = (event: MessageEvent) => {
@@ -213,10 +246,8 @@ export function ViewerHostPage() {
         }
       } else if (event.data?.type === 'stream-ended') {
         // Stream ended, show placeholder or message
-        stopPlaybackStream();
-        sourceStreamRef.current = null;
-        video.srcObject = null;
-        console.log('Viewer: Stream ended');
+        console.log('Viewer: Stream ended - running full cleanup');
+        fullCleanup();
       } else if (event.data?.type === 'viewer-ready') {
         console.log('Viewer: Received viewer-ready message');
       } else if (event.data?.type === 'handshake') {
@@ -241,8 +272,7 @@ export function ViewerHostPage() {
     // CRITICAL: Add beforeunload to ensure cleanup when window is force-closed
     const handleBeforeUnload = () => {
       console.log('[VIEWER-UNLOAD] Window closing, cleaning up streams');
-      stopPlaybackStream();
-      sourceStreamRef.current = null;
+      fullCleanup();
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
 
@@ -250,8 +280,16 @@ export function ViewerHostPage() {
       console.log('[VIEWER-UNMOUNT] Cleanup running');
       window.removeEventListener('message', handleMessage);
       window.removeEventListener('beforeunload', handleBeforeUnload);
-      stopPlaybackStream();
-      sourceStreamRef.current = null;
+
+      // Remove video event listeners
+      if (video) {
+        video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+        video.removeEventListener('playing', handlePlaying);
+        video.removeEventListener('play', handlePlay);
+        video.removeEventListener('error', handleError);
+      }
+
+      fullCleanup();
       console.log('[VIEWER-UNMOUNT] Cleanup complete');
     };
   }, []);
