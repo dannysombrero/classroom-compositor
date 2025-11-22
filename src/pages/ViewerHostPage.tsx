@@ -18,17 +18,13 @@ export function ViewerHostPage() {
   const isSettingStreamRef = useRef<boolean>(false);
 
   const stopPlaybackStream = () => {
-    const stream = playbackStreamRef.current;
-    if (!stream) return;
-    console.log('[VIEWER-CLEANUP] Stopping playback stream', {
-      streamId: stream.id,
-      tracks: stream.getTracks().map(t => ({ id: t.id, state: t.readyState }))
-    });
-    stream.getTracks().forEach((track) => {
-      console.log('[VIEWER-CLEANUP] Stopping track:', track.id);
-      track.stop();
-    });
-    playbackStreamRef.current = null;
+    // NOTE: We no longer clone, so we don't need to stop tracks here.
+    // The presenter manages the source stream lifecycle.
+    // Just clear the reference.
+    if (playbackStreamRef.current) {
+      console.log('[VIEWER-CLEANUP] Clearing playback stream reference (not stopping - presenter manages)');
+      playbackStreamRef.current = null;
+    }
   };
 
   useEffect(() => {
@@ -145,20 +141,14 @@ export function ViewerHostPage() {
         // Check if stream is valid (has MediaStream interface)
         if (stream && typeof stream.getVideoTracks === 'function') {
           // Only set stream if it's different from current one
-          if (sourceStreamRef.current === stream && playbackStreamRef.current && video.srcObject === playbackStreamRef.current) {
-            console.log('Viewer: Stream already set, skipping');
-            return;
-          }
-
-          // Prevent concurrent sets
-          if (isSettingStreamRef.current) {
-            console.log('Viewer: Already setting stream, skipping');
+          if (sourceStreamRef.current === stream) {
+            console.log('Viewer: Same source stream, skipping clone');
             return;
           }
 
           isSettingStreamRef.current = true;
           sourceStreamRef.current = stream;
-          
+
           const tracks = stream.getVideoTracks();
           console.log('Viewer: Setting video srcObject, tracks:', tracks.length);
           if (tracks.length > 0) {
@@ -171,23 +161,16 @@ export function ViewerHostPage() {
               settings: tracks[0].getSettings?.() ?? null,
             });
           }
-          
+
+          // CHANGED: Use source stream directly instead of cloning
+          // This avoids creating extra streams that need cleanup
           stopPlaybackStream();
-          console.log('[VIEWER-CLONE] Cloning stream', { sourceStreamId: stream.id });
-          const playbackStream = stream.clone();
-          console.log('[VIEWER-CLONE] Created clone', {
-            cloneStreamId: playbackStream.id,
-            tracks: playbackStream.getTracks().map(t => ({ id: t.id, type: t.constructor.name }))
+          console.log('[VIEWER-STREAM] Using source stream directly (no clone)', {
+            streamId: stream.id,
+            tracks: stream.getTracks().map(t => ({ id: t.id, type: t.constructor.name }))
           });
-          const playbackTrack = playbackStream.getVideoTracks()[0];
-          if (playbackTrack) {
-            playbackTrack.addEventListener('ended', () => {
-              console.warn('Viewer: Cloned video track ended');
-            });
-          }
-          playbackStreamRef.current = playbackStream;
-          
-          video.srcObject = playbackStream;
+
+          video.srcObject = stream;
           video
             .play()
             .then(() => {
@@ -202,7 +185,7 @@ export function ViewerHostPage() {
                 console.log('Viewer: Play interrupted (stream switch), will retry');
                 // Retry after a brief delay
                 setTimeout(() => {
-                  if (video.srcObject === playbackStream) {
+                  if (video.srcObject === stream) {
                     video.play()
                       .then(() => {
                         console.log('Viewer: Stream playing successfully (after retry)');
