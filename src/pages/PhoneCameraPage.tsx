@@ -186,8 +186,9 @@ export default function PhoneCameraPage() {
       console.log('[PhoneCamera] Added video track to peer connection');
 
       // Set up ICE candidate handling
-      const candPhoneCol = collection(db, "sessions", sessionId, "candidates_phone", cameraId);
-      const candHostPhoneCol = collection(db, "sessions", sessionId, "candidates_host_phone", cameraId);
+      // Use 5-segment paths: sessions/{sessionId}/candidates_phone/{cameraId}/candidates
+      const candPhoneCol = collection(db, "sessions", sessionId, "candidates_phone", cameraId, "candidates");
+      const candHostPhoneCol = collection(db, "sessions", sessionId, "candidates_host_phone", cameraId, "candidates");
 
       pc.onicecandidate = async (e) => {
         if (!e.candidate) {

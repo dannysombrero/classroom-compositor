@@ -129,8 +129,9 @@ async function handlePhoneCameraOffer(
     const pc = new RTCPeerConnection(rtcConfig());
 
     // Set up ICE candidate handling
-    const candPhoneCol = collection(db, "sessions", sessionId, "candidates_phone", cameraId);
-    const candHostPhoneCol = collection(db, "sessions", sessionId, "candidates_host_phone", cameraId);
+    // Use 5-segment paths: sessions/{sessionId}/candidates_phone/{cameraId}/candidates
+    const candPhoneCol = collection(db, "sessions", sessionId, "candidates_phone", cameraId, "candidates");
+    const candHostPhoneCol = collection(db, "sessions", sessionId, "candidates_host_phone", cameraId, "candidates");
 
     // Handle ICE candidates
     pc.onicecandidate = async (e) => {
