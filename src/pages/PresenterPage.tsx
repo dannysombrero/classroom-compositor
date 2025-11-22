@@ -204,18 +204,31 @@ function PresenterPage() {
         return;
       }
 
-      // Create a camera layer for this phone
-      const layerId = createId("layer");
-      const layer = createCameraLayer(layerId, scene.width, scene.height);
-      layer.name = `Phone Camera (${cameraId.substring(0, 8)})`;
+      // Find existing layer with matching phoneCameraId
+      let layerId: string | null = null;
+      for (const layer of scene.layers) {
+        if ((layer as any).phoneCameraId === cameraId) {
+          layerId = layer.id;
+          console.log("📱 [PresenterPage] Found existing layer for phone camera:", layerId);
+          break;
+        }
+      }
 
-      addLayer(layer);
+      // If no existing layer found, create one (fallback)
+      if (!layerId) {
+        console.log("📱 [PresenterPage] No existing layer found, creating new one");
+        const newLayerId = createId("layer");
+        const layer = createCameraLayer(newLayerId, scene.width, scene.height);
+        layer.name = `Phone Camera (${cameraId.substring(0, 8)})`;
+        (layer as any).phoneCameraId = cameraId;
+        addLayer(layer);
+        layerId = newLayerId;
+      }
 
-      // Register the stream
+      // Register the stream with the layer
       const result = await registerPhoneCameraSource(layerId, stream);
       if (!result) {
         console.error("📱 [PresenterPage] Failed to register phone camera source");
-        removeLayer(layerId);
         return;
       }
 
@@ -224,14 +237,15 @@ function PresenterPage() {
       if (track) {
         updateLayer(layerId, { streamId: track.id });
 
-        // FIX: Add track ended listener to clean up layer when phone disconnects
+        // Add track ended listener to handle disconnection (but don't remove layer)
         track.addEventListener("ended", () => {
           console.log("📱 [PresenterPage] Phone camera track ended:", layerId);
-          stopSource(layerId);
-          useAppStore.getState().removeLayer(layerId);
+          stopSource(layerId!);
+          // Don't remove layer - just clear the stream so placeholder shows again
+          updateLayer(layerId!, { streamId: undefined });
         });
 
-        console.log("✅ [PresenterPage] Phone camera layer created:", layerId);
+        console.log("✅ [PresenterPage] Phone camera stream attached to layer:", layerId);
       }
 
       requestCurrentStreamFrame();
@@ -471,20 +485,39 @@ function PresenterPage() {
     console.log("💬 [Chat Layer] Added to canvas");
   }, [addLayer, getCurrentScene]);
 
-  const openPhoneCameraModal = useCallback(() => {
+  const addPhoneCameraLayer = useCallback(() => {
     // Ensure session exists (user must Start Session first)
     const currentSession = useSessionStore.getState().session;
     if (!currentSession?.id) {
-      console.warn("📱 [Phone Camera] Cannot open modal - no active session. Start Session first.");
+      console.warn("📱 [Phone Camera] Cannot add - no active session. Start Session first.");
       alert("Please click 'Start Session' first before adding a phone camera.");
       return;
     }
 
+    const scene = getCurrentScene();
+    if (!scene) return;
+
     // Generate a new camera ID for this phone camera session
     const newCameraId = crypto.randomUUID?.() || `camera_${Date.now()}`;
     setPhoneCameraId(newCameraId);
+
+    // Create the phone camera layer immediately (will show placeholder until stream arrives)
+    const layerId = createId("layer");
+    const layer = createCameraLayer(layerId, scene.width, scene.height);
+    layer.name = `Phone Camera (${newCameraId.substring(0, 8)})`;
+
+    // Store the cameraId in a custom property so we can match it when phone connects
+    (layer as any).phoneCameraId = newCameraId;
+
+    addLayer(layer);
+    useAppStore.getState().setSelection([layerId]);
+    requestCurrentStreamFrame();
+
+    console.log("📱 [Phone Camera] Layer created:", layerId, "cameraId:", newCameraId);
+
+    // Open modal to show QR code for phone connection
     setIsPhoneCameraModalOpen(true);
-  }, []);
+  }, [getCurrentScene, addLayer]);
 
   const addImageLayer = useCallback(() => {
     const scene = getCurrentScene();
@@ -1510,7 +1543,7 @@ function PresenterPage() {
             onAddImage={addImageLayer}
             onAddShape={addShapeLayer}
             onAddChat={addChatLayer}
-            onAddPhoneCamera={openPhoneCameraModal}
+            onAddPhoneCamera={addPhoneCameraLayer}
           />
         </FloatingPanel>
       )}

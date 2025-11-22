@@ -107,14 +107,62 @@ export function drawCameraLayer(
 
   applyTransform(ctx, layer.transform);
 
+  const diameter = layer.diameter ?? 320;
+  const radius = diameter / 2;
+
   const video = getVideoForLayer(layer.id);
-  if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+  const hasVideo = video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
+
+  // Draw placeholder if no video stream
+  if (!hasVideo) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+
+    // Draw gray striped background
+    ctx.fillStyle = '#3a3a3a';
+    ctx.fillRect(-radius, -radius, diameter, diameter);
+
+    // Draw diagonal stripes
+    ctx.strokeStyle = '#4a4a4a';
+    ctx.lineWidth = 8;
+    const stripeSpacing = 20;
+    for (let i = -diameter; i < diameter * 2; i += stripeSpacing) {
+      ctx.beginPath();
+      ctx.moveTo(i - diameter, -radius);
+      ctx.lineTo(i, radius);
+      ctx.stroke();
+    }
+
+    // Draw text
+    ctx.fillStyle = '#888888';
+    ctx.font = `bold ${Math.max(12, radius / 8)}px Inter, system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Check if it's a phone camera (by name)
+    const isPhoneCamera = layer.name?.toLowerCase().includes('phone');
+    const text = isPhoneCamera ? 'Phone Camera' : 'Camera';
+    ctx.fillText(text, 0, -10);
+
+    ctx.font = `${Math.max(10, radius / 10)}px Inter, system-ui, sans-serif`;
+    ctx.fillStyle = '#666666';
+    ctx.fillText('Waiting for stream...', 0, 15);
+
+    ctx.restore();
+
+    // Draw border
+    ctx.strokeStyle = '#555555';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius - 1.5, 0, Math.PI * 2);
+    ctx.stroke();
+
     ctx.restore();
     return;
   }
-
-  const diameter = layer.diameter ?? 320;
-  const radius = diameter / 2;
 
   ctx.save();
   ctx.beginPath();
