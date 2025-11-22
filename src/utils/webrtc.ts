@@ -430,6 +430,12 @@ export function createLoadingSlateTrack(
     cancelAnimationFrame(raf);
     throw new Error("Canvas captureStream not supported");
   }
+  const stack = new Error().stack ?? 'no stack';
+  console.log("🆕 [WEBRTC-STREAM-CREATE] Loading slate stream created", {
+    streamId: stream?.id,
+    trackId: track.id,
+    caller: stack.split('\n')[2]?.trim()
+  });
   track.addEventListener("ended", () => cancelAnimationFrame(raf));
   return track;
 }

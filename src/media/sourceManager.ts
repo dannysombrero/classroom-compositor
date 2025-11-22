@@ -5,7 +5,7 @@
  * state remains serializable while draw routines can fetch the latest frame.
  */
 
-type SourceType = 'screen' | 'camera';
+type SourceType = 'screen' | 'camera' | 'phone-camera';
 
 interface ActiveSource {
   stream: MediaStream;
@@ -41,6 +41,10 @@ async function registerSource(
   stream: MediaStream,
   type: SourceType
 ): Promise<ActiveSource> {
+  console.log(`[SOURCE] Registering ${type} source for layer:`, layerId, {
+    streamId: stream.id,
+    tracks: stream.getTracks().map(t => ({ id: t.id, type: t.constructor.name }))
+  });
   stopSource(layerId);
 
   const video = await createVideoElement(stream);
@@ -51,6 +55,7 @@ async function registerSource(
     rawTrack: stream.getVideoTracks()[0] ?? null,
   };
   sources.set(layerId, active);
+  console.log(`[SOURCE] Registered ${type} source, total sources:`, sources.size);
   return active;
 }
 
@@ -75,15 +80,35 @@ export async function startScreenCapture(layerId: string): Promise<ActiveSource 
  * Start webcam capture for a given layer ID.
  */
 export async function startCameraCapture(layerId: string): Promise<ActiveSource | null> {
+  console.log(`[SOURCE] Starting camera capture for layer:`, layerId);
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: 'user' },
       audio: false,
     });
+    console.log(`[SOURCE] Camera getUserMedia succeeded`, {
+      streamId: stream.id,
+      tracks: stream.getTracks().map(t => ({ id: t.id, type: t.constructor.name }))
+    });
 
     return registerSource(layerId, stream, 'camera');
   } catch (error) {
     console.error('Failed to start camera capture:', error);
+    return null;
+  }
+}
+
+/**
+ * Register a phone camera stream (from remote phone via WebRTC).
+ */
+export async function registerPhoneCameraSource(
+  layerId: string,
+  stream: MediaStream
+): Promise<ActiveSource | null> {
+  try {
+    return registerSource(layerId, stream, 'phone-camera');
+  } catch (error) {
+    console.error('Failed to register phone camera source:', error);
     return null;
   }
 }
@@ -134,12 +159,22 @@ export function replaceVideoTrack(layerId: string, newTrack: MediaStreamTrack): 
  */
 export function stopSource(layerId: string): void {
   const existing = sources.get(layerId);
-  if (!existing) return;
+  if (!existing) {
+    console.log(`[SOURCE] stopSource: no source for layer ${layerId}`);
+    return;
+  }
+
+  console.log(`[SOURCE] Stopping ${existing.type} source for layer:`, layerId, {
+    streamId: existing.stream.id,
+    tracks: existing.stream.getTracks().map(t => ({ id: t.id, state: t.readyState }))
+  });
 
   existing.stream.getTracks().forEach((track) => {
+    console.log(`[SOURCE] Stopping track:`, track.id);
     try { track.stop(); } catch { /* ignore */ }
   });
   if (existing.rawTrack && !existing.stream.getTracks().includes(existing.rawTrack)) {
+    console.log(`[SOURCE] Stopping raw track:`, existing.rawTrack.id);
     try { existing.rawTrack.stop(); } catch { /* ignore */ }
   }
   try {
@@ -147,6 +182,7 @@ export function stopSource(layerId: string): void {
   } catch { /* ignore */ }
 
   sources.delete(layerId);
+  console.log(`[SOURCE] Source stopped, remaining sources:`, sources.size);
 }
 
 /**

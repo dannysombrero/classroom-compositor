@@ -68,6 +68,7 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
   }, [threshold]);
 
   const teardown = () => {
+    log("Teardown: cleaning up effects pipeline");
     if (loopRef.current != null) {
       cancelAnimationFrame(loopRef.current);
       loopRef.current = null;
@@ -76,6 +77,7 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
       try { processed.stop?.(); } catch {}
     }
     if (outStreamRef.current) {
+      log("Teardown: stopping output stream tracks");
       outStreamRef.current.getTracks().forEach((t) => { try { t.stop(); } catch {} });
       outStreamRef.current = null;
     }
@@ -83,6 +85,8 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
       try { (videoRef.current as HTMLVideoElement).srcObject = null; } catch {}
       videoRef.current = null;
     }
+    // Note: Don't stop srcStreamRef tracks - they're shared with the source
+    // Just clear the reference to allow GC
     srcStreamRef.current = null;
 
     outCanvasRef.current = null;
@@ -160,7 +164,14 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
     if (outTrack) {
       setProcessed(outTrack);
       currentTrackRef.current = outTrack;
-      log("Created processed output track", { processedId: outTrack.id });
+      const stack = new Error().stack ?? 'no stack';
+      log("🆕 [EFFECTS-STREAM-CREATE] Created effects canvas stream", {
+        streamId: outStream?.id,
+        trackId: outTrack.id,
+        trackType: outTrack.constructor.name,
+        rawTrackId: rawTrack?.id,
+        caller: stack.split('\n')[2]?.trim()
+      });
     } else {
       setProcessed(rawTrack);
       currentTrackRef.current = rawTrack;

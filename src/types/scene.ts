@@ -46,12 +46,18 @@ export interface ScreenLayer extends BaseLayer {
 }
 
 /**
- * Camera (webcam) layer.
+ * Camera (webcam) layer with circle mask and soft border.
  */
 export interface CameraLayer extends BaseLayer {
   type: 'camera';
   /** MediaStream track ID for camera */
   streamId?: string;
+  /** Diameter in pixels for the circular mask before transform scale */
+  diameter: number;
+  /** Offset of the video content relative to the mask center (scene units) */
+  videoOffset?: { x: number; y: number };
+  /** Additional scale factor applied to the video inside the mask */
+  videoScale?: number;
 }
 
 /**
@@ -130,9 +136,22 @@ export interface GroupLayer extends BaseLayer {
 }
 
 /**
+ * Chat layer for AI bot messages and student interactions.
+ */
+export interface ChatLayer extends BaseLayer {
+  type: 'chat';
+  /** Width in pixels */
+  width: number;
+  /** Height in pixels */
+  height: number;
+  /** Enable/disable AI bots for this chat */
+  botsEnabled: boolean;
+}
+
+/**
  * Discriminated union of all layer types.
  */
-export type Layer = ScreenLayer | CameraLayer | ImageLayer | TextLayer | ShapeLayer | GroupLayer;
+export type Layer = ScreenLayer | CameraLayer | ImageLayer | TextLayer | ShapeLayer | GroupLayer | ChatLayer;
 
 /**
  * Scene data structure containing canvas dimensions and layers.

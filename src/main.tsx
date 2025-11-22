@@ -10,6 +10,7 @@ import App from "./App";
 import JoinPage from "./pages/JoinPage";
 import ViewerPage from "./pages/ViewerPage";
 import { ViewerHostPage } from "./pages/ViewerHostPage";
+import PhoneCameraPage from "./pages/PhoneCameraPage";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 
 function RouteError() {
@@ -26,18 +27,23 @@ const router = createBrowserRouter([
   { path: "/join", element: <JoinPage />, errorElement: <RouteError /> },
   { path: "/view/:sessionId", element: <ViewerPage />, errorElement: <RouteError /> },
   { path: "/viewer", element: <ViewerHostPage />, errorElement: <RouteError /> },
+  { path: "/phone-camera/:sessionId", element: <PhoneCameraPage />, errorElement: <RouteError /> },
 ]);
 
 const isStandaloneViewer = window.location.pathname === "/viewer";
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    {isStandaloneViewer ? (
-      <ErrorBoundary>
-        <ViewerHostPage />
-      </ErrorBoundary>
-    ) : (
+// Viewer window doesn't need StrictMode - it's a simple display component
+// and StrictMode's double-mounting can cause stream reference issues
+if (isStandaloneViewer) {
+  ReactDOM.createRoot(document.getElementById("root")!).render(
+    <ErrorBoundary>
+      <ViewerHostPage />
+    </ErrorBoundary>
+  );
+} else {
+  ReactDOM.createRoot(document.getElementById("root")!).render(
+    <React.StrictMode>
       <RouterProvider router={router} />
-    )}
-  </React.StrictMode>
-);
+    </React.StrictMode>
+  );
+}

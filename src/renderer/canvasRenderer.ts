@@ -10,6 +10,7 @@ import {
   drawTextLayer,
   drawShapeLayer,
   drawGroupLayer,
+  drawChatLayer,
 } from './drawLayer';
 
 /**
@@ -137,6 +138,10 @@ export function drawScene(
       case 'group':
         // Groups will be handled recursively in a future iteration
         drawGroupLayer(ctx, layer);
+        break;
+      case 'chat':
+        // Draw chat messages directly on canvas so they appear in the viewer stream
+        drawChatLayer(ctx, layer);
         break;
       default:
         // Unknown layer type, skip

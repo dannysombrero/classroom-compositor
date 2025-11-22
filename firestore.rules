@@ -25,6 +25,19 @@ service cloud.firestore {
         allow read, write: if true;
       }
 
+      // Phone camera ICE candidates (nested: candidates_phone/{cameraId}/candidates/{docId})
+      match /candidates_phone/{cameraId}/candidates/{candId} {
+        allow read, write: if true;
+      }
+      match /candidates_host_phone/{cameraId}/candidates/{candId} {
+        allow read, write: if true;
+      }
+
+      // Phone camera offers
+      match /phone_camera_offers/{cameraId} {
+        allow read, write: if true;
+      }
+
       // 🔧 Support per-viewer candidate collections: candidates_viewer_{viewerId}
       // This wildcard matches any subcollection under the session
       match /{collection}/{docId} {
