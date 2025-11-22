@@ -142,14 +142,24 @@ export function drawCameraLayer(
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    // Check if it's a phone camera (by name)
-    const isPhoneCamera = layer.name?.toLowerCase().includes('phone');
+    // Check if it's a phone camera and its activation status
+    const isPhoneCamera = (layer as any).isPhoneCamera || layer.name?.toLowerCase().includes('phone');
+    const hasPhoneCameraId = !!(layer as any).phoneCameraId;
+
     const text = isPhoneCamera ? 'Phone Camera' : 'Camera';
     ctx.fillText(text, 0, -10);
 
     ctx.font = `${Math.max(10, radius / 10)}px Inter, system-ui, sans-serif`;
     ctx.fillStyle = '#666666';
-    ctx.fillText('Waiting for stream...', 0, 15);
+
+    // Show different message based on phone camera activation status
+    let statusText = 'Waiting for stream...';
+    if (isPhoneCamera && !hasPhoneCameraId) {
+      statusText = 'Start Session to activate';
+    } else if (isPhoneCamera && hasPhoneCameraId) {
+      statusText = 'Scan QR code to connect';
+    }
+    ctx.fillText(statusText, 0, 15);
 
     ctx.restore();
 

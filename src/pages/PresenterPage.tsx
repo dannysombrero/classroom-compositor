@@ -486,37 +486,23 @@ function PresenterPage() {
   }, [addLayer, getCurrentScene]);
 
   const addPhoneCameraLayer = useCallback(() => {
-    // Ensure session exists (user must Start Session first)
-    const currentSession = useSessionStore.getState().session;
-    if (!currentSession?.id) {
-      console.warn("📱 [Phone Camera] Cannot add - no active session. Start Session first.");
-      alert("Please click 'Start Session' first before adding a phone camera.");
-      return;
-    }
-
     const scene = getCurrentScene();
     if (!scene) return;
 
-    // Generate a new camera ID for this phone camera session
-    const newCameraId = crypto.randomUUID?.() || `camera_${Date.now()}`;
-    setPhoneCameraId(newCameraId);
-
-    // Create the phone camera layer immediately (will show placeholder until stream arrives)
+    // Create the phone camera layer immediately (placeholder shows until session starts)
     const layerId = createId("layer");
     const layer = createCameraLayer(layerId, scene.width, scene.height);
-    layer.name = `Phone Camera (${newCameraId.substring(0, 8)})`;
 
-    // Store the cameraId in a custom property so we can match it when phone connects
-    (layer as any).phoneCameraId = newCameraId;
+    // Mark as phone camera but don't assign cameraId yet - that happens in Start Session
+    layer.name = `Phone Camera`;
+    (layer as any).isPhoneCamera = true;
+    (layer as any).phoneCameraId = null; // Will be assigned when Start Session is clicked
 
     addLayer(layer);
     useAppStore.getState().setSelection([layerId]);
     requestCurrentStreamFrame();
 
-    console.log("📱 [Phone Camera] Layer created:", layerId, "cameraId:", newCameraId);
-
-    // Open modal to show QR code for phone connection
-    setIsPhoneCameraModalOpen(true);
+    console.log("📱 [Phone Camera] Layer created (pending activation):", layerId);
   }, [getCurrentScene, addLayer]);
 
   const addImageLayer = useCallback(() => {
@@ -1174,6 +1160,29 @@ function PresenterPage() {
       // 3) Start phone camera host to listen for phone connections
       await startPhoneCameraHost(s.id);
       console.log("✅ [START SESSION] Phone camera host started");
+
+      // 3.5) Activate any pending phone camera layers by assigning cameraIds
+      const currentScene = getCurrentScene();
+      if (currentScene) {
+        let phoneCameraCount = 0;
+        for (const layer of currentScene.layers) {
+          if ((layer as any).isPhoneCamera && !(layer as any).phoneCameraId) {
+            const newCameraId = crypto.randomUUID?.() || `camera_${Date.now()}_${phoneCameraCount}`;
+            (layer as any).phoneCameraId = newCameraId;
+            updateLayer(layer.id, { name: `Phone Camera (${newCameraId.substring(0, 8)})` });
+            console.log("📱 [START SESSION] Activated phone camera layer:", layer.id, "cameraId:", newCameraId);
+            phoneCameraCount++;
+
+            // Store the last cameraId for the modal (if user wants to see QR code)
+            setPhoneCameraId(newCameraId);
+          }
+        }
+        if (phoneCameraCount > 0) {
+          console.log(`✅ [START SESSION] Activated ${phoneCameraCount} phone camera(s)`);
+          // Open modal to show QR code for the last phone camera
+          setIsPhoneCameraModalOpen(true);
+        }
+      }
 
       // 4) Open viewer window for local preview (if not already open)
       openViewer();
