@@ -575,12 +575,15 @@ function PresenterPage() {
     if (streamRef.current) {
       const track = streamRef.current.getVideoTracks()[0];
       if (track && track.readyState === 'live') {
-        console.log("✅ [ensureStream] Reusing existing live canvas stream");
+        console.log("✅ [STREAM-1] Reusing existing live canvas stream", { streamId: streamRef.current.id, trackId: track.id });
         return streamRef.current;
       }
       // Stream is dead, clean it up
-      console.log("⚠️ [ensureStream] Existing stream is dead, cleaning up");
-      streamRef.current.getTracks().forEach((t) => t.stop());
+      console.log("⚠️ [STREAM-2] Existing stream is dead, cleaning up", { streamId: streamRef.current.id });
+      streamRef.current.getTracks().forEach((t) => {
+        console.log("🗑️ [STREAM-2a] Stopping track:", t.id);
+        t.stop();
+      });
       streamRef.current = null;
       setCurrentStream(null);
     }
@@ -588,25 +591,29 @@ function PresenterPage() {
     // Need to create new stream
     const canvas = canvasRef.current;
     if (!canvas) {
-      console.warn("❌ [ensureStream] Cannot create stream without canvas");
+      console.warn("❌ [STREAM-3] Cannot create stream without canvas");
       return null;
     }
 
     const stream = captureCanvasStream(canvas, { fps: DEFAULT_STREAM_FPS });
     if (!stream) {
-      console.error("❌ [ensureStream] Failed to capture canvas stream");
+      console.error("❌ [STREAM-4] Failed to capture canvas stream");
       return null;
     }
 
-    console.log("🎬 [ensureStream] Created NEW canvas stream with", stream.getVideoTracks().length, "tracks");
+    const track = stream.getVideoTracks()[0];
+    console.log("🎬 [STREAM-5] Created NEW canvas stream", {
+      streamId: stream.id,
+      trackId: track?.id,
+      trackType: track?.constructor?.name
+    });
     streamRef.current = stream;
     setCurrentStream(stream);
 
     // Set up ended handler ONCE when stream is created
-    const track = stream.getVideoTracks()[0];
     if (track) {
       const handleEnded = () => {
-        console.log("🛑 [ensureStream] Canvas track ended");
+        console.log("🛑 [STREAM-6] Canvas track ended", { trackId: track.id });
         if (viewerWindowRef.current && !viewerWindowRef.current.closed) {
           notifyStreamEnded(viewerWindowRef.current);
         }
@@ -647,12 +654,15 @@ function PresenterPage() {
   }, [ensureCanvasStreamExists]);
 
   const openViewer = () => {
+    console.log("📺 [VIEWER-1] openViewer called", { hasExisting: !!viewerWindowRef.current });
     if (viewerWindowRef.current && !viewerWindowRef.current.closed) {
+      console.log("📺 [VIEWER-1a] Reusing existing viewer window");
       viewerWindowRef.current.focus();
       ensureCanvasStream();
       showControlStrip();
       return;
     }
+    console.log("📺 [VIEWER-2] Opening new viewer window");
     const viewer = window.open("/viewer", "classroom-compositor-viewer", "width=1920,height=1080");
     if (!viewer) {
       console.error("Failed to open viewer window (popup blocked?)");
@@ -663,26 +673,37 @@ function PresenterPage() {
     showControlStrip();
 
     viewer.addEventListener("load", () => {
+      console.log("📺 [VIEWER-3] Viewer window loaded, starting stream");
       if (canvasRef.current) startStreaming(canvasRef.current);
     });
     const checkClosed = setInterval(() => {
       if (viewer.closed) {
+        console.log("📺 [VIEWER-4] Viewer window closed, cleaning up");
         clearInterval(checkClosed);
         setIsViewerOpen(false);
         viewerWindowRef.current = null;
         // DON'T stop the stream if we're still live streaming to remote viewers!
         // Only stop if we're not hosting
         if (streamRef.current && !hostRef.current) {
-          console.log("🛑 [openViewer] Stopping stream (not live)");
-          streamRef.current.getTracks().forEach((track) => track.stop());
+          console.log("🛑 [VIEWER-5] Stopping stream (not live)", {
+            streamId: streamRef.current.id,
+            tracks: streamRef.current.getTracks().map(t => ({ id: t.id, type: t.constructor.name }))
+          });
+          streamRef.current.getTracks().forEach((track) => {
+            console.log("🗑️ [VIEWER-5a] Stopping track:", track.id);
+            track.stop();
+          });
           streamRef.current = null;
           setCurrentStream(null);
         } else if (streamRef.current && hostRef.current) {
-          console.log("✅ [openViewer] Keeping stream alive (still live to remote viewers)");
+          console.log("✅ [VIEWER-6] Keeping stream alive (still live to remote viewers)");
+        } else {
+          console.log("📺 [VIEWER-7] No stream to cleanup");
         }
       }
     }, 500);
     setTimeout(() => {
+      console.log("📺 [VIEWER-8] Timeout: ensuring stream started");
       if (canvasRef.current && !viewer.closed) startStreaming(canvasRef.current);
     }, 100);
   };

@@ -144,7 +144,11 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
     if (outTrack) {
       setProcessed(outTrack);
       currentTrackRef.current = outTrack;
-      log("Created processed output track", { processedId: outTrack.id });
+      log("[EFFECTS-STREAM] Created effects canvas stream", {
+        streamId: outStream?.id,
+        trackId: outTrack.id,
+        trackType: outTrack.constructor.name
+      });
     } else {
       setProcessed(rawTrack);
       currentTrackRef.current = rawTrack;
