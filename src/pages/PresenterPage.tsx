@@ -488,7 +488,10 @@ function PresenterPage() {
 
   const addPhoneCameraLayer = useCallback(() => {
     const scene = getCurrentScene();
-    if (!scene) return;
+    if (!scene) {
+      console.log("📱 [Phone Camera] No scene available");
+      return;
+    }
 
     // Create the phone camera layer immediately (placeholder shows until session starts)
     const layerId = createId("layer");
@@ -499,6 +502,7 @@ function PresenterPage() {
     (layer as any).isPhoneCamera = true;
     (layer as any).phoneCameraId = null; // Will be assigned when Start Session is clicked
 
+    console.log("📱 [Phone Camera] Creating layer:", { layerId, isPhoneCamera: (layer as any).isPhoneCamera, phoneCameraId: (layer as any).phoneCameraId });
     addLayer(layer);
     useAppStore.getState().setSelection([layerId]);
     requestCurrentStreamFrame();
@@ -1235,9 +1239,11 @@ function PresenterPage() {
 
       // 3.5) Activate any pending phone camera layers by assigning cameraIds
       const currentScene = getCurrentScene();
+      console.log("📱 [START SESSION] Checking for phone cameras, session:", s?.id, "scene:", !!currentScene);
       if (currentScene) {
         let phoneCameraCount = 0;
         for (const layer of currentScene.layers) {
+          console.log("📱 [START SESSION] Checking layer:", layer.id, "isPhoneCamera:", (layer as any).isPhoneCamera, "phoneCameraId:", (layer as any).phoneCameraId);
           if ((layer as any).isPhoneCamera && !(layer as any).phoneCameraId) {
             const newCameraId = crypto.randomUUID?.() || `camera_${Date.now()}_${phoneCameraCount}`;
             (layer as any).phoneCameraId = newCameraId;
@@ -1250,9 +1256,11 @@ function PresenterPage() {
           }
         }
         if (phoneCameraCount > 0) {
-          console.log(`✅ [START SESSION] Activated ${phoneCameraCount} phone camera(s)`);
+          console.log(`✅ [START SESSION] Activated ${phoneCameraCount} phone camera(s), opening modal`);
           // Open modal to show QR code for the last phone camera
           setIsPhoneCameraModalOpen(true);
+        } else {
+          console.log("📱 [START SESSION] No pending phone cameras found");
         }
       }
 

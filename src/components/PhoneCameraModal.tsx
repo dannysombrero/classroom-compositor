@@ -15,13 +15,20 @@ interface PhoneCameraModalProps {
 export function PhoneCameraModal({ isOpen, onClose, sessionId, cameraId }: PhoneCameraModalProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  console.log("📱 [PhoneCameraModal] Render:", { isOpen, sessionId, cameraId });
+
   const phoneCameraUrl = `${window.location.origin}/phone-camera/${sessionId}?cameraId=${cameraId}`;
 
   // Generate QR code on canvas (client-side, no external API)
   useEffect(() => {
-    if (!isOpen || !canvasRef.current || !sessionId || !cameraId) return;
+    console.log("📱 [PhoneCameraModal] QR effect running:", { isOpen, hasCanvas: !!canvasRef.current, sessionId, cameraId });
+    if (!isOpen || !canvasRef.current || !sessionId || !cameraId) {
+      console.log("📱 [PhoneCameraModal] QR generation skipped - missing data");
+      return;
+    }
 
     const canvas = canvasRef.current;
+    console.log("📱 [PhoneCameraModal] Generating QR code for URL:", phoneCameraUrl);
 
     // Generate QR code directly on canvas
     QRCode.toCanvas(canvas, phoneCameraUrl, {
@@ -31,6 +38,8 @@ export function PhoneCameraModal({ isOpen, onClose, sessionId, cameraId }: Phone
         dark: '#000000',
         light: '#FFFFFF',
       },
+    }).then(() => {
+      console.log("✅ [PhoneCameraModal] QR code generated successfully");
     }).catch((err: Error) => {
       console.error('[PhoneCameraModal] Failed to generate QR code:', err);
 
@@ -119,7 +128,9 @@ export function PhoneCameraModal({ isOpen, onClose, sessionId, cameraId }: Phone
           }}>
             <canvas
               ref={canvasRef}
-              style={{ display: 'block' }}
+              width={300}
+              height={300}
+              style={{ display: 'block', width: 300, height: 300 }}
             />
           </div>
         </div>
