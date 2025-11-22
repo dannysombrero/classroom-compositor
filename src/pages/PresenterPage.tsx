@@ -22,6 +22,7 @@ import {
   sendStreamToViewer,
   notifyStreamEnded,
   setCurrentStream,
+  stopCurrentStream,
   DEFAULT_STREAM_FPS,
   requestCurrentStreamFrame,
   type ViewerMessage,
@@ -940,9 +941,20 @@ function PresenterPage() {
   // Cleanup
   useEffect(() => {
     return () => {
-      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
+      // Stop all stream tracks
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+      // Clear global stream reference
+      stopCurrentStream();
+      // Stop all layer sources
       layerIdsRef.current.forEach((id) => stopSource(id));
+      // Close viewer window
       if (viewerWindowRef.current && !viewerWindowRef.current.closed) viewerWindowRef.current.close();
+      // Clear camera track for effects (will trigger useBackgroundEffectTrack cleanup)
+      setCameraTrackForEffects(null);
+      setCameraLayerForEffects(null);
     };
   }, []);
 

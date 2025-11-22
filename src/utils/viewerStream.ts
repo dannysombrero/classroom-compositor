@@ -80,11 +80,34 @@ export function getCurrentStream(): MediaStream | null {
 
 /**
  * Set the current stream.
+ * Important: This will NOT stop the old stream's tracks - the caller is responsible
+ * for stopping tracks before calling this if they want to clean up the old stream.
  */
 export function setCurrentStream(stream: MediaStream | null): void {
+  // If replacing with a different stream, log the transition
+  if (globalStreamRef && stream && globalStreamRef !== stream) {
+    console.log('[viewerStream] Replacing stream', {
+      oldTracks: globalStreamRef.getVideoTracks().length,
+      newTracks: stream.getVideoTracks().length,
+    });
+  }
   globalStreamRef = stream;
   // NOTE: Removed requestStreamFrame() call - the canvas captureStream automatically
   // captures frames as the canvas is drawn. No need to force frame requests.
+}
+
+/**
+ * Stop and clear the current stream.
+ * Use this when you want to clean up the stream completely.
+ */
+export function stopCurrentStream(): void {
+  if (globalStreamRef) {
+    console.log('[viewerStream] Stopping current stream');
+    globalStreamRef.getTracks().forEach(track => {
+      try { track.stop(); } catch {}
+    });
+    globalStreamRef = null;
+  }
 }
 
 /**

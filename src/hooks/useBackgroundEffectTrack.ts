@@ -48,6 +48,7 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
   }, [blurRadius]);
 
   const teardown = () => {
+    log("Teardown: cleaning up effects pipeline");
     if (loopRef.current != null) {
       cancelAnimationFrame(loopRef.current);
       loopRef.current = null;
@@ -56,6 +57,7 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
       try { processed.stop?.(); } catch {}
     }
     if (outStreamRef.current) {
+      log("Teardown: stopping output stream tracks");
       outStreamRef.current.getTracks().forEach((t) => { try { t.stop(); } catch {} });
       outStreamRef.current = null;
     }
@@ -63,6 +65,8 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
       try { (videoRef.current as HTMLVideoElement).srcObject = null; } catch {}
       videoRef.current = null;
     }
+    // Note: Don't stop srcStreamRef tracks - they're shared with the source
+    // Just clear the reference to allow GC
     srcStreamRef.current = null;
 
     outCanvasRef.current = null;
