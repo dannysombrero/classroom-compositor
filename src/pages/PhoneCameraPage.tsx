@@ -144,21 +144,20 @@ export default function PhoneCameraPage() {
     }
 
     setState('connecting');
-    setConnectionInfo('Checking if host is ready...');
+    setConnectionInfo('Connecting to session...');
 
     try {
-      // FIX: Validate session exists and host is ready (same pattern as ViewerPage)
-      const readyDoc = doc(db, "sessions", sessionId, "host_ready", "status");
-      const readySnap = await getDoc(readyDoc);
-      const readyData = readySnap.data() as any;
+      // Check if session exists (don't require host_ready - allow preview before Go Live)
+      const sessionDoc = doc(db, "sessions", sessionId);
+      const sessionSnap = await getDoc(sessionDoc);
 
-      if (!readyData?.ready) {
-        setError('Host is not streaming yet. Please ask the host to go live first.');
+      if (!sessionSnap.exists()) {
+        setError('Session not found. Please check the QR code and try again.');
         setState('failed');
         return;
       }
 
-      console.log('[PhoneCamera] Host is ready, establishing connection...');
+      console.log('[PhoneCamera] Session found, establishing connection...');
       setConnectionInfo('Creating peer connection...');
 
       // Create peer connection
