@@ -610,6 +610,9 @@ function PresenterPage() {
     streamRef.current = stream;
     setCurrentStream(stream);
 
+    // Request an initial frame to ensure the stream has content
+    requestCurrentStreamFrame();
+
     // Set up ended handler ONCE when stream is created
     if (track) {
       const handleEnded = () => {
@@ -1203,6 +1206,13 @@ function PresenterPage() {
   const handleStartSession = useCallback(async () => {
     console.log("🎬 [START SESSION] Creating room and preparing session...");
 
+    // Safety check: ensure scene exists before starting
+    const scene = getCurrentScene();
+    if (!scene) {
+      console.error("❌ [START SESSION] No scene available yet - waiting for scene to load");
+      return;
+    }
+
     try {
       // 1) Detect monitors (requires user gesture, so do it here when user clicks button)
       await detectAndUpdateMonitors();
@@ -1482,7 +1492,7 @@ function PresenterPage() {
                   ? handleGoLive
                   : handleStartSession
             }
-            disabled={streamingStatus === 'connecting'}
+            disabled={streamingStatus === 'connecting' || isSceneLoading}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -1497,10 +1507,10 @@ function PresenterPage() {
               border: "none",
               borderRadius: 8,
               padding: "6px 12px",
-              cursor: streamingStatus === 'connecting' ? "wait" : "pointer",
+              cursor: (streamingStatus === 'connecting' || isSceneLoading) ? "wait" : "pointer",
               fontWeight: 700,
               marginLeft: 8,
-              opacity: streamingStatus === 'connecting' ? 0.6 : 1,
+              opacity: (streamingStatus === 'connecting' || isSceneLoading) ? 0.6 : 1,
             }}
             title={
               streamingStatus === 'paused'
