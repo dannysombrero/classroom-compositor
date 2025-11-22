@@ -19,7 +19,7 @@ export function PhoneCameraModal({ isOpen, onClose, sessionId, cameraId }: Phone
 
   // Generate QR code on canvas (client-side, no external API)
   useEffect(() => {
-    if (!isOpen || !canvasRef.current) return;
+    if (!isOpen || !canvasRef.current || !sessionId || !cameraId) return;
 
     const canvas = canvasRef.current;
 
@@ -49,7 +49,7 @@ export function PhoneCameraModal({ isOpen, onClose, sessionId, cameraId }: Phone
         ctx.fillText('Failed', 150, 180);
       }
     });
-  }, [isOpen, phoneCameraUrl]);
+  }, [isOpen, phoneCameraUrl, sessionId, cameraId]);
 
   const copyUrl = async () => {
     try {
@@ -65,68 +65,128 @@ export function PhoneCameraModal({ isOpen, onClose, sessionId, cameraId }: Phone
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+      }}
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4"
+        style={{
+          backgroundColor: '#1a1a24',
+          borderRadius: 12,
+          boxShadow: '0 20px 50px rgba(0, 0, 0, 0.5)',
+          padding: 24,
+          maxWidth: 420,
+          width: '90%',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+        }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-gray-900">Connect Phone Camera</h2>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 600, color: '#fff', margin: 0 }}>
+            📱 Connect Phone Camera
+          </h2>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'rgba(255, 255, 255, 0.5)',
+              fontSize: 24,
+              cursor: 'pointer',
+              padding: 4,
+              lineHeight: 1,
+            }}
           >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            ×
           </button>
         </div>
 
-        <div className="space-y-4">
-          {/* QR Code */}
-          <div className="flex justify-center">
-            <div className="border-4 border-gray-200 rounded-lg p-2 bg-white">
-              <canvas
-                ref={canvasRef}
-                className="block"
-              />
-            </div>
+        {/* QR Code */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 20 }}>
+          <div style={{
+            border: '4px solid #fff',
+            borderRadius: 8,
+            padding: 8,
+            backgroundColor: '#fff',
+          }}>
+            <canvas
+              ref={canvasRef}
+              style={{ display: 'block' }}
+            />
           </div>
+        </div>
 
-          {/* Instructions */}
-          <div className="text-center">
-            <p className="text-sm text-gray-600 mb-2">
-              Scan this QR code with your phone camera, or copy the URL below
-            </p>
-          </div>
+        {/* Instructions */}
+        <p style={{
+          textAlign: 'center',
+          fontSize: 14,
+          color: 'rgba(255, 255, 255, 0.7)',
+          marginBottom: 16,
+        }}>
+          Scan this QR code with your phone camera, or copy the URL below
+        </p>
 
-          {/* URL */}
-          <div className="bg-gray-100 rounded-lg p-3">
-            <p className="text-xs font-mono text-gray-700 break-all">
-              {phoneCameraUrl}
-            </p>
-          </div>
+        {/* URL */}
+        <div style={{
+          backgroundColor: 'rgba(0, 0, 0, 0.3)',
+          borderRadius: 8,
+          padding: 12,
+          marginBottom: 16,
+        }}>
+          <p style={{
+            fontSize: 11,
+            fontFamily: 'monospace',
+            color: 'rgba(255, 255, 255, 0.8)',
+            wordBreak: 'break-all',
+            margin: 0,
+          }}>
+            {phoneCameraUrl}
+          </p>
+        </div>
 
-          {/* Copy Button */}
-          <button
-            onClick={copyUrl}
-            className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Copy URL
-          </button>
+        {/* Copy Button */}
+        <button
+          onClick={copyUrl}
+          style={{
+            width: '100%',
+            padding: '12px 16px',
+            backgroundColor: '#3b82f6',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 8,
+            fontSize: 14,
+            fontWeight: 600,
+            cursor: 'pointer',
+            marginBottom: 16,
+          }}
+        >
+          📋 Copy URL
+        </button>
 
-          {/* Tips */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-            <h3 className="text-sm font-semibold text-blue-900 mb-1">Tips:</h3>
-            <ul className="text-xs text-blue-800 space-y-1">
-              <li>• Make sure your phone is on the same WiFi network for best quality</li>
-              <li>• Use a phone stand to keep the camera steady</li>
-              <li>• You can flip between front and back camera on the phone</li>
-              <li>• Keep the phone page open while streaming</li>
-            </ul>
-          </div>
+        {/* Tips */}
+        <div style={{
+          backgroundColor: 'rgba(59, 130, 246, 0.1)',
+          border: '1px solid rgba(59, 130, 246, 0.3)',
+          borderRadius: 8,
+          padding: 12,
+        }}>
+          <h3 style={{ fontSize: 13, fontWeight: 600, color: '#60a5fa', marginTop: 0, marginBottom: 8 }}>
+            💡 Tips:
+          </h3>
+          <ul style={{ margin: 0, paddingLeft: 20, fontSize: 12, color: 'rgba(255, 255, 255, 0.7)', lineHeight: 1.6 }}>
+            <li>Make sure your phone is on the same WiFi network</li>
+            <li>Use a phone stand to keep the camera steady</li>
+            <li>You can flip between front and back camera</li>
+            <li>Keep the phone page open while streaming</li>
+          </ul>
         </div>
       </div>
     </div>
