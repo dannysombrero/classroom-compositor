@@ -22,6 +22,9 @@ export interface StreamCaptureOptions {
  * @param options - Capture options
  * @returns MediaStream from the canvas
  */
+// Track all created streams for debugging
+const createdStreams = new Map<string, { type: string; time: number; stack: string }>();
+
 export function captureCanvasStream(
   canvas: HTMLCanvasElement,
   options: StreamCaptureOptions = {}
@@ -32,6 +35,14 @@ export function captureCanvasStream(
     // Use captureStream if available (Chrome, Firefox, Edge)
     if ('captureStream' in canvas) {
       const stream: MediaStream = (canvas as any).captureStream(fps);
+      // Track this stream creation
+      const stack = new Error().stack ?? 'no stack';
+      createdStreams.set(stream.id, { type: 'canvas-main', time: Date.now(), stack });
+      console.log(`🆕 [STREAM-CREATE] Canvas stream created: ${stream.id}`, {
+        totalCreated: createdStreams.size,
+        fps,
+        caller: stack.split('\n')[2]?.trim()
+      });
       // NOTE: Removed requestStreamFrame() call - captureStream(fps) will automatically
       // capture frames as the canvas is drawn at the specified fps. Forcing frame requests
       // can cause performance issues.
@@ -102,12 +113,48 @@ export function setCurrentStream(stream: MediaStream | null): void {
  */
 export function stopCurrentStream(): void {
   if (globalStreamRef) {
-    console.log('[viewerStream] Stopping current stream');
+    const streamId = globalStreamRef.id;
+    console.log('🛑 [STREAM-STOP] Stopping current stream:', streamId, {
+      tracks: globalStreamRef.getTracks().map(t => ({ id: t.id, state: t.readyState }))
+    });
     globalStreamRef.getTracks().forEach(track => {
+      console.log('🗑️ [STREAM-STOP] Stopping track:', track.id);
       try { track.stop(); } catch {}
     });
+    // Mark as stopped in our tracking
+    const info = createdStreams.get(streamId);
+    if (info) {
+      info.type = `${info.type} (STOPPED)`;
+    }
     globalStreamRef = null;
   }
+}
+
+/**
+ * Debug: Get all created streams for leak debugging.
+ */
+export function debugGetCreatedStreams(): Map<string, { type: string; time: number; stack: string }> {
+  return createdStreams;
+}
+
+/**
+ * Debug: Log all created streams to console.
+ */
+export function debugLogCreatedStreams(): void {
+  console.log('📊 [STREAM-DEBUG] All created streams:', {
+    count: createdStreams.size,
+    streams: Array.from(createdStreams.entries()).map(([id, info]) => ({
+      id,
+      type: info.type,
+      ageMs: Date.now() - info.time,
+    }))
+  });
+}
+
+// Expose debug functions globally
+if (typeof window !== 'undefined') {
+  (window as any).debugStreams = debugLogCreatedStreams;
+  (window as any).debugGetCreatedStreams = debugGetCreatedStreams;
 }
 
 /**

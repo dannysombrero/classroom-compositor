@@ -961,21 +961,32 @@ function PresenterPage() {
 
   // Cleanup
   useEffect(() => {
+    console.log('🔧 [PRESENTER-MOUNT] PresenterPage effect running');
     return () => {
+      console.log('🧹 [PRESENTER-UNMOUNT] PresenterPage cleanup starting');
       // Stop all stream tracks
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
+        console.log('🧹 [PRESENTER-UNMOUNT] Stopping streamRef tracks:', streamRef.current.id);
+        streamRef.current.getTracks().forEach((t) => {
+          console.log('🗑️ [PRESENTER-UNMOUNT] Stopping track:', t.id);
+          t.stop();
+        });
         streamRef.current = null;
       }
       // Clear global stream reference
       stopCurrentStream();
       // Stop all layer sources
+      console.log('🧹 [PRESENTER-UNMOUNT] Stopping layer sources:', layerIdsRef.current);
       layerIdsRef.current.forEach((id) => stopSource(id));
       // Close viewer window
-      if (viewerWindowRef.current && !viewerWindowRef.current.closed) viewerWindowRef.current.close();
+      if (viewerWindowRef.current && !viewerWindowRef.current.closed) {
+        console.log('🧹 [PRESENTER-UNMOUNT] Closing viewer window');
+        viewerWindowRef.current.close();
+      }
       // Clear camera track for effects (will trigger useBackgroundEffectTrack cleanup)
       setCameraTrackForEffects(null);
       setCameraLayerForEffects(null);
+      console.log('🧹 [PRESENTER-UNMOUNT] Cleanup complete');
     };
   }, []);
 
