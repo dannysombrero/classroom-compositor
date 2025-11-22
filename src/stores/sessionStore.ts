@@ -70,6 +70,13 @@ export const useSessionStore = create<State>((set, get) => ({
   isJoinCodeActive: false,
 
   async goLive(hostId: string) {
+    // If session already exists, reuse it
+    const existing = get().session;
+    if (existing?.id) {
+      console.log("[goLive] Reusing existing session:", existing.id);
+      return;
+    }
+
     try {
       // Try Functions API first
       const res = await fetch(`/api/sessions`, {
@@ -77,39 +84,39 @@ export const useSessionStore = create<State>((set, get) => ({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ hostId }),
       });
-      
+
       if (res.ok) {
         const text = await res.text();
         const session = JSON.parse(text);
         set({ session, joinCode: session.code, isJoinCodeActive: true });
         return;
       }
-      
+
       // Fall back to client-side Firestore
       console.log("[goLive] /api/sessions failed, using client-side Firestore");
-      
+
       const { db, doc, setDoc } = await import("../firebase");
       const { activateJoinCode } = await import("../utils/joinCodes");
-      
+
       // Create session
       const sessionId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      
+
       await setDoc(doc(db, "sessions", sessionId), {
         id: sessionId,
         hostId,
         createdAt: Date.now(),
         active: true
       });
-      
+
       // Generate and activate join code
       const { codePretty: joinCode } = await activateJoinCode(sessionId);
-      
-      set({ 
+
+      set({
         session: { id: sessionId, createdAt: Date.now(), hostId, code: joinCode },
         joinCode,
-        isJoinCodeActive: true 
+        isJoinCodeActive: true
       });
-      
+
     } catch (e) {
       console.error("goLive failed:", e);
       alert("Couldn't start a live session. Check console for details.");
