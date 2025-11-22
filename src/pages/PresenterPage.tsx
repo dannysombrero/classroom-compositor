@@ -672,10 +672,25 @@ function PresenterPage() {
     setIsViewerOpen(true);
     showControlStrip();
 
+    // Track if we've already sent stream to this viewer to prevent duplicate sends
+    let hasSentStream = false;
+    const sendStreamOnce = () => {
+      if (hasSentStream) {
+        console.log("📺 [VIEWER-SKIP] Already sent stream to this viewer");
+        return;
+      }
+      if (canvasRef.current && !viewer.closed) {
+        hasSentStream = true;
+        startStreaming(canvasRef.current);
+      }
+    };
+
+    // Send stream when viewer is ready - use load event as primary
     viewer.addEventListener("load", () => {
-      console.log("📺 [VIEWER-3] Viewer window loaded, starting stream");
-      if (canvasRef.current) startStreaming(canvasRef.current);
+      console.log("📺 [VIEWER-3] Viewer window loaded");
+      sendStreamOnce();
     });
+
     const checkClosed = setInterval(() => {
       if (viewer.closed) {
         console.log("📺 [VIEWER-4] Viewer window closed, cleaning up");
@@ -702,10 +717,12 @@ function PresenterPage() {
         }
       }
     }, 500);
+
+    // Fallback: if load event doesn't fire within 200ms, send anyway
     setTimeout(() => {
-      console.log("📺 [VIEWER-8] Timeout: ensuring stream started");
-      if (canvasRef.current && !viewer.closed) startStreaming(canvasRef.current);
-    }, 100);
+      console.log("📺 [VIEWER-8] Timeout fallback");
+      sendStreamOnce();
+    }, 200);
   };
 
   // Messages from viewer
@@ -713,22 +730,23 @@ function PresenterPage() {
     const handleMessage = (event: MessageEvent<ViewerMessage | { type: "request-stream" }>) => {
       if (event.origin !== window.location.origin) return;
       if (event.data?.type === "request-stream") {
-        if (streamRef.current) {
-          sendStreamToViewer(viewerWindowRef.current!, streamRef.current);
-        } else if (canvasRef.current) {
-          startStreaming(canvasRef.current);
+        // Only respond if we have a stream - don't create new one
+        // The openViewer flow handles initial stream creation
+        if (streamRef.current && viewerWindowRef.current) {
+          console.log("📨 [MSG] Responding to request-stream");
+          sendStreamToViewer(viewerWindowRef.current, streamRef.current);
+        } else {
+          console.log("📨 [MSG] Ignoring request-stream - no stream ready yet");
         }
       } else if (event.data?.type === "viewer-ready") {
-        if (streamRef.current) {
-          // viewer will access opener.currentStream
-        } else if (canvasRef.current) {
-          startStreaming(canvasRef.current);
-        }
+        // Viewer is ready - it will access opener.currentStream
+        // Don't send stream here, openViewer handles that via sendStreamOnce
+        console.log("📨 [MSG] Viewer ready - stream available via opener.currentStream:", !!streamRef.current);
       }
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [startStreaming]);
+  }, []);
 
   const ensureCanvasStream = useCallback((): MediaStream | null => {
     // Just delegate to the main helper function
