@@ -17,7 +17,25 @@ export function PhoneCameraModal({ isOpen, onClose, sessionId, cameraId }: Phone
 
   console.log("📱 [PhoneCameraModal] Render:", { isOpen, sessionId, cameraId });
 
-  const phoneCameraUrl = `${window.location.origin}/phone-camera/${sessionId}?cameraId=${cameraId}`;
+  // Use network IP instead of localhost so phones can connect
+  // If accessing via localhost, try to use the hostname or provide instructions
+  const getPhoneCameraUrl = () => {
+    const hostname = window.location.hostname;
+    const port = window.location.port;
+    const protocol = window.location.protocol;
+
+    // If localhost, we need the actual network IP - user should access via IP
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      // Can't automatically detect network IP from browser, but we can show a helpful message
+      // The URL will still work if user manually uses the network IP
+      console.warn("📱 [PhoneCameraModal] Accessing via localhost - phone may not be able to connect. Use network IP instead.");
+    }
+
+    const portSuffix = port ? `:${port}` : '';
+    return `${protocol}//${hostname}${portSuffix}/phone-camera/${sessionId}?cameraId=${cameraId}`;
+  };
+
+  const phoneCameraUrl = getPhoneCameraUrl();
 
   // Generate QR code on canvas (client-side, no external API)
   useEffect(() => {
@@ -182,6 +200,22 @@ export function PhoneCameraModal({ isOpen, onClose, sessionId, cameraId }: Phone
           📋 Copy URL
         </button>
 
+        {/* Warning if on localhost */}
+        {(window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && (
+          <div style={{
+            backgroundColor: 'rgba(245, 158, 11, 0.15)',
+            border: '1px solid rgba(245, 158, 11, 0.4)',
+            borderRadius: 8,
+            padding: 12,
+            marginBottom: 12,
+          }}>
+            <p style={{ margin: 0, fontSize: 12, color: '#fbbf24' }}>
+              ⚠️ <strong>You're on localhost</strong> - your phone can't connect to this URL.
+              Access this page using your computer's network IP (e.g., <code style={{ background: 'rgba(0,0,0,0.3)', padding: '2px 4px', borderRadius: 4 }}>192.168.x.x:5173</code>) instead.
+            </p>
+          </div>
+        )}
+
         {/* Tips */}
         <div style={{
           backgroundColor: 'rgba(59, 130, 246, 0.1)',
@@ -194,9 +228,9 @@ export function PhoneCameraModal({ isOpen, onClose, sessionId, cameraId }: Phone
           </h3>
           <ul style={{ margin: 0, paddingLeft: 20, fontSize: 12, color: 'rgba(255, 255, 255, 0.7)', lineHeight: 1.6 }}>
             <li>Make sure your phone is on the same WiFi network</li>
+            <li>Access this page via your network IP (not localhost)</li>
             <li>Use a phone stand to keep the camera steady</li>
             <li>You can flip between front and back camera</li>
-            <li>Keep the phone page open while streaming</li>
           </ul>
         </div>
       </div>
