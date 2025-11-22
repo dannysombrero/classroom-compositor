@@ -355,6 +355,13 @@ export function stopPhoneCamera(cameraId: string): void {
   console.log("🔌 [HOST] Stopping phone camera:", cameraId);
 
   try { conn.unsubCandidates?.(); } catch {}
+  // Stop all tracks in the stream to prevent leaks
+  if (conn.stream) {
+    conn.stream.getTracks().forEach(t => {
+      console.log('🗑️ [HOST] Stopping phone camera track:', t.id);
+      try { t.stop(); } catch {}
+    });
+  }
   try { conn.pc.close(); } catch {}
 
   phoneCameraConnections.delete(cameraId);

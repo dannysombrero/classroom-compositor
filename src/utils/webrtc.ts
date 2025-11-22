@@ -1219,6 +1219,13 @@ export async function startViewer(
     pc: viewerPc,
     stop() {
       try { unsubHostCand?.(); } catch {}
+      // Stop all tracks in the viewer stream to prevent leaks
+      try {
+        viewerStream.getTracks().forEach(t => {
+          console.log('🗑️ [VIEWER] Stopping track:', t.id);
+          t.stop();
+        });
+      } catch {}
       try { viewerPc.close(); } catch {}
     },
   };
