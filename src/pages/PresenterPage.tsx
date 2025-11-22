@@ -638,25 +638,40 @@ function PresenterPage() {
   }, [showControlStrip]);
 
   const startStreaming = useCallback((canvas: HTMLCanvasElement) => {
+    console.log("🎬 [startStreaming] Called with canvas:", { width: canvas.width, height: canvas.height });
+
     // Get or create the stream (will reuse if already live!)
     const stream = ensureCanvasStreamExists();
-    if (!stream) return;
+    if (!stream) {
+      console.error("❌ [startStreaming] ensureCanvasStreamExists returned null!");
+      return;
+    }
 
     const track = stream.getVideoTracks()[0];
     if (track) {
-      console.log("📹 [startStreaming] Stream track settings", track.getSettings());
+      console.log("📹 [startStreaming] Stream track details:", {
+        id: track.id,
+        readyState: track.readyState,
+        enabled: track.enabled,
+        muted: track.muted,
+        settings: track.getSettings(),
+      });
       try {
         replaceHostVideoTrack(track);
         console.log("✅ [startStreaming] Canvas track sent to WebRTC");
       } catch (err) {
         console.warn("⚠️ [startStreaming] replaceHostVideoTrack failed", err);
       }
+    } else {
+      console.error("❌ [startStreaming] Stream has no video tracks!");
     }
 
     // Send to local viewer window if open
     if (viewerWindowRef.current && !viewerWindowRef.current.closed) {
-      console.log("📤 [startStreaming] Sending stream to viewer window");
+      console.log("📤 [startStreaming] Sending stream to viewer window, streamId:", stream.id);
       sendStreamToViewer(viewerWindowRef.current, stream);
+    } else {
+      console.log("📤 [startStreaming] No viewer window to send to");
     }
   }, [ensureCanvasStreamExists]);
 
@@ -686,9 +701,18 @@ function PresenterPage() {
         console.log("📺 [VIEWER-SKIP] Already sent stream to this viewer");
         return;
       }
-      if (canvasRef.current && !viewer.closed) {
+      const canvas = canvasRef.current;
+      if (canvas && !viewer.closed) {
         hasSentStream = true;
-        startStreaming(canvasRef.current);
+        // Debug: check canvas state before streaming
+        console.log("📺 [VIEWER-DEBUG] Canvas state before streaming:", {
+          width: canvas.width,
+          height: canvas.height,
+          hasContext: !!canvas.getContext('2d'),
+        });
+        startStreaming(canvas);
+      } else {
+        console.warn("📺 [VIEWER-DEBUG] Cannot send stream:", { hasCanvas: !!canvas, viewerClosed: viewer.closed });
       }
     };
 
