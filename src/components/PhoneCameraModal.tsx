@@ -81,7 +81,7 @@ export function PhoneCameraModal({ isOpen, onClose, sessionId, cameraId }: Phone
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        zIndex: 1000,
+        zIndex: 99999,
       }}
       onClick={onClose}
     >
