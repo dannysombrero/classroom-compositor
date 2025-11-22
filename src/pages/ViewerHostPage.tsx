@@ -71,10 +71,11 @@ export function ViewerHostPage() {
 
     // Store event handlers so we can remove them later
     const handleLoadedMetadata = () => {
-      console.log('Viewer: Video metadata loaded', {
+      console.log('📺 [VIEWER-META] Video metadata loaded', {
         readyState: video?.readyState,
         videoWidth: video?.videoWidth,
         videoHeight: video?.videoHeight,
+        currentSrc: video?.currentSrc,
       });
     };
 
@@ -234,10 +235,23 @@ export function ViewerHostPage() {
           video.srcObject = stream;
           hasSetStreamRef.current = true; // Mark that we've set the stream
 
+          // Debug: Log video element state after setting srcObject
+          console.log('📺 [VIEWER-DEBUG] Video state after srcObject set:', {
+            readyState: video.readyState,
+            networkState: video.networkState,
+            paused: video.paused,
+            videoWidth: video.videoWidth,
+            videoHeight: video.videoHeight,
+          });
+
           video
             .play()
             .then(() => {
-              console.log('Viewer: Stream playing successfully');
+              console.log('Viewer: Stream playing successfully', {
+                readyState: video.readyState,
+                videoWidth: video.videoWidth,
+                videoHeight: video.videoHeight,
+              });
               isSettingStreamRef.current = false;
             })
             .catch((error) => {

@@ -15,33 +15,21 @@ interface PhoneCameraModalProps {
 export function PhoneCameraModal({ isOpen, onClose, sessionId, cameraId }: PhoneCameraModalProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  console.log("📱 [PhoneCameraModal] Render:", { isOpen, sessionId, cameraId });
-
   // Use network IP instead of localhost so phones can connect
-  // If accessing via localhost, try to use the hostname or provide instructions
   const getPhoneCameraUrl = () => {
     const hostname = window.location.hostname;
     const port = window.location.port;
     const protocol = window.location.protocol;
-
-    // If localhost, we need the actual network IP - user should access via IP
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      // Can't automatically detect network IP from browser, but we can show a helpful message
-      // The URL will still work if user manually uses the network IP
-      console.warn("📱 [PhoneCameraModal] Accessing via localhost - phone may not be able to connect. Use network IP instead.");
-    }
-
     const portSuffix = port ? `:${port}` : '';
     return `${protocol}//${hostname}${portSuffix}/phone-camera/${sessionId}?cameraId=${cameraId}`;
   };
 
   const phoneCameraUrl = getPhoneCameraUrl();
+  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
   // Generate QR code on canvas (client-side, no external API)
   useEffect(() => {
-    console.log("📱 [PhoneCameraModal] QR effect running:", { isOpen, hasCanvas: !!canvasRef.current, sessionId, cameraId });
     if (!isOpen || !canvasRef.current || !sessionId || !cameraId) {
-      console.log("📱 [PhoneCameraModal] QR generation skipped - missing data");
       return;
     }
 
@@ -201,7 +189,7 @@ export function PhoneCameraModal({ isOpen, onClose, sessionId, cameraId }: Phone
         </button>
 
         {/* Warning if on localhost */}
-        {(window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && (
+        {isLocalhost && (
           <div style={{
             backgroundColor: 'rgba(245, 158, 11, 0.15)',
             border: '1px solid rgba(245, 158, 11, 0.4)',
