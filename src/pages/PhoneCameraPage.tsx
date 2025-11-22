@@ -116,7 +116,14 @@ export default function PhoneCameraPage() {
       // Attach to video element for preview
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
-        await videoRef.current.play();
+        try {
+          await videoRef.current.play();
+        } catch (playErr) {
+          // Ignore AbortError - happens when play is interrupted by new src
+          if ((playErr as Error).name !== 'AbortError') {
+            console.warn('[PhoneCamera] Video play warning:', playErr);
+          }
+        }
       }
 
       return mediaStream;
@@ -303,18 +310,28 @@ export default function PhoneCameraPage() {
 
   // Initialize on mount
   useEffect(() => {
+    let mounted = true;
+    let currentStream: MediaStream | null = null;
+
     const init = async () => {
       const mediaStream = await startCamera(facingMode);
+      if (!mounted) {
+        // Component unmounted during camera init - clean up
+        mediaStream?.getTracks().forEach(track => track.stop());
+        return;
+      }
       if (mediaStream) {
+        currentStream = mediaStream;
         await connectToHost(mediaStream);
       }
     };
 
     init();
 
-    // FIX: Add pagehide listener for guaranteed cleanup
-    const handlePageHide = () => {
-      console.log('[PhoneCamera] Page hiding, cleaning up...');
+    // Cleanup on unmount only (not pagehide during init)
+    return () => {
+      mounted = false;
+      console.log('[PhoneCamera] Component unmounting, cleaning up...');
 
       // Close peer connection
       if (pcRef.current) {
@@ -323,21 +340,13 @@ export default function PhoneCameraPage() {
       }
 
       // Stop camera stream
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
+      if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
       }
 
       // Unsubscribe listeners
       unsubscribersRef.current.forEach(unsub => unsub());
       unsubscribersRef.current = [];
-    };
-
-    window.addEventListener('pagehide', handlePageHide);
-
-    // Cleanup
-    return () => {
-      window.removeEventListener('pagehide', handlePageHide);
-      handlePageHide(); // Call cleanup
     };
   }, []); // Only run on mount
 
