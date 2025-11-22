@@ -73,12 +73,13 @@ export function useBackgroundEffectTrack(rawTrack: MediaStreamTrack | null) {
       cancelAnimationFrame(loopRef.current);
       loopRef.current = null;
     }
-    if (processed && processed !== rawTrack) {
-      try { processed.stop?.(); } catch {}
-    }
+    // NOTE: Do NOT stop the processed track here!
+    // The processed track may still be in use by a layer (e.g., phone camera)
+    // when we switch to processing a different camera. Let the layer's
+    // source cleanup handle stopping tracks when the layer is removed.
     if (outStreamRef.current) {
-      log("Teardown: stopping output stream tracks");
-      outStreamRef.current.getTracks().forEach((t) => { try { t.stop(); } catch {} });
+      log("Teardown: clearing output stream reference (NOT stopping tracks)");
+      // Don't stop tracks - just clear reference
       outStreamRef.current = null;
     }
     if (videoRef.current) {
