@@ -770,9 +770,12 @@ function PresenterPage() {
           console.log("📨 [MSG] Ignoring request-stream - no stream ready yet");
         }
       } else if (event.data?.type === "viewer-ready") {
-        // Viewer is ready - it will access opener.currentStream
-        // Don't send stream here, openViewer handles that via sendStreamOnce
-        console.log("📨 [MSG] Viewer ready - stream available via opener.currentStream:", !!streamRef.current);
+        // Viewer is ready - send the stream if we have one
+        console.log("📨 [MSG] Viewer ready - sending stream if available:", !!streamRef.current);
+        if (streamRef.current && viewerWindowRef.current && !viewerWindowRef.current.closed) {
+          console.log("📨 [MSG] Sending stream to newly ready viewer");
+          sendStreamToViewer(viewerWindowRef.current, streamRef.current);
+        }
       }
     };
     window.addEventListener("message", handleMessage);
