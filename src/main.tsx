@@ -32,14 +32,18 @@ const router = createBrowserRouter([
 
 const isStandaloneViewer = window.location.pathname === "/viewer";
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    {isStandaloneViewer ? (
-      <ErrorBoundary>
-        <ViewerHostPage />
-      </ErrorBoundary>
-    ) : (
+// Viewer window doesn't need StrictMode - it's a simple display component
+// and StrictMode's double-mounting can cause stream reference issues
+if (isStandaloneViewer) {
+  ReactDOM.createRoot(document.getElementById("root")!).render(
+    <ErrorBoundary>
+      <ViewerHostPage />
+    </ErrorBoundary>
+  );
+} else {
+  ReactDOM.createRoot(document.getElementById("root")!).render(
+    <React.StrictMode>
       <RouterProvider router={router} />
-    )}
-  </React.StrictMode>
-);
+    </React.StrictMode>
+  );
+}
