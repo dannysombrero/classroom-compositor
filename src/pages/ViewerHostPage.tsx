@@ -20,7 +20,14 @@ export function ViewerHostPage() {
   const stopPlaybackStream = () => {
     const stream = playbackStreamRef.current;
     if (!stream) return;
-    stream.getTracks().forEach((track) => track.stop());
+    console.log('[VIEWER-CLEANUP] Stopping playback stream', {
+      streamId: stream.id,
+      tracks: stream.getTracks().map(t => ({ id: t.id, state: t.readyState }))
+    });
+    stream.getTracks().forEach((track) => {
+      console.log('[VIEWER-CLEANUP] Stopping track:', track.id);
+      track.stop();
+    });
     playbackStreamRef.current = null;
   };
 
@@ -166,7 +173,12 @@ export function ViewerHostPage() {
           }
           
           stopPlaybackStream();
+          console.log('[VIEWER-CLONE] Cloning stream', { sourceStreamId: stream.id });
           const playbackStream = stream.clone();
+          console.log('[VIEWER-CLONE] Created clone', {
+            cloneStreamId: playbackStream.id,
+            tracks: playbackStream.getTracks().map(t => ({ id: t.id, type: t.constructor.name }))
+          });
           const playbackTrack = playbackStream.getVideoTracks()[0];
           if (playbackTrack) {
             playbackTrack.addEventListener('ended', () => {
@@ -243,10 +255,21 @@ export function ViewerHostPage() {
       console.warn('Viewer: No window.opener found');
     }
 
-    return () => {
-      window.removeEventListener('message', handleMessage);
+    // CRITICAL: Add beforeunload to ensure cleanup when window is force-closed
+    const handleBeforeUnload = () => {
+      console.log('[VIEWER-UNLOAD] Window closing, cleaning up streams');
       stopPlaybackStream();
       sourceStreamRef.current = null;
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      console.log('[VIEWER-UNMOUNT] Cleanup running');
+      window.removeEventListener('message', handleMessage);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      stopPlaybackStream();
+      sourceStreamRef.current = null;
+      console.log('[VIEWER-UNMOUNT] Cleanup complete');
     };
   }, []);
 
