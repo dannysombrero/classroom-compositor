@@ -249,7 +249,15 @@ function PresenterPage() {
         console.log("✅ [PresenterPage] Phone camera stream attached to layer:", layerId);
       }
 
+      // Request frame immediately and again after delay to ensure video is loaded
       requestCurrentStreamFrame();
+      setTimeout(() => requestCurrentStreamFrame(), 100);
+
+      // If viewer is already open, send the updated stream
+      if (viewerWindowRef.current && !viewerWindowRef.current.closed && streamRef.current) {
+        console.log("📱 [PresenterPage] Sending updated stream to viewer");
+        sendStreamToViewer(viewerWindowRef.current, streamRef.current);
+      }
     });
 
     // Set up disconnect callback
@@ -410,7 +418,15 @@ function PresenterPage() {
         setCameraTrackForEffects(track);
         setCameraLayerForEffects(layerId);
       }
+      // Request frame immediately and again after a short delay
+      // to ensure the camera video element has loaded a frame
       requestCurrentStreamFrame();
+      setTimeout(() => requestCurrentStreamFrame(), 100);
+
+      // If viewer is already open, send the updated stream
+      if (viewerWindowRef.current && !viewerWindowRef.current.closed && streamRef.current) {
+        sendStreamToViewer(viewerWindowRef.current, streamRef.current);
+      }
     } finally {
       setIsAddingCamera(false);
     }
@@ -1207,6 +1223,21 @@ function PresenterPage() {
       setCompactPresenter(true);
       console.log("✅ [handleGoLive] Now live with compact presenter mode");
 
+      // 7.5) Pause any ACTIVE screen shares to avoid feedback loop
+      // (They can be resumed when user exits compact mode)
+      const currentScene = getCurrentScene();
+      if (currentScene) {
+        const activeScreenLayers = currentScene.layers.filter(
+          (layer): layer is ScreenLayer => layer.type === 'screen' && !!layer.streamId
+        );
+        if (activeScreenLayers.length > 0) {
+          console.log(`⏸️ [handleGoLive] Pausing ${activeScreenLayers.length} active screen share(s) to avoid feedback`);
+          activeScreenLayers.forEach(layer => {
+            updateLayer(layer.id, { visible: false }, { recordHistory: false });
+          });
+        }
+      }
+
       // 8) Activate pending screen shares AFTER compact controls appear (prevents feedback loop)
       await activatePendingScreenShares();
 
@@ -1228,11 +1259,25 @@ function PresenterPage() {
     setStreamingStatus('live');
     setCompactPresenter(true);
 
+    // Hide screen shares again to avoid feedback loop
+    const currentScene = getCurrentScene();
+    if (currentScene) {
+      const activeScreenLayers = currentScene.layers.filter(
+        (layer): layer is ScreenLayer => layer.type === 'screen' && !!layer.streamId
+      );
+      if (activeScreenLayers.length > 0) {
+        console.log(`⏸️ [RESUME] Pausing ${activeScreenLayers.length} screen share(s) to avoid feedback`);
+        activeScreenLayers.forEach(layer => {
+          updateLayer(layer.id, { visible: false }, { recordHistory: false });
+        });
+      }
+    }
+
     // Resume all paused bots with grace period + randomized buffer
     resumeAllBots();
 
     console.log("▶️ Stream resumed - showing compact controls");
-  }, [setStreamingStatus, setCompactPresenter]);
+  }, [setStreamingStatus, setCompactPresenter, getCurrentScene, updateLayer]);
 
   const handleStartSession = useCallback(async () => {
     console.log("🎬 [START SESSION] Creating room and preparing session...");

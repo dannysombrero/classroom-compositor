@@ -12,12 +12,26 @@ export function LiveControlPanel() {
   const setCompactPresenter = useAppStore((state) => state.setCompactPresenter);
   const setStreamingStatus = useAppStore((state) => state.setStreamingStatus);
   const currentScene = useAppStore((state) => state.getCurrentScene());
+  const updateLayer = useAppStore((state) => state.updateLayer);
   const joinCode = useSessionStore((state) => state.joinCode);
 
   const handlePauseStream = () => {
     // Pause: hide compact controls, show full editor, keep stream alive
     setStreamingStatus('paused');
     setCompactPresenter(false);
+
+    // Restore visibility of screen share layers (they were hidden to avoid feedback loop)
+    if (currentScene) {
+      const screenLayers = currentScene.layers.filter(
+        (layer) => layer.type === 'screen' && layer.streamId
+      );
+      if (screenLayers.length > 0) {
+        console.log(`▶️ [PAUSE] Restoring ${screenLayers.length} screen share(s) visibility`);
+        screenLayers.forEach(layer => {
+          updateLayer(layer.id, { visible: true }, { recordHistory: false });
+        });
+      }
+    }
 
     // Pause all active bots
     pauseAllBots();
